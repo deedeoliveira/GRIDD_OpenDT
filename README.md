@@ -1,36 +1,105 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# <ins>O</ins>pen <ins>S</ins>ource based <ins>W</ins>eb <ins>A</ins>pplication for <ins>D</ins>igital <ins>T</ins>wins
 
-## Getting Started
+## Getting started
 
-First, run the development server:
+### Prerequisites
+- Node.js 
+- Python 3.x
+- 3D model file(s) in IFC format
+- Sensor data in a database
+
+### Database *(optional)*
+
+1. If you don't have a database yet, you can use the provided SQL script (`database/create_tables.sql`) to create the necessary tables.
+
+2. Populate the database with mock-up data using the provided JavaScript file (`database/mock-up/index.js`). You may need to modify the database connection settings in the file.
+
+```bash
+cd database/mock-up
+npm install
+node index.js
+```
+
+### Backend
+
+> [!WARNING]
+> There is two servers running in the backend:
+> - One running on Node.js (with Express framework) for managing CRUD operations for models and sensors.
+> - One running on Python (with Flask framework and IfcOpenShell library) for processing IFC files and retrieving global IDs of rooms and sensors.
+
+#### Node.js server
+
+1. **Set environment variables**
+
+Create a `.env` file in the `back` directory and assign the values of the variables (see `.env.example`).
+
+2. **Install dependencies**
+
+```bash
+cd back
+npm install
+```
+
+3. (Optional) **Implement database classes**
+
+In this project, a MySQL database is used. If you want to use another type of database, or modify the queries, you can implement you own database classes in the `back/utils` directory.
+
+4. **Run the server**
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+#### Python server
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. **Set environment variables**
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Create a `.env` file in the `back/python` directory and assign the values of the variables (see `.env.example`).
 
-## Learn More
+2. (Optional) **Set up a virtual environment**
 
-To learn more about Next.js, take a look at the following resources:
+It is recommended to use a virtual environment to manage dependencies and Python versions.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+cd back/python
+python -m venv <name-of-virtual-environment>
+./<name-of-virtual-environment>/Scripts/activate
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+3. **Install dependencies**
 
-## Deploy on Vercel
+```bash
+cd back/python
+pip install -r requirements.txt
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+4. **Run the server**
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+flask --app main run
+```
+
+#### Testing the APIs
+
+You can use the provided Bruno collection (`back/bruno_collection`) to test the APIs of the Node.js and Python servers.
+
+### Frontend
+
+1. **Set environment variables**
+
+Create a `.env` file in the `front` directory and assign the values of the variables (see `.env.example`).
+
+2. **Install dependencies**
+
+```bash
+cd front
+npm install
+```
+
+3. **Run the development server**
+
+```bash
+npm run dev
+```
+
+## Documentation

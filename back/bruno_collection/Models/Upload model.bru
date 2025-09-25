@@ -1,0 +1,51 @@
+meta {
+  name: Upload model
+  type: http
+  seq: 6
+}
+
+post {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/{{modelRoute}}/upload
+  body: multipartForm
+  auth: inherit
+}
+
+body:multipart-form {
+  file: @file(D:\CoursInge\MobiliteInternationale\GRIDD\DigitalTwin\BuildingF\Plumbing.ifc) @contentType(application/x-step)
+  name: BUILDING_F_FLU
+  linkedParentId: 10
+}
+
+body:file {
+  file: @file(D:\CoursInge\ADS - Copie\MaquettesNumeriques\AE250400303\2301420_17-MX_TZ_Maquettes numériques BIM\IFC\+\LPC_BAT_+_STR.ifc)
+}
+
+settings {
+  encodeUrl: true
+}
+
+docs {
+  # Upload a model
+  
+  ## Description
+  
+  Upload a model file to the platform. Only 'ifc' files are supported.
+  
+  ## Params
+  
+  ### Path
+  ❌
+  
+  ### Query
+  ❌
+  
+  ### Body
+  
+  | Name | Description | Required |
+  | --- | --- | --- |
+  | file | File to upload | ✅ |
+  | name | Name of the model | ✅ |
+  | linkedParentId | ID of the linked parent* | ❌ |
+  
+  * To handle digital twin composed of several models, you can link a model to a parent model. Every time a model is uploaded, if the `linkedParentId` is not defined, a new parent model is created. If the `linkedParentId` is defined, the model is linked to the parent model with the given ID. The `linkedParentId` can be retrieved from the response of this endpoint or from the model list endpoint.
+}

@@ -1,0 +1,19 @@
+meta {
+  name: Room's sensors
+  type: http
+  seq: 8
+}
+
+get {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/{{sensorRoute}}/room/:roomId
+  body: none
+  auth: inherit
+}
+
+params:path {
+  roomId: 0nMsWlH3r2mBJwDqQlrcwP
+}
+
+settings {
+  encodeUrl: true
+}

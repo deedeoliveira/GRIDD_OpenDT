@@ -1,0 +1,22 @@
+meta {
+  name: One sensor data
+  type: http
+  seq: 2
+}
+
+get {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/{{sensorRoute}}/data/?sensorId=32&binSize=3600
+  body: none
+  auth: inherit
+}
+
+params:query {
+  sensorId: 32
+  binSize: 3600
+  ~startTime: 2025-06-01
+  ~endTime: 2025-07-01
+}
+
+settings {
+  encodeUrl: true
+}

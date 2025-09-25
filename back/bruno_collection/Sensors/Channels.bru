@@ -1,0 +1,15 @@
+meta {
+  name: Channels
+  type: http
+  seq: 4
+}
+
+get {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/{{sensorRoute}}/channel
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}

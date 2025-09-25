@@ -1,0 +1,15 @@
+meta {
+  name: All sensors
+  type: http
+  seq: 1
+}
+
+get {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/{{sensorRoute}}/
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}

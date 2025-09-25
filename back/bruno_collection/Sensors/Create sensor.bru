@@ -1,0 +1,33 @@
+meta {
+  name: Create sensor
+  type: http
+  seq: 5
+}
+
+post {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/{{sensorRoute}}
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+      "guid": "2p5zTdAoL4fu1$itMvyOOO",
+      "name": "A-1600",
+      "x": 0,
+      "y": 0,
+      "z": 0,
+      "status": "Enabled",
+      "room_id": "0nMsWlH3r2mBJwDqQlrcwP",
+      "channels": [
+          "temperature",
+          "decibel",
+          "airQuality"
+      ],
+      "model_id": 6
+  }
+}
+
+settings {
+  encodeUrl: true
+}

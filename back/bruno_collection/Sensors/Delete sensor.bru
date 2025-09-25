@@ -1,0 +1,19 @@
+meta {
+  name: Delete sensor
+  type: http
+  seq: 6
+}
+
+delete {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/{{sensorRoute}}/:sensorId
+  body: json
+  auth: inherit
+}
+
+params:path {
+  sensorId: 29
+}
+
+settings {
+  encodeUrl: true
+}

@@ -1,0 +1,19 @@
+meta {
+  name: One model sensors
+  type: http
+  seq: 11
+}
+
+get {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/{{sensorRoute}}/model/:modelId
+  body: none
+  auth: inherit
+}
+
+params:path {
+  modelId: 6
+}
+
+settings {
+  encodeUrl: true
+}

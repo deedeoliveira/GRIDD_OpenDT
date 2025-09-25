@@ -1,0 +1,25 @@
+meta {
+  name: Update sensor
+  type: http
+  seq: 9
+}
+
+patch {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/{{sensorRoute}}/:sensorId
+  body: json
+  auth: inherit
+}
+
+params:path {
+  sensorId: 29
+}
+
+body:json {
+  {
+      "room_id": 4407
+  }
+}
+
+settings {
+  encodeUrl: true
+}

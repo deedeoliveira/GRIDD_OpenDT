@@ -1,0 +1,19 @@
+meta {
+  name: Get linked model metadata
+  type: http
+  seq: 4
+}
+
+get {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/{{modelRoute}}/linked/:linkedModelId
+  body: none
+  auth: inherit
+}
+
+params:path {
+  linkedModelId: 4
+}
+
+settings {
+  encodeUrl: true
+}

@@ -1,0 +1,15 @@
+meta {
+  name: Get list of federateds models
+  type: http
+  seq: 3
+}
+
+get {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/{{modelRoute}}/linked/
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}

@@ -1,0 +1,15 @@
+meta {
+  name: Get list of models metadata
+  type: http
+  seq: 2
+}
+
+get {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/{{modelRoute}}/
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}

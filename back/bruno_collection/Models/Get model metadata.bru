@@ -1,0 +1,19 @@
+meta {
+  name: Get model metadata
+  type: http
+  seq: 1
+}
+
+get {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/{{modelRoute}}/:modelId
+  body: none
+  auth: inherit
+}
+
+params:path {
+  modelId: 6
+}
+
+settings {
+  encodeUrl: true
+}
