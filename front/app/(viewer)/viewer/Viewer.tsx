@@ -3,13 +3,11 @@
 import * as OBC from "@thatopen/components";
 import * as FRAGS from "@thatopen/fragments";   
 import * as THREE from "three";
-// import { Manager } from "@thatopen/ui"
-import { useEffect, useState, useRef, use } from "react";
-import { Button, Progress } from "@heroui/react";
-import { SensorModal } from "./SensorModal";
+import { useEffect, useState, useRef } from "react";
 import { FragmentsModel } from "@thatopen/fragments";
-
-import type { Sensor, SensorDatedValue, Channel } from "@/types/sensor";
+import { useSensorStore } from "@/stores/sensorStore";
+import { SensorBinnedValue } from "@/types/sensor";
+import { Checkbox } from "@heroui/react";
 
 const components = new OBC.Components();
 const fragments = components.get(OBC.FragmentsManager);
@@ -21,24 +19,36 @@ const world = worlds.create<
 >();
 let model: FragmentsModel;
 
-const sensors = new Map<string, Sensor>();
-const sensorsDatedValues = new Map<string, Map<string, SensorDatedValue>>();
+/*
+spaces: A map representing spaces in the model.
+The keys are space global IDs (from IFC) and the values are THREE.Mesh objects representing the spaces in the 3D scene.
+*/
+const spaces = new Map<string, object>();
 
-export function Viewer() {
+export function Viewer(props: {}) {
+    const {
+        selectedModel,
+        onWorldInitialized
+    } = props;
+
     /* -------------------------------------
                 VARIABLES
     ------------------------------------- */
     /* Engine web IFC variables */
     const container = useRef<HTMLDivElement>(null);
     const [worldInitialized, setWorldInitialized] = useState(false);
-    const [isLoading, setIsLoading] = useState(false);
-    const [loadingProgress, setLoadingProgress] = useState(0);
     const [fragmentsModelIds, setFragmentsModelIds] = useState([]);
+    const sensors = useSensorStore((state) => state.sensors);
+    const currentBinnedTimestamp = useSensorStore((state) => state.currentBinnedTimestamp);
+    const [currentChannel, setCurrentChannel] = useState<string | null>("temperature");
+    const [spacesIsolated, setSpacesIsolated] = useState(false);
 
-    /* React variables */
-    const [sensor, setSensor] = useState<Sensor | null>(null);
-    const [linkedModels, setLinkedModels] = useState([]);
-    const [childModels, setChildModels] = useState<string[]>([]);
+    /* -------------------------------------
+                STORES
+    ------------------------------------- */
+	const {
+		getBinnedValues
+	} = useSensorStore();
 
     /* -------------------------------------
                 FUNCTIONS
@@ -100,12 +110,10 @@ export function Viewer() {
 
     async function clearWorld() {
         if (fragmentsModelIds.length)
-            for (const fragId of fragmentsModelIds)
-                fragments.core.disposeModel(fragId);
+            for (const fragId of fragmentsModelIds) {
+                await fragments.core.disposeModel(fragId);
+            }
 
-        sensors.clear();
-        sensorsDatedValues.clear();
-        setSensor(null);
         setFragmentsModelIds([]);
     }
 
@@ -136,7 +144,7 @@ export function Viewer() {
         console.log("Fragments manager initialized");
     }
 
-    async function isolateSpaces() {
+    async function toggleSpacesIsolation() {
         const hider = components.get(OBC.Hider);
 
         const modelIdMap = {};
@@ -151,25 +159,14 @@ export function Viewer() {
 
         console.log(modelIdMap);
 
-        await hider.isolate(modelIdMap);
-    }
-
-    const fetchLinkedModelsList = async () => {
-        const res = await fetch('/api/model/linked');
-        const data = await res.json();
-
-        console.log("Linked models:", data);
-
-        setLinkedModels(data);
+        if (spacesIsolated)
+            await hider.isolate(modelIdMap);
+        else
+            await hider.set(true, modelIdMap);
     }
 
     const loadLinkedModel = async () => {
-        if (!childModels?.length || !container.current) return;
-
-        setIsLoading(true);
-        setLoadingProgress(0);
-
-        console.log("Loading linked model", childModels);
+        if (!selectedModel.childModels?.length || !container.current) return;
 
         if (!worldInitialized) {
             console.log("World not initialized");
@@ -178,7 +175,7 @@ export function Viewer() {
 
         if (fragments === null) {
             console.log("Fragments manager not initialized");
-            setIsLoading(false);
+            onWorldInitialized?.();
             return;
         }
 
@@ -195,7 +192,9 @@ export function Viewer() {
             wasm: { absolute: true, path: "" },
         });
 
-        for (const childModel of childModels) {
+        const modelIds = [];
+
+        for (const childModel of selectedModel.childModels) {
             const res = await fetch(`/api/model/download/${childModel.id}`);
             const blob = await res.blob();
             const arrayBuffer = new Uint8Array(await blob.arrayBuffer());
@@ -204,36 +203,10 @@ export function Viewer() {
                 processData: {
                     progressCallback: (progress) => {
                         console.log(progress);
-                        setLoadingProgress(progress * 100 / childModels.length);
+                        // setLoadingProgress(progress * 100 / childModels.length);
                     }
                 }
             });
-
-            // /* Query sensors in the model */
-            // const finders = components.get(OBC.ItemsFinder);
-            // // const sensorsLocalId = await finders.getItems([{ categories: [/IFCDISTRIBUTIONCONTROLELEMENT/], relation: { name: "Contained in space", query: { } } }]);
-            // const sensorsLocalId = await finders.getItems([{ categories: [/IFCDISTRIBUTIONCONTROLELEMENT/] }]);
-            // // await model.getItem()
-            // console.log(`Sensors found: `, sensorsLocalId);
-
-            // const sensorsMetadata = await model.getItemsData(sensorsLocalId["example"]?.values().toArray(), {
-            //     attributesDefault: false,
-            //     attributes: ["GlobalId", "Name", "ObjectType", "PredefinedType", "Tag", "Description", "Mark", "Comments", "ContainedInStructure"],
-            //     relations: {
-            //         IsDefinedBy: { attributes: true, relations: true },
-            //         DefinesOccurence: { attributes: false, relations: false }
-            //     }
-            // });
-
-            // console.log("Sensors metadata:", sensorsMetadata);
-
-            // console.log(await model.getItemsOfCategories([/SENSORS/]))
-
-            // const sensors_query = finders.create("Find sensors", [
-            //     { categories: [/SENSORS/] }
-            // ]);
-            // const sensors_result = await sensors_query.test();
-            // console.log("Sensors found:", sensors_result);
 
             model.tiles.onItemSet.add(({ value: mesh }) => {
                 if ("isMesh" in mesh) {
@@ -245,13 +218,11 @@ export function Viewer() {
                 }
             });
 
-            console.log("Fragments:",fragments);
-
-            setFragmentsModelIds([...fragmentsModelIds, model.modelId]);
+            modelIds.push(model.modelId);
         }
 
-        /* Center camera after the model is loaded */
-        console.log("BBox", await fragments.getBBoxes(fragments.list.values().map(m => m.modelId).toArray()));
+        await retrieveSpaces();
+        setFragmentsModelIds(modelIds);
 
         const bboxCenter = model._bbox.getCenter(new THREE.Vector3());
         world.camera.controls.setLookAt(bboxCenter.x + 25, bboxCenter.y + 25, bboxCenter.z + 25, bboxCenter.x, bboxCenter.y, bboxCenter.z, true);
@@ -261,65 +232,68 @@ export function Viewer() {
             child.receiveShadow = true;
         }
 
-        await fetchSensors();
-
-        setIsLoading(false);
+        onWorldInitialized?.();
 
         console.log("World:", world);
     }
 
-    const fetchSensors = async () => {
-        const fetchedSensors = [];
+    /*
+    Find and store all space in the model.
+    Retrieve the local ID and the geometry of each space so it is possible to create a mesh from it later.
+    */
+    async function retrieveSpaces() {
+        if (!model) return;
 
-        for (const childModel of childModels) {
-            const res = await fetch(`http://localhost:3001/api/sensor/model/${childModel.id}`);
-            const data = await res.json();
+        spaces.clear();
 
-            if (data.ok && data.data)
-                fetchedSensors.push(...data.data);
-        }
-
-        const sensorsLocalIds = await model.getLocalIdsByGuids(fetchedSensors.map((s: Partial<Sensor>) => s.guid));
-        const spaceLocalIds = await model.getLocalIdsByGuids(fetchedSensors.map((s: Partial<Sensor>) => s.room_id));
-
-        for (let i = 0; i < fetchedSensors.length; i++) {
-            const s = fetchedSensors[i] as Partial<Sensor>;
-
-            s.localId = sensorsLocalIds[i];
-            s.spaceLocalId = spaceLocalIds[i];
-
-            sensors.set(s.id, s);
-        }
-
-        console.log("Sensors with local IDs:", sensors);
-
-        fetchSensorsValues();
-        spatialStructure();
-    }
-
-    async function fetchSensorsValues(sensorId?: string, binSize?: number, startTime?: string, endTime?: string) {
-        if (!childModels?.length) return;
-
-        binSize = 10000;
-
-        for (const childModel of childModels) {
-            const res = await fetch(`http://localhost:3001/api/sensor/data?modelId=${childModel.id}${sensorId ? `&sensorId=${sensorId}` : ''}${binSize ? `&binSize=${binSize}` : ''}${startTime ? `&startTime=${startTime}` : ''}${endTime ? `&endTime=${endTime}` : ''}`);
-            const data = await res.json();
-
-            if (data.ok && data.data) {
-                console.log(data.data);
-
-                data.data.forEach((value: SensorDatedValue) => {
-                    if (!sensorsDatedValues.has(value.sensor_id)) {
-                        sensorsDatedValues.set(value.sensor_id, new Map());
-                    }
-
-                    sensorsDatedValues.get(value.sensor_id).set(value.timestamp, value);
-                });
+        const finder = components.get(OBC.ItemsFinder);
+        const spacesItems = await finder.getItems([
+            {
+                categories: [/^IFCSPACE$/],
             }
+        ]);
+
+        const createMesh = (data: FRAGS.MeshData) => {
+            const meshMaterial = new THREE.MeshLambertMaterial({ color: "white" });
+            const { positions, indices, normals, transform } = data;
+            if (!(positions && indices && normals)) return null;
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+            geometry.setIndex(Array.from(indices));
+
+            const mesh = new THREE.Mesh(geometry, meshMaterial);
+            mesh.applyMatrix4(transform);
+            return mesh;
+        };
+
+        const promises = [];
+
+        for (const [modelId, localIds] of Object.entries(spacesItems)) {
+            const model = fragments.list.get(modelId);
+
+            if (!model) continue;
+
+            const spaceItemData = await model.getItemsData([...localIds]);
+            const spaceItemGeometry = await model.getItemsGeometry([...localIds]);
+
+            for (const [index, spaceData] of spaceItemData.entries()) {
+                spaces.set(spaceData._guid.value, {
+                    id: spaceData._guid.value,
+                    modelId,
+                    localId: spaceData._localId.value,
+                    geometries: spaceItemGeometry[index],
+                    meshes: spaceItemGeometry[index]?.map((geom) => createMesh(geom))
+                });
+
+                if (spaces.get(spaceData._guid.value).meshes)
+                    spaces.get(spaceData._guid.value).meshes.forEach(mesh => world.scene.three.add(mesh));
+            }
+
+            promises.push(model.setVisible([...localIds], false));
         }
 
-        console.log("Fetched sensor values:", sensorsDatedValues);
+        await Promise.all(promises);
     }
 
     async function onSelectCallback(modelIdMap: OBC.ModelIdMap) {
@@ -338,37 +312,15 @@ export function Viewer() {
         await fragments.core.update(true);
     }
 
-    async function selectSensorCurrentValue(sensorId: string, timestamp: number, channel: Channel) {
-        console.log(sensorId, timestamp, channel, sensors);
-        console.log(sensors.get(sensorId), sensorsDatedValues.get(timestamp)?.[sensorId]);
+    async function colorSpace(spaceId: string, color: THREE.Color) {
+        const space = spaces.get(spaceId)
 
-        const sensor = sensors.get(sensorId);
-        if (!sensor) return;
+        if (!space || !space.meshes) return;
 
-        const sensorValue = sensorsDatedValues.get(timestamp)?.[sensorId];
-        if (!sensorValue) return;
-
-        /* Check current channel, normalize value and compute color */
-
-        colorSpace(sensor.spaceLocalId, new THREE.Color("red"));
-    }
-
-    async function colorSpace(spaceLocalId: number, color: THREE.Color) {
-        console.log(spaceLocalId, color, model);
-        if (!model) return;
-
-        const space = model.getItem(spaceLocalId);
-        console.log("Space:", space);
-        if (!space) return;
-
-        const spaceLocalId2 = await space.getLocalId();
-        if (!spaceLocalId2) return;
-
-        model.highlight([spaceLocalId], {color: color, opacity: 0.5, transparent: true, renderedFaces: FRAGS.RenderedFaces.ONE});
-
-        await fragments.core.update(true);
-
-        // console.log(world.scene.three.getObjectById(spaceLocalId2));
+        space.meshes.forEach((mesh: THREE.Mesh) => {
+            console.log("Coloring mesh", mesh, "with color", color);
+            (mesh.material as THREE.MeshLambertMaterial).color = color;
+        });
     }
 
     async function spatialStructure() {
@@ -457,90 +409,51 @@ export function Viewer() {
         */
     };
 
-    async function sleep(ms) {
-        return new Promise((res) => {
-            setTimeout(res, ms);
-        });
-    }
-
-    async function random() {
-        const sens = sensors.keys().toArray();
-
-        const colors = [
-            new THREE.Color(255, 0, 0),
-            new THREE.Color(0, 255, 0),
-            new THREE.Color(0, 0, 255),
-            new THREE.Color(255, 255, 0),
-            new THREE.Color(255, 165, 0),
-            new THREE.Color(128, 0, 128),
-            new THREE.Color(0, 255, 255),
-            new THREE.Color(255, 192, 203)
-        ];
-
-        for (let i = 0; i < 200; i++) {
-            await colorSpace(sensors.get(sens[i%sens.length])?.spaceLocalId, (colors[Math.floor(Math.random() * colors.length)]));
-            await sleep(500);
-        }
-    }
-
     /* -------------------------------------
                 HOOKS
     ------------------------------------- */
     useEffect(() => {
         initWorld();
-        fetchLinkedModelsList();
     }, []);
 
     useEffect(() => {
-        loadLinkedModel();
-    }, [childModels]);
+        if (selectedModel) loadLinkedModel();
+    }, [selectedModel]);
+
+    useEffect(() => {
+        if (!!!spacesIsolated && fragments.initialized && fragments?.list.size > 0)
+            toggleSpacesIsolation();
+    }, [spacesIsolated]);
+
+    useEffect(() => {
+        if (currentBinnedTimestamp) {
+            const binnedValues = getBinnedValues(new Date(currentBinnedTimestamp).toISOString());
+
+            binnedValues.values().toArray().forEach((value: SensorBinnedValue) => {
+                const sensor = sensors.get(value.id.toString());
+
+                if (!sensor) return;
+
+                const space = spaces.get(sensor.room_id);
+
+                if (!space) return;
+
+                // TODO: change color depending on currentChannel / define boundaries for each colors (probably according to channel type also)
+                colorSpace(space.id, new THREE.Color(value.temperature > 25 ? "red" : value.temperature > 20 ? "orange" : "green"));
+            });
+        }
+    }, [currentBinnedTimestamp]);
 
     return (
         <>
-            <div style={{ width: "20vw", height: "80vh", display: "flex", flexDirection: "column", position: "absolute", zIndex: 1, backgroundColor: "white" }}>
-                <div className="flex flex-col items-start">
-                    <h2 className="font-bold mb-1">Available models:</h2>
-                    {
-                        linkedModels.map((model: any) => (
-                            <Button onPress={() => setChildModels(model.childModels)} key={model.id}>{model.name}</Button>
-                        ))
-                    }
-                </div>
-                {
-                    isLoading && (
-                        <Progress value={loadingProgress} showValueLabel={true} style={{ width: "100%" }} />
-                    )
-                }
-                {
-                    (!isLoading && sensors?.size > 0) && (
-                        <>
-                        <h2 className="font-bold mb-1">Sensors in model:</h2>
-                        {
-                            sensors.values().toArray().map((sensor: Sensor) => (
-                                <div key={sensor.id}>
-                                    <Button className="font-bold" onPress={() => setSensor(sensor)}>{sensor.name}</Button>
-                                    <p>{sensor.id}</p>
-                                    <p>{sensor.localId}</p>
-                                    <p>{sensor.spaceLocalId}</p>
-                                </div>
-                            ))
-                        }
-                        </>
-                    )
-                }
-                {
-                    (!isLoading && model) && (
-                        <Button onPress={() => random()}>Color spaces</Button>
-                    )
-                }
-                {
-                    (!isLoading && model) && (
-                        <Button onPress={() => isolateSpaces()}>Isolate spaces</Button>
-                    )
-                }
-            </div>
             <div ref={container} style={{ "width": "100vw", height: "100vh" }} />
-            <SensorModal sensor={sensor} values={sensorsDatedValues.get(sensor?.id) || null}/>
+            <Checkbox
+                style={{ position: "absolute", top: 10, right: 10, zIndex: 10 }}
+                checked={spacesIsolated}
+                onChange={(e) => setSpacesIsolated(e.target.checked)}
+            >
+                Isolate spaces
+            </Checkbox>
         </>
     );
 };

@@ -8,14 +8,13 @@ export type Sensor = {
     id: string,
     name: string,
     channels: Channel[],
-    localId: number,
-    spaceLocalId: number,
+    room_id: string
     modelId: string,
     currentValues: { [channel: Channel]: number }
 }
 
-export type SensorDatedValue = {
-    sensor_id: string,
+export type SensorBinnedValue = {
+    id: string,
     timestamp: number,
     temperature: number,
     pressure: number,

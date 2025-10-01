@@ -8,11 +8,7 @@ export async function GET(request: NextRequest, { params } : { params: Promise<{
 
     const res = await fetch(`${process.env.BASE_API_URL}/sensor/model/${modelId}`);
 
-    const blob = await res.blob();
+    if (!res.ok) return NextResponse.json({ error: 'Failed to fetch sensors' }, { status: res.status });
 
-    const buffer = await blob.arrayBuffer();
-
-    const contentType = res.headers.get("Content-Type") || "application/octet-stream";
-
-    return new NextResponse(buffer, { status: 200, headers: { "Content-Type": contentType } });
+    return NextResponse.json((await res.json()).data, { status: 200 });
 }

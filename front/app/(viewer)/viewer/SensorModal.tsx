@@ -21,11 +21,11 @@ import {
 } from "chart.js";
 import { Line } from 'react-chartjs-2';
 
-import type { Sensor, SensorDatedValue, Channel } from "@/types/sensor";
+import type { Sensor, SensorBinnedValue } from "@/types/sensor";
 
 type SensorModalProps = {
     sensor: Sensor | null,
-    values: Map<string, SensorDatedValue> | null,
+    values: SensorBinnedValue[] | null,
 }
 
 ChartJS.register(
