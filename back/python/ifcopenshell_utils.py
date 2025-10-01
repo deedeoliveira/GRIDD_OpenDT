@@ -24,5 +24,4 @@ def process_ifc_file():
             "z": sensor.ObjectPlacement.RelativePlacement.Location.Coordinates[2]
         }
 
-    # Perform operations on the IFC file
     return sensorData
