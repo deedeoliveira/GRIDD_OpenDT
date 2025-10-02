@@ -244,8 +244,10 @@ export function Viewer(props: {}) {
     async function retrieveSpaces() {
         if (!model) return;
 
+        // Clear previous spaces
         spaces.clear();
 
+        // Get all spaces from the model
         const finder = components.get(OBC.ItemsFinder);
         const spacesItems = await finder.getItems([
             {
@@ -253,6 +255,7 @@ export function Viewer(props: {}) {
             }
         ]);
 
+        // Function to create a Three.js mesh from geometry data
         const createMesh = (data: FRAGS.MeshData) => {
             const meshMaterial = new THREE.MeshLambertMaterial({ color: "white" });
             const { positions, indices, normals, transform } = data;
@@ -269,15 +272,18 @@ export function Viewer(props: {}) {
 
         const promises = [];
 
+        // Create a mesh for each space
         for (const [modelId, localIds] of Object.entries(spacesItems)) {
             const model = fragments.list.get(modelId);
 
             if (!model) continue;
 
+            // Retrieve space item data and geometry
             const spaceItemData = await model.getItemsData([...localIds]);
             const spaceItemGeometry = await model.getItemsGeometry([...localIds]);
 
             for (const [index, spaceData] of spaceItemData.entries()) {
+                // Store space data in the spaces map
                 spaces.set(spaceData._guid.value, {
                     id: spaceData._guid.value,
                     modelId,

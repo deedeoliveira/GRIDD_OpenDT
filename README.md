@@ -5,7 +5,7 @@
 ### Prerequisites
 - Node.js 
 - Python 3.x
-- 3D model file(s) in IFC format
+- 3D model file(s) in IFC format with IfcSpace (and preferably IfcSensor when using IFC 4.x files) elements
 - Sensor data in a database
 
 ### Database *(optional)*
