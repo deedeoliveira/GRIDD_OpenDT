@@ -1,5 +1,6 @@
 /* -----------------------------------
 This script reads sensor data from a JSON file and inserts it into a MySQL database.
+The JSON file can be generated using the `generate-mockup-sensors.py` script.
 ----------------------------------- */
 
 const mysql = require('mysql2/promise');
