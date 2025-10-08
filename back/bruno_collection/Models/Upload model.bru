@@ -29,7 +29,7 @@ docs {
   
   ## Description
   
-  Upload a model file to the platform. Only 'ifc' files are supported.
+  Upload a model file to the platform. Only 'IFC-STEP' (.ifc) files are supported (.ifczip are not supported).
   
   ## Params
   
@@ -47,5 +47,20 @@ docs {
   | name | Name of the model | ✅ |
   | linkedParentId | ID of the linked parent* | ❌ |
   
-  * To handle digital twin composed of several models, you can link a model to a parent model. Every time a model is uploaded, if the `linkedParentId` is not defined, a new parent model is created. If the `linkedParentId` is defined, the model is linked to the parent model with the given ID. The `linkedParentId` can be retrieved from the response of this endpoint or from the model list endpoint.
+  \* To handle digital twin composed of several models, you can link a model to a parent model. Every time a model is uploaded, if the `linkedParentId` is not defined, a new parent model is created. If the `linkedParentId` is defined, the model is linked to the parent model with the given ID. The `linkedParentId` can be retrieved from the response of this endpoint or from the model list endpoint.
+  
+  ## Returns
+  
+  ```json
+  {
+      status: number,
+      data: [
+          {
+              id: string,             # ID of the model
+              name: string,           # Name of the model
+              linkedParentId: number  # ID of the linked model
+          }
+      ]
+  }
+  ```
 }
