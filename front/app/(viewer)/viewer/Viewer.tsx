@@ -218,6 +218,12 @@ export function Viewer(props: {}) {
                 }
             });
 
+            const coordinationMatrix = await model.getCoordinationMatrix();
+            const inverseMatrix = coordinationMatrix.invert();
+            model.object.matrix.copy(inverseMatrix);
+            model.object.matrixAutoUpdate = false;
+            model.object.updateMatrixWorld(true);
+
             model.tiles.onItemSet.add(({ value: mesh }) => {
                 if ("isMesh" in mesh) {
                     const mat = mesh.material as THREE.MeshStandardMaterial[];
