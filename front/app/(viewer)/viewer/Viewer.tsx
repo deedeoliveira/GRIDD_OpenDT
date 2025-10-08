@@ -110,12 +110,24 @@ export function Viewer(props: {}) {
     }
 
     async function clearWorld() {
-        if (fragmentsModelIds.length)
+        if (fragmentsModelIds.length) {
             for (const fragId of fragmentsModelIds) {
                 await fragments.core.disposeModel(fragId);
             }
 
+			for (const space of spaces.values()) {
+				if (space["meshes"])
+					space["meshes"].forEach((mesh: THREE.Mesh) => {
+						world.scene.three.remove(mesh);
+						mesh.geometry.dispose();
+						(mesh.material as THREE.Material).dispose();
+					});
+			}
+		}
+
         setFragmentsModelIds([]);
+		spaces.clear();
+		setModelTrees([]);
     }
 
     async function initFragmentsManager() {
@@ -155,10 +167,7 @@ export function Viewer(props: {}) {
         for (const [_, model] of fragments.list) {
             const localIds = Object.values(await model.getItemsOfCategories([categoriesRegex])).flat()
             modelIdMap[model.modelId] = new Set(localIds);
-            console.log(model)
         }
-
-        console.log(modelIdMap);
 
         if (spacesIsolated)
             await hider.isolate(modelIdMap);
