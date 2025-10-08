@@ -1,9 +1,9 @@
 "use client";
 
 import * as OBC from "@thatopen/components";
-import * as FRAGS from "@thatopen/fragments";   
+import * as FRAGS from "@thatopen/fragments";
 import * as THREE from "three";
-import { useEffect, useState, useRef } from "react";
+import { createRef, useEffect, useState, useRef } from "react";
 import { FragmentsModel } from "@thatopen/fragments";
 import { useSensorStore } from "@/stores/sensorStore";
 import { SensorBinnedValue } from "@/types/sensor";
@@ -42,6 +42,7 @@ export function Viewer(props: {}) {
     const currentBinnedTimestamp = useSensorStore((state) => state.currentBinnedTimestamp);
     const [currentChannel, setCurrentChannel] = useState<string | null>("temperature");
     const [spacesIsolated, setSpacesIsolated] = useState(false);
+    const [modelTrees, setModelTrees] = useState<object[]>([]);
 
     /* -------------------------------------
                 STORES
@@ -235,6 +236,9 @@ export function Viewer(props: {}) {
         onWorldInitialized?.();
 
         console.log("World:", world);
+        console.log("FragmentsManager:", fragments);
+
+        getSpatialStructure(fragments.list);
     }
 
     /*
@@ -324,19 +328,35 @@ export function Viewer(props: {}) {
         if (!space || !space.meshes) return;
 
         space.meshes.forEach((mesh: THREE.Mesh) => {
-            console.log("Coloring mesh", mesh, "with color", color);
             (mesh.material as THREE.MeshLambertMaterial).color = color;
         });
     }
 
-    async function spatialStructure() {
-        const structure = await model.getSpatialStructure();
+    async function getSpatialStructure(models) {
+        if (!models || models.size === 0) return;
 
-        console.log("Spatial structure:", structure);
+        const trees = [];
+        const promises = [];
 
-        const tree = await getModelTree(model, structure);
+        models.values().toArray().forEach((model) => {
+            promises.push(new Promise<void>(async (resolve) => {
+            	const structure = await model.getSpatialStructure();
+                const tree = await getModelTree(model, structure);
 
-        console.log("Model tree:", tree);
+                trees.push({
+					localId: tree?.data?.localId,
+					data: tree?.data,
+					children: tree?.children,
+					hidden: false
+				});
+
+                resolve();
+            }));
+        });
+
+        await Promise.all(promises);
+
+        setModelTrees(trees);
     }
 
     const getModelTree = async (
@@ -415,6 +435,62 @@ export function Viewer(props: {}) {
         */
     };
 
+    /**
+     * Function to render the model tree structure as an JSX element.
+     */
+    function computeModelTree(elem) {
+		if (!elem)
+			elem = modelTrees[0];
+
+		elem.expanded = true;
+		elem.childRef = createRef();
+		let childs = undefined;
+
+		if (elem.children && elem.children.length > 0)
+			childs = elem.children.map((child) => computeModelTree(child));
+
+        return (
+			<div key={elem.data?.localId || Math.random()} className="flex flex-col ml-1 border-l border-gray-300 pl-2">
+            	<div className="flex flex-row gap-x-2 hover:cursor-pointer">
+					<button onClick={() => {elem.expanded = !elem.expanded; elem.childRef.current.style.display = elem.expanded ? 'block' : 'none';}}>+</button>
+					<button onClick={() => {hideElementAndChilds(elem)}}>H</button>
+					<div>{elem.data.Name}</div>
+				</div>
+				<div ref={elem.childRef} style={{ display: elem.expanded ? 'block' : 'none' }}>
+					{childs}
+				</div>
+			</div>
+        )
+    }
+
+	function hideElementAndChilds(elem) {
+		if (!elem) return;
+
+		const modelId = elem.data?.modelId;
+
+		if (!modelId || !fragments.list.get(modelId)) return;
+
+		const modelIdMap = { [modelId]: new Set(getChildsRecursively(elem)) };
+
+		const hider = components.get(OBC.Hider);
+		hider.toggle(modelIdMap);
+	}
+
+	function getChildsRecursively(elem) {
+		if (!elem) return [];
+
+		let arr = [];
+
+		if (elem.children && elem.children.length > 0) {
+			elem.children.forEach((child) => {
+				arr.push(child.data.localId);
+				arr = arr.concat(getChildsRecursively(child));
+			});
+		}
+
+		return arr.filter((v, i, a) => a.indexOf(v) === i && !!v); // remove duplicates
+	}
+
     /* -------------------------------------
                 HOOKS
     ------------------------------------- */
@@ -453,13 +529,18 @@ export function Viewer(props: {}) {
     return (
         <>
             <div ref={container} style={{ "width": "100vw", height: "100vh" }} />
-            <Checkbox
+            {/* <Checkbox
                 style={{ position: "absolute", top: 10, right: 10, zIndex: 10 }}
                 checked={spacesIsolated}
                 onChange={(e) => setSpacesIsolated(e.target.checked)}
             >
                 Isolate spaces
-            </Checkbox>
+            </Checkbox> */}
+            <div style={{ position: "absolute", top: 40, right: 10, zIndex: 10, backgroundColor: "white", padding: 10, maxHeight: "75vh", width: "25vw", overflow: "auto" }}>
+            {
+				modelTrees.map((tree) => computeModelTree(tree))
+			}
+            </div>
         </>
     );
 };
