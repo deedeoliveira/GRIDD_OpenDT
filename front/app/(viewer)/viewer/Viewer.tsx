@@ -7,7 +7,7 @@ import { createRef, useEffect, useState, useRef } from "react";
 import { FragmentsModel } from "@thatopen/fragments";
 import { useSensorStore } from "@/stores/sensorStore";
 import { SensorBinnedValue } from "@/types/sensor";
-import { Button, Checkbox } from "@heroui/react";
+import { Button } from "@heroui/react";
 import { EyeVisible } from "@/app/components/icons/eye-visible"
 import { EyeHidden } from "@/app/components/icons/eye-hidden";
 import { ChevronUp } from "@/app/components/icons/chevron-up";
@@ -45,7 +45,6 @@ export function Viewer(props: {}) {
     const sensors = useSensorStore((state) => state.sensors);
     const currentBinnedTimestamp = useSensorStore((state) => state.currentBinnedTimestamp);
     const [currentChannel, setCurrentChannel] = useState<string | null>("temperature");
-    const [spacesIsolated, setSpacesIsolated] = useState(false);
     const [modelTrees, setModelTrees] = useState<object[]>([]);
 
     /* -------------------------------------
@@ -166,24 +165,6 @@ export function Viewer(props: {}) {
         });
 
         console.log("Fragments manager initialized");
-    }
-
-    async function toggleSpacesIsolation() {
-        const hider = components.get(OBC.Hider);
-
-        const modelIdMap = {};
-
-        const categoriesRegex = new RegExp("^IFCSPACE$");
-
-        for (const [_, model] of fragments.list) {
-            const localIds = Object.values(await model.getItemsOfCategories([categoriesRegex])).flat()
-            modelIdMap[model.modelId] = new Set(localIds);
-        }
-
-        if (spacesIsolated)
-            await hider.isolate(modelIdMap);
-        else
-            await hider.set(true, modelIdMap);
     }
 
     const loadLinkedModel = async () => {
@@ -543,19 +524,18 @@ export function Viewer(props: {}) {
     /* -------------------------------------
                 HOOKS
     ------------------------------------- */
+    /* Create the Three.js world when the component is mounted */
     useEffect(() => {
         initWorld();
     }, []);
 
+    /* When the selected model changes, load it in the Three.js world */
     useEffect(() => {
-        if (selectedModel) loadLinkedModel();
+        if (selectedModel)
+            loadLinkedModel();
     }, [selectedModel]);
 
-    useEffect(() => {
-        if (!!!spacesIsolated && fragments.initialized && fragments?.list.size > 0)
-            toggleSpacesIsolation();
-    }, [spacesIsolated]);
-
+    /* When the current binned timestamp changes, retrieve the corresponding sensor values and color the spaces accordingly */
     useEffect(() => {
         if (currentBinnedTimestamp) {
             const binnedValues = getBinnedValues(new Date(currentBinnedTimestamp).toISOString());
@@ -578,13 +558,6 @@ export function Viewer(props: {}) {
     return (
         <>
             <div ref={container} style={{ "width": "100vw", height: "100vh" }} />
-            {/* <Checkbox
-                style={{ position: "absolute", top: 10, right: 10, zIndex: 10 }}
-                checked={spacesIsolated}
-                onChange={(e) => setSpacesIsolated(e.target.checked)}
-            >
-                Isolate spaces
-            </Checkbox> */}
             <div style={{ position: "absolute", top: 40, right: 10, zIndex: 10, backgroundColor: "white", padding: 10, maxHeight: "75vh", width: "25vw", overflow: "auto" }}>
             {
 				modelTrees.map((tree) => computeModelTree(tree))
