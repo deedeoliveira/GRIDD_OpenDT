@@ -1,10 +1,16 @@
+/**
+ * Sensor store
+ * This store is used to manage sensors and their values. It also manages the current selected sensor, so that components can reactively update when the selected sensor changes.
+ * Values from all sensors are stored in a single array, and two maps are used to index them by sensor ID and timestamp for efficient retrieval.
+ */
+
 import { create } from "zustand";
 
 import type { Sensor, SensorBinnedValue } from "@/types/sensor";
 
 interface SensorState {
     sensors: Map<string, Sensor>;
-    values: Map<string, Map<string, SensorBinnedValue>>;
+    values: SensorBinnedValue[];
     selectedSensor: Sensor | null;
     selectedSensorValues: SensorBinnedValue[] | null;
     currentBinnedTimestamp: string | null;
@@ -26,10 +32,12 @@ export const useSensorStore = create<SensorState & SensorActions>()((set, get) =
         States
     ----------------------- */
     sensors: new Map<string, Sensor>(),
-    values: new Map<string, Map<string, SensorBinnedValue>>(),
+    values: new Array<SensorBinnedValue>(),
     selectedSensor: null,
     selectedSensorValues: null,
     currentBinnedTimestamp: null,
+    _sensorsValuesMap: new Map<string, Map<string, SensorBinnedValue>>(),
+    _timestampValuesMap: new Map<string, Map<string, SensorBinnedValue>>(),
 
     /* ----------------------
         Actions
@@ -38,7 +46,7 @@ export const useSensorStore = create<SensorState & SensorActions>()((set, get) =
         set((state) => {
             return {
                 selectedSensor: sensor,
-                selectedSensorValues: sensor?.id ? state.values.get(sensor.id.toString()) : null
+                selectedSensorValues: sensor?.id ? Array.from(state._sensorsValuesMap.get(sensor.id.toString()).values()).map((index) => state.values[index]) : null
             };
         })
     },
@@ -47,7 +55,6 @@ export const useSensorStore = create<SensorState & SensorActions>()((set, get) =
         const promises = [];
 
         for (const modelId of modelsId) {
-            console.log(modelId);
             promises.push(new Promise<void>(async (resolve) => {
                 const res = await fetch(`/api/sensor/model/${modelId}`);
 
@@ -87,7 +94,7 @@ export const useSensorStore = create<SensorState & SensorActions>()((set, get) =
     },
     clear: () => set({
         sensors: new Map<string, Sensor>(),
-        values: new Map<string, Map<string, SensorBinnedValue>>(),
+        values: new Array<SensorBinnedValue>(),
         selectedSensor: null,
         selectedSensorValues: null
     }),
@@ -95,14 +102,23 @@ export const useSensorStore = create<SensorState & SensorActions>()((set, get) =
         const response = await fetch(`/api/sensor/data/?modelId=${modelId}${binSize ? `binSize=${binSize}&` : ''}${start ? `start=${start}&` : ''}${end ? `end=${end}` : ''}`);
         const data = await response.json();
 
-        const values: Map<string, Map<string, SensorBinnedValue>> = get().values;
+        const sensorsValuesMap = get()._sensorsValuesMap;
+        const timestampValuesMap = get()._timestampValuesMap;
+        const values = get().values;
 
         data.forEach((value: SensorBinnedValue) => {
-            if (!values.has(value.id)) {
-                values.set(value.id.toString(), new Map<string, SensorBinnedValue>());
+            if (!sensorsValuesMap.has(value.id.toString())) {
+                sensorsValuesMap.set(value.id.toString(), new Map<string, SensorBinnedValue>());
             }
 
-            values.get(value.id.toString()).set(value.timestamp, value);
+            if (!timestampValuesMap.has(value.timestamp)) {
+                timestampValuesMap.set(value.timestamp, new Map<string, SensorBinnedValue>());
+            }
+
+            const index = values.push(value) - 1;
+
+            sensorsValuesMap.get(value.id.toString()).set(value.timestamp, index);
+            timestampValuesMap.get(value.timestamp).set(value.id.toString(), index);
         });
 
         set({ values });
@@ -111,18 +127,19 @@ export const useSensorStore = create<SensorState & SensorActions>()((set, get) =
         set({ currentBinnedTimestamp: timestamp });
     },
     getBinnedValues: (timestamp: string) => {
-        const values = get().values;
-
         const binnedValues: Map<string, SensorBinnedValue> = new Map();
 
-        values.forEach((sensorValues, sensorId) => {
-            const binnedValue = sensorValues.get(timestamp);
+        const timestampValuesMap = get()._timestampValuesMap;
+        const values = get().values;
+
+        timestampValuesMap.get(timestamp)?.forEach((index, sensorId) => {
+            const binnedValue = values[index];
 
             if (binnedValue) {
                 binnedValues.set(sensorId, binnedValue);
             }
         });
-
+        
         return binnedValues;
     }
 }));
