@@ -7,7 +7,11 @@ import { createRef, useEffect, useState, useRef } from "react";
 import { FragmentsModel } from "@thatopen/fragments";
 import { useSensorStore } from "@/stores/sensorStore";
 import { SensorBinnedValue } from "@/types/sensor";
-import { Checkbox } from "@heroui/react";
+import { Button, Checkbox } from "@heroui/react";
+import { EyeVisible } from "@/app/components/icons/eye-visible"
+import { EyeHidden } from "@/app/components/icons/eye-hidden";
+import { ChevronUp } from "@/app/components/icons/chevron-up";
+import { ChevronDown } from "@/app/components/icons/chevron-down";
 
 const components = new OBC.Components();
 const fragments = components.get(OBC.FragmentsManager);
@@ -59,6 +63,7 @@ export function Viewer(props: {}) {
         world.camera.updateAspect();
     }
 
+    /* Initialize the Three.js world */
     function initWorld() {
         if (worldInitialized) return;
 
@@ -95,6 +100,10 @@ export function Viewer(props: {}) {
 
         components.init();
 
+        /*
+        When double clicking on the model, cast a ray to retrieve the model ID and local ID of the intersected item and then call the callback function.
+        This allows to interact with objects located in the 3D scene.
+        */
         const caster = components.get(OBC.Raycasters).get(world);
 
         container.current.addEventListener("dblclick", async () => {
@@ -106,9 +115,11 @@ export function Viewer(props: {}) {
             onSelectCallback(modelIdMap);
         });
 
+        /* Prevents loading the world multiple times (e.g. when the component re-renders) */
         setWorldInitialized(true);
     }
 
+    /* Clear the world by disposing of all loaded models and removing the meshes of the created spaces */
     async function clearWorld() {
         if (fragmentsModelIds.length) {
             for (const fragId of fragmentsModelIds) {
@@ -454,11 +465,9 @@ export function Viewer(props: {}) {
      * Function to render the model tree structure as an JSX element.
      */
     function computeModelTree(elem) {
-		if (!elem)
-			elem = modelTrees[0];
-
-		elem.expanded = true;
-		elem.childRef = createRef();
+		// elem.ref = createRef();
+        
+        elem.childRef = createRef();
 		let childs = undefined;
 
 		if (elem.children && elem.children.length > 0)
@@ -466,10 +475,24 @@ export function Viewer(props: {}) {
 
         return (
 			<div key={elem.data?.localId || Math.random()} className="flex flex-col ml-1 border-l border-gray-300 pl-2">
-            	<div className="flex flex-row gap-x-2 hover:cursor-pointer">
-					<button onClick={() => {elem.expanded = !elem.expanded; elem.childRef.current.style.display = elem.expanded ? 'block' : 'none';}}>+</button>
-					<button onClick={() => {hideElementAndChilds(elem)}}>H</button>
-					<div>{elem.data.Name}</div>
+            	<div className="flex flex-row items-center">
+                    <Button
+                        isIconOnly
+                        onPress={() => {handleExpandButton(elem)}}
+                        variant="light"
+                        size="sm"
+                    >
+                        { !elem.expanded ? <ChevronDown width="16" height="16" /> : <ChevronUp width="16" height="16" /> }
+                    </Button>
+                    <Button
+                        isIconOnly
+                        onPress={() => {handleVisibilityButton(elem)}}
+                        variant="light"
+                        size="sm"
+                    >
+                        { !elem.hidden ? <EyeVisible width="16" height="16" /> : <EyeHidden width="16" height="16" /> }
+                    </Button>
+					<div className="ml-2">{elem.data.Name}</div>
 				</div>
 				<div ref={elem.childRef} style={{ display: elem.expanded ? 'block' : 'none' }}>
 					{childs}
@@ -505,6 +528,17 @@ export function Viewer(props: {}) {
 
 		return arr.filter((v, i, a) => a.indexOf(v) === i && !!v); // remove duplicates
 	}
+
+    function handleExpandButton(elem) {
+        elem.expanded = !elem.expanded;
+        elem.childRef.current.style.display = elem.expanded ? 'block' : 'none';
+        console.log(elem)
+    }
+
+    function handleVisibilityButton(elem) {
+        elem.hidden = !elem.hidden;
+        hideElementAndChilds(elem);
+    }
 
     /* -------------------------------------
                 HOOKS
