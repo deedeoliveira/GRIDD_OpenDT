@@ -31,3 +31,54 @@ body:json {
 settings {
   encodeUrl: true
 }
+
+docs {
+  # Create a sensor
+  
+  ## Description
+  
+  Create a new sensor and store it in the database. The sensor is associated with a model and can be linked to a space placed in the model. The sensor can also be linked to multiple channels. It is possible to create a sensor without specifying all the parameters, the purpose of this is to allow the creation of sensors from the web application where the user does not have all the information (GlobalId of the sensor / room, coordinates, etc.). The missing information can be updated later using the update sensor endpoint. The guid parameter is not mandatory as the database use a unique id (automatically incremented integer) to identify each sensor. The newly created sensor will be returned in the response.
+  
+  ## Params
+  
+  ### Path
+  ❌
+  
+  ### Query
+  ❌
+  
+  ### Body
+  | Name | Value | Required |
+  | --- | --- | --- |
+  | guid | GlobalId of the sensor in the IFC file | ❌ |
+  | name | Name of the sensor | ❌ |
+  | x | x coordinate | ❌ |
+  | y | y coordinate | ❌ |
+  | z | z coordinate | ❌ |
+  | room_id | GlobalId of the space containing the sensor | ❌ |
+  | model_id | Id of the model which contains the sensor | ❌ |
+  | channels | Array of channels ids (as an array of strings) | ❌ |
+  | status | Status of the sensor ("Enabled" / "Disabled") | ❌ |
+  
+  ## Returns
+  
+  ```json
+  {
+      status: number,
+      data: [
+          {
+              id: number,             # ID of the sensor
+              name: string,           # Name of the sensor
+              guid: string,           # GlobalId of the sensor in the IFC file
+              x: number,              # x coordinate
+              y: number,              # y coordinate
+              z: number,              # z coordinate
+              room_id: string,        # GlobalId of the space containing the sensor
+              model_id: number,       # ID of the model which contains the sensor
+              channels: string[],     # Array of channels ids
+              status: string,         # Status of the sensor
+          }
+      ]
+  }
+  ```
+}

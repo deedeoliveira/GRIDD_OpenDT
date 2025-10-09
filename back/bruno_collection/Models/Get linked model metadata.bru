@@ -17,3 +17,46 @@ params:path {
 settings {
   encodeUrl: true
 }
+
+docs {
+  # Get all linked parent models information
+  
+  ## Description
+  
+  Retrieve one linked model information
+  
+  ## Params
+  
+  ### Path
+  | Name | Description |
+  | --- | --- |
+  | linkedModelId | Id of the linked parent model |
+  
+  ### Query
+  ❌
+  
+  ### Body
+  ❌
+  
+  ## Returns
+  
+  ```json
+  {
+      status: number,
+      data: [
+          {
+              id: string,             # ID of the linked parent
+              name: string,           # Name of the linked parent
+              childModels: [          # List of models composing the linked parent
+                  {
+                      id: string,             # ID of the model
+                      name: string,           # Name of the model
+                      linkedParentId: number  # ID of the linked parent
+                  },
+                  {...}
+              ]
+          }
+      ]
+  }
+  ```
+}

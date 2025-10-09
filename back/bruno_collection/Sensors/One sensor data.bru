@@ -20,3 +20,47 @@ params:query {
 settings {
   encodeUrl: true
 }
+
+docs {
+  # Get data for one sensor
+  
+  ## Description
+  
+  Get the data of a specific sensor attached to a model.
+  
+  ## Params
+  
+  ### Path
+  ❌
+  
+  ### Query
+  | Name | Value | Required |
+  | --- | --- | --- |
+  | sensorId | Id of the sensor to retrieve data for | ✅ |
+  | binSize | Size of the bins in seconds | ❌ |
+  | start | Start date using "YYYY-MM-DD" format | ❌ |
+  | end | End date using "YYYY-MM-DD" format | ❌ |
+  
+  ### Body
+  ❌
+  
+  ## Returns
+  
+  ```json
+  {
+      status: number,
+      data: [
+          {
+              id: string,             # ID of the sensor
+              timestamp: string,      # Timestamp of the bin in UTC format
+              temperature: number     # Average temperature in the bin
+              pressure: number        # Average pressure in the bin
+              humidity: number        # Average humidity in the bin
+              air_quality: number     # Average air quality in the bin
+              decibel: number         # Average decibel in the bin
+          },
+          {...}
+      ]
+  }
+  ```
+}

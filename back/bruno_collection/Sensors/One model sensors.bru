@@ -17,3 +17,47 @@ params:path {
 settings {
   encodeUrl: true
 }
+
+docs {
+  # Get all sensors in a model
+  
+  ## Description
+  
+  Retrieve all sensors in a model from the database.
+  
+  ## Params
+  
+  ### Path
+  | Name | Value | Required |
+  | --- | --- | --- |
+  | modelId | ID of the model | ✅ |
+  
+  ### Query
+  ❌
+  
+  ### Body
+  ❌
+  
+  ## Returns
+  
+  ```json
+  {
+      status: number,
+      data: [
+          {
+              id: number,             # ID of the sensor
+              name: string,           # Name of the sensor
+              guid: string,           # GlobalId of the sensor in the IFC file
+              x: number,              # x coordinate
+              y: number,              # y coordinate
+              z: number,              # z coordinate
+              room_id: string,        # GlobalId of the space containing the sensor
+              model_id: number,       # ID of the model which contains the sensor
+              channels: string[],     # Array of channels ids
+              status: string,         # Status of the sensor
+          },
+          {...}
+      ]
+  }
+  ```
+}

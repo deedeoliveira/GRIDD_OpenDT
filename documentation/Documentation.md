@@ -1,5 +1,16 @@
 # Documentation
 
+## Existing solutions
+
+### APS
+
+APS (Autodesk Platform Services) is a cloud-based developer platform which offers API for developer to create applications, integrations and extensions around Autodesk solutions. To create a digital twin web platform to visualize buildings, APS main advantage is the ability to interact with Autodesk’s solutions that are mainly designed towards the AEC field. Furthermore, they provide a web viewer SDK API, which is a powerful tool to visualize 2D and 3D models in a web application.
+However, APS, like most of APS solutions is proprietary software and is not open-source. Also, APS stores the models and the data related to them by using Autodesk's cloud storage service OSS which itself use Amazon's solution, AWS S3. This means that the data is stored on Autodesk's servers, which may raise concerns about data privacy.
+
+### Unity
+
+Unity is a 
+
 ## File formats
 
 To share information about buildings, several file formats have been developed, most of them being proprietary (e.g., Revit, AutoCAD, ArchiCAD) and therefore not suitable for this project. There are however some open-source formats:
@@ -56,7 +67,7 @@ To built the frontend, several libraries have been used:
 #### Backend
 
 The backend is divided into two different servers:
-- **CRUD**: The main server, running on Node.js and using the [`Express`](https://expressjs.com/) framework to provide a REST API to perform CRUD operations on the sensors and models. The server also handle the upload of IFC file.
+- **REST**: The main server, running on Node.js and using the [`Express`](https://expressjs.com/) framework to provide a REST API to perform CRUD operations on the sensors and models. The server also handle the upload of IFC file.
 - **IfcOpenShell**: This server is only used to process the uploaded IFC files to extract information about the sensors placed in the model. This server is running on Python and use [`Flask`](https://flask.palletsprojects.com/en/stable/) to provide a REST API. Even though it is possible to send HTTP requests to this server directly, it is recommended to use the `process` endpoint of the CRUD server which will forward the request to the IfcOpenShell server.
 
 > [!TIP]
@@ -71,6 +82,20 @@ There are two different databases:
 ### Database schema
 
 ![Database schema](./assets/images/database_arch.png)
+
+> [!TIP]
+> The database schema creation script is available [here](../database/create_tables.sql).
+
+The database schema is composed of five main tables:
+- **models**: Store information about the uploaded models. The `name` field is the name of the uploaded file. The `id` field is an auto-incremented integer that uniquely identifies each model. Once the model is uploaded and a new record is created in the database, the file is renamed to match its id (e.g., `1.ifc`, `2.ifc`, etc.). The "linked_model_id" field is a foreign key that references the id of the linked model that the model belongs to.
+- **linked_models**: Store information about the linked models. A linked model is a model that is composed of multiple IFC files. It is not a standalone model that can be visualized on its own. When uploading a new model, a new linked model is automatically created, so that every model is part of a linked model. It is possible to specify the id of an existing linked model when uploading a new model to add the new model to the existing linked model.
+- **sensors**: Store information about the sensors placed in the model. The `guid` field is the `GlobalId` of the `IfcSensor` element in the IFC file. The `room_id` field is the `GlobalId` of the `IfcSpace` element in which the sensor is located. The `x`/`y`/`z` fields are the coordinates of the sensor in the model. The `model_id` field is a foreign key that references the id of the model in which the sensor is located.
+- **channels**: Store information about the different channels that can be measured by the sensors
+- **sensors_data**: Store the values measured by the sensors.
+
+
+There is also one junction table:
+- **sensors_channel**: A junction table to define what channels a sensor is measuring. A sensor can measure multiple channels (e.g., temperature and humidity) and a channel can be measured by multiple sensors.
 
 ## System Workflow
 

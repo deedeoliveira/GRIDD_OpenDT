@@ -23,3 +23,56 @@ body:json {
 settings {
   encodeUrl: true
 }
+
+docs {
+  # Update one sensor
+  
+  ## Description
+  
+  Update a sensor in the database. The sensor is identified by its ID and the updated information is provided in the request body. The updated sensor is returned in the response.
+  
+  ## Params
+  
+  ### Path
+  | Name | Value | Required |
+  | --- | --- | --- |
+  | sensorId | ID of the sensor | ✅ |
+  
+  ### Query
+  ❌
+  
+  ### Body
+  | Name | Value | Required |
+  | --- | --- | --- |
+  | guid | GlobalId of the sensor in the IFC file | ❌ |
+  | name | Name of the sensor | ❌ |
+  | x | x coordinate | ❌ |
+  | y | y coordinate | ❌ |
+  | z | z coordinate | ❌ |
+  | room_id | GlobalId of the space containing the sensor | ❌ |
+  | model_id | Id of the model which contains the sensor | ❌ |
+  | channels | Array of channels ids (as an array of strings) | ❌ |
+  | status | Status of the sensor | ❌ |
+  
+  ## Returns
+  
+  ```json
+  {
+      status: number,
+      data: [
+          {
+              id: number,             # ID of the sensor
+              name: string,           # Name of the sensor
+              guid: string,           # GlobalId of the sensor in the IFC file
+              x: number,              # x coordinate
+              y: number,              # y coordinate
+              z: number,              # z coordinate
+              room_id: string,        # GlobalId of the space containing the sensor
+              model_id: number,       # ID of the model which contains the sensor
+              channels: string[],     # Array of channels ids
+              status: string,         # Status of the sensor
+          }
+      ]
+  }
+  ```
+}

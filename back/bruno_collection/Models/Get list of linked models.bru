@@ -13,3 +13,45 @@ get {
 settings {
   encodeUrl: true
 }
+
+docs {
+  # Get all linked parent models information
+  
+  ## Description
+  
+  Retrieve a list of all the linked parent models with their IDs, names, and the models they are composed of. A linked parent model is not a standalone model but is made up of other models (saved in the `models` table).
+  
+  ## Params
+  
+  ### Path
+  ❌
+  
+  ### Query
+  ❌
+  
+  ### Body
+  ❌
+  
+  ## Returns
+  
+  ```json
+  {
+      status: number,
+      data: [
+          {
+              id: string,             # ID of the linked parent
+              name: string,           # Name of the linked parent
+              childModels: [          # List of models composing the linked parent
+                  {
+                      id: string,             # ID of the model
+                      name: string,           # Name of the model
+                      linkedParentId: number  # ID of the linked parent
+                  },
+                  {...}
+              ]
+          },
+          {...}
+      ]
+  }
+  ```
+}

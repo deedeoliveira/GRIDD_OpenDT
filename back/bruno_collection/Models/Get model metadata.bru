@@ -17,3 +17,39 @@ params:path {
 settings {
   encodeUrl: true
 }
+
+docs {
+  # Get one model information
+  
+  ## Description
+  
+  Retrieve one model information
+  
+  ## Params
+  
+  ### Path
+  | Name | Description |
+  | --- | --- |
+  | modelId | Id of the model |
+  
+  ### Query
+  ❌
+  
+  ### Body
+  ❌
+  
+  ## Returns
+  
+  ```json
+  {
+      status: number,
+      data: [
+          {
+              id: string,             # ID of the model
+              name: string,           # Name of the model
+              linkedParentId: number  # ID of the linked model
+          }
+      ]
+  }
+  ```
+}

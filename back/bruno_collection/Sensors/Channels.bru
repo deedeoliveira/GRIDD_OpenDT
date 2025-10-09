@@ -13,3 +13,42 @@ get {
 settings {
   encodeUrl: true
 }
+
+docs {
+  # Get channels
+  
+  ## Description
+  
+  Get the list of channels stored in the database and information related to them (e.g., name, unit, type, etc.).
+  
+  ## Params
+  
+  ### Path
+  ❌
+  
+  ### Query
+  ❌
+  
+  ### Body
+  ❌
+  
+  ## Returns
+  
+  ```json
+  {
+      status: number,
+      data: [
+          {
+              id: string,             # ID of the channel
+              name: string,           # Name of the channel
+              description: string,    # Description of the channel
+              type: string,           # Value type (e.g., integer, double, boolean, etc.)
+              unit: string,           # Unit of the channel
+              min: number,            # Minimum value of the channel (used for heatmap visualization)
+              max: number,            # Maximum value of the channel (used for heatmap visualization)
+          },
+          {...}
+      ]
+  }
+  ```
+}

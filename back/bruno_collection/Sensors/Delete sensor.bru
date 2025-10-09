@@ -17,3 +17,46 @@ params:path {
 settings {
   encodeUrl: true
 }
+
+docs {
+  # Delete a sensor
+  
+  ## Description
+  
+  Delete a sensor from the database. The deleted sensor is returned in the response.
+  
+  ## Params
+  
+  ### Path
+  | Name | Value | Required |
+  | --- | --- | --- |
+  | sensorId | ID of the sensor to delete | ✅ |
+  
+  ### Query
+  ❌
+  
+  ### Body
+  ❌
+  
+  ## Returns
+  
+  ```json
+  {
+      status: number,
+      data: [
+          {
+              id: number,             # ID of the sensor
+              name: string,           # Name of the sensor
+              guid: string,           # GlobalId of the sensor in the IFC file
+              x: number,              # x coordinate
+              y: number,              # y coordinate
+              z: number,              # z coordinate
+              room_id: string,        # GlobalId of the space containing the sensor
+              model_id: number,       # ID of the model which contains the sensor
+              channels: string[],     # Array of channels ids
+              status: string,         # Status of the sensor
+          }
+      ]
+  }
+  ```
+}

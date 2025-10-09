@@ -13,3 +13,38 @@ get {
 settings {
   encodeUrl: true
 }
+
+docs {
+  # Get all models information
+  
+  ## Description
+  
+  Retrieve information about all the models saved in the database
+  
+  ## Params
+  
+  ### Path
+  ❌
+  
+  ### Query
+  ❌
+  
+  ### Body
+  ❌
+  
+  ## Returns
+  
+  ```json
+  {
+      status: number,
+      data: [
+          {
+              id: string,             # ID of the model
+              name: string,           # Name of the model
+              linkedParentId: number  # ID of the linked model
+          },
+          {...}
+      ]
+  }
+  ```
+}
