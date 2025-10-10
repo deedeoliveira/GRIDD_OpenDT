@@ -270,7 +270,7 @@ export function Viewer(props: {}) {
 
         // Function to create a Three.js mesh from geometry data
         const createMesh = (data: FRAGS.MeshData) => {
-            const meshMaterial = new THREE.MeshLambertMaterial({ color: "white" });
+            const meshMaterial = new THREE.MeshLambertMaterial({ color: "white", opacity: 0.5, transparent: true });
             const { positions, indices, normals, transform } = data;
             if (!(positions && indices && normals)) return null;
             const geometry = new THREE.BufferGeometry();
@@ -331,7 +331,7 @@ export function Viewer(props: {}) {
         await fragments.core.update(true);
     }
 
-    async function colorSpace(spaceId: string, color: THREE.Color) {
+    function colorSpace(spaceId: string, color: THREE.Color) {
         const space = spaces.get(spaceId)
 
         if (!space || !space.meshes) return;
