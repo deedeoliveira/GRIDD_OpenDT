@@ -13,11 +13,7 @@ app.get('/room/:roomId', (req: Request, res: Response) => {
         return buildErrorResponse(res, 400, 'Room ID is required');
     }
 
-    db.getSensorsByRoom(roomId)
-        .then(data => buildSuccessResponse(res, 200, data))
-        .catch(err => {
-            return buildErrorResponse(res, 500, err.message);
-        });
+    return buildErrorResponse(res, 501, 'Not implemented');
 });
 
 /* Get all sensors for a given model */
