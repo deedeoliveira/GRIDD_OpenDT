@@ -29,6 +29,11 @@ The keys are space global IDs (from IFC) and the values are THREE.Mesh objects r
 */
 const spaces = new Map<string, object>();
 
+/*
+Props:
+- selectedModel: The model selected by the user in the ViewerPage component. It is used to load the corresponding child models in the Three.js world.
+- onWorldInitialized: A callback function that is called when the Three.js world has been initialized. Used to show / hide the loading indicator in the ViewerPage component.
+*/
 export function Viewer(props: {}) {
     const {
         selectedModel,
