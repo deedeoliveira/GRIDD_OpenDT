@@ -76,7 +76,7 @@ pip install -r requirements.txt
 4. **Run the server**
 
 ```bash
-flask --app main run
+flask --app main run -p 3002
 ```
 
 #### Testing the APIs

@@ -1,10 +1,7 @@
 import ifcopenshell_utils
 import os
-from dotenv import load_dotenv
 from flask import Flask, request
 import urllib3
-
-load_dotenv()
 
 app = Flask(__name__)
 
@@ -35,4 +32,4 @@ def process_model(modelId):
     return {"status": "success", "data": sensorRoomMap, "ok": True}, 200
 
 if (__name__ == "__main__"):
-    app.run(debug=True, host="0.0.0.0", port=os.getenv("FLASK_API_PORT"))
+    app.run(host="0.0.0.0")
