@@ -6,7 +6,7 @@ def process_ifc_file():
     
     schema = model.header.file_schema.schema_identifiers[0]
 
-    ifcSensorType = "IfcDistributionControlElement" if schema == "IFC2X3" else "IfcSensor"
+    ifcSensorType = "IfcSensor" if schema.startswith("IFC4") else "IfcDistributionControlElement"
 
     sensors = ifcopenshell.util.selector.filter_elements(model, ifcSensorType)
 
