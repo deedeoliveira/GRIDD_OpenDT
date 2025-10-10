@@ -245,12 +245,9 @@ export function Viewer(props: {}) {
             child.receiveShadow = true;
         }
 
+        await getSpatialStructure(fragments.list);
+
         onWorldInitialized?.();
-
-        console.log("World:", world);
-        console.log("FragmentsManager:", fragments);
-
-        getSpatialStructure(fragments.list);
     }
 
     /*
