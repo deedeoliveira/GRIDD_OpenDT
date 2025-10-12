@@ -9,9 +9,10 @@ import { SensorChannelEnum } from '../types/sensors.ts';
 
 const app = express();
 
+const MODELS_TEMP_ROOT_PATH = path.join(import.meta.dirname, '../cdn_resources/models/temp');
 const MODELS_ROOT_PATH = path.join(import.meta.dirname, '../cdn_resources/models');
 
-const upload = multer({ dest: MODELS_ROOT_PATH });
+const upload = multer({ dest: MODELS_TEMP_ROOT_PATH });
 
 app.get('/linked/', async (req, res) => {
     const linkedModels = await db.listLinkedModels();
@@ -84,7 +85,7 @@ app.get('/download/:id', async (req, res) => {
 });
 
 app.post('/upload', upload.single('file'), async (req, res) => {
-    if (!req.file && !req.body.fileUrl) return buildErrorResponse(res, 400, 'File or file location is required');
+    if (!req.file && !req.body?.fileUrl) return buildErrorResponse(res, 400, 'File or file location is required');
 
     if (req.fileUrl) {
         //TODO: implement upload from url
@@ -93,15 +94,34 @@ app.post('/upload', upload.single('file'), async (req, res) => {
 
     const name = req.body.name || req.file.originalname.split('.')[0];
     const linkedParentId = req.body.linkedParentId;
+    const modelId = req.body.modelId;
 
-    const model = await db.uploadModel(name, null, linkedParentId);
+    if (!modelId) {
+        /* If modelId is not provided, create a new model */
+        const model = await db.uploadModel(name, null, linkedParentId);
 
-    if (model.id) {
-        // Rename the file to its model ID
-        fs.renameSync(req.file.path, path.join(MODELS_ROOT_PATH, `${model.id}.${path.extname(req.file.originalname).slice(1)}`));
+        if (model.id) {
+            // Rename the file to its model ID and move it to the models folder
+            fs.renameSync(req.file.path, path.join(MODELS_ROOT_PATH, `${model.id}.${path.extname(req.file.originalname).slice(1)}`));
+
+            return buildSuccessResponse(res, 201, model);
+        }
+    } else {
+        // If modelId is provided, update the existing model
+
+        // Move the previous file to an archive folder
+        if (!fs.existsSync(path.join(MODELS_ROOT_PATH, 'archive'))) {
+            fs.mkdirSync(path.join(MODELS_ROOT_PATH, 'archive'));
+        }
+
+        fs.renameSync(path.join(MODELS_ROOT_PATH, `${modelId}.ifc`), path.join(MODELS_ROOT_PATH, 'archive', `${Date.now()}_${modelId}.ifc`));
+
+        // Move the new file to the models folder
+        fs.renameSync(req.file.path, path.join(MODELS_ROOT_PATH, `${modelId}.${path.extname(req.file.originalname).slice(1)}`));
+
+        return buildSuccessResponse(res, 200, { id: modelId, message: `Model ${modelId} updated successfully` });
     }
 
-    return buildSuccessResponse(res, 201, model);
 });
 
 /**
@@ -125,10 +145,21 @@ app.get('/process/:id', async (req, res) => {
     if (!data)
         return buildErrorResponse(res, 500, `Error processing model ${modelId}`);
 
+    const existingSensors = await fetch(`${process.env.SENSORS_API_ROUTE}/model/${modelId}`);
+
+    if (!existingSensors.ok)
+        return buildErrorResponse(res, 500, `Error fetching existing sensors for model ${modelId}`);
+
+    const existingSensorsId = (await existingSensors.json()).data.map((sensor: any) => sensor.guid);
+
     const createdSensors = [];
 
     for (const [sensorGuid, sensorData] of Object.entries(data)) {
         try {
+            // If there is already a sensor with the same guid and model_id, skip it
+            if (existingSensorsId.includes(sensorGuid.toString()))
+                continue;
+            
             createdSensors.push(await sensorDb.createSensor({
                 name: sensorData.name,
                 guid: sensorGuid,

@@ -92,7 +92,7 @@ class ModelDatabase implements IModelDatabase {
         return data;
     }
 
-    async uploadModel(name: string, buffer: Buffer, linkedParentId?: string): Promise<Model | Error> {
+    async uploadModel(name: string, buffer: Buffer, linkedParentId?: string, modelId?: string): Promise<Model | Error> {
         await this.db.checkConnection();
 
         if (!linkedParentId) {

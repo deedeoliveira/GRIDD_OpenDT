@@ -23,7 +23,7 @@ docs {
   
   ## Description
   
-  Read an IFC file to find sensors and information related to them (guid, name, guid of the space they are located in, location (x / y / z) of the sensor). The sensors are then stored in the database.
+  Read an IFC file to find sensors and information related to them (guid, name, guid of the space they are located in, location (x / y / z) of the sensor). The sensors are then stored in the database. If there is already a sensor with the same GlobalId (guid) and model_id, it is not created again.
   
   ## Params
   

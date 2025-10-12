@@ -14,6 +14,7 @@ body:multipart-form {
   file: @file(D:\CoursInge\MobiliteInternationale\GRIDD\DigitalTwin\BuildingF\Plumbing.ifc) @contentType(application/x-step)
   name: BUILDING_F_FLU
   linkedParentId: 10
+  modelId: 18
 }
 
 body:file {
@@ -29,7 +30,7 @@ docs {
   
   ## Description
   
-  Upload a model file to the platform. Only 'IFC-STEP' (.ifc) files are supported (.ifczip are not supported).
+  Upload a model file to the platform. Only 'IFC-STEP' (.ifc) files are supported (.ifczip are not supported). If the `modelId` parameter is provided, the uploaded model will replace the existing model with the given ID. If the `modelId` parameter is not provided, a new model will be created.
   
   ## Params
   
@@ -46,11 +47,13 @@ docs {
   | file | File to upload | ✅ |
   | name | Name of the model | ✅ |
   | linkedParentId | ID of the linked parent* | ❌ |
+  | modelId | ID of the model to update | ❌ |
   
   \* To handle digital twin composed of several models, you can link a model to a parent model. Every time a model is uploaded, if the `linkedParentId` is not defined, a new parent model is created. If the `linkedParentId` is defined, the model is linked to the parent model with the given ID. The `linkedParentId` can be retrieved from the response of this endpoint or from the model list endpoint.
   
   ## Returns
   
+  For a new model:
   ```json
   {
       status: number,
@@ -61,6 +64,17 @@ docs {
               linkedParentId: number  # ID of the linked model
           }
       ]
+  }
+  ```
+  
+  For an existing model that has been updated:
+  ```json
+  {
+      status: number,
+      data: {
+          id: string,                 # ID of the model
+          message: string             # Success message
+      }
   }
   ```
 }

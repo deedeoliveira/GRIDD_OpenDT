@@ -19,7 +19,7 @@ export interface IModelDatabase {
     getLinkedModelMetadata(id: string): Promise<LinkedModel | Error>;
     getModelMetadata(id: string): Promise<Model | Error>;
     downloadModel(id: string): Promise<Buffer | Error>;
-    uploadModel(name: string, buffer: Buffer, federatedParentId?: string): Promise<Model | Error>;
+    uploadModel(name: string, buffer: Buffer, linkedParentId?: string, modelId?: string): Promise<Model | Error>;
     deleteModel(id: string): Promise<boolean | Error>;
     deleteLinkedModel(id: string): Promise<boolean | Error>;
     listModels(): Promise<Partial<Model>[] | Error>;

@@ -1,7 +1,7 @@
 export type Model = {
     id: string,
     name: string,
-    federatedParentId: string
+    linkedParentId: string
 }
 
 export type LinkedModel = {

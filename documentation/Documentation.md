@@ -175,6 +175,12 @@ Use the API to upload a model (IFC file) to the server. When a model is uploaded
 > - [Mock-up sensors](../database/mock-up/sensor-mock-up.js)
 > - [Mock-up sensor values](../database/mock-up/sensor-mock-up.js)
 
+### Update model
+
+It is possible to update an existing model by uploading a new IFC file using the same endpoint as for uploading a new model. The new file will replace the existing file on the server and an archive of the previous version will be created in the `archives` folder. It is also possible to use the "process" endpoint to extract the sensors from the new IFC file just like when uploading a new model. When updating a model, only new sensors will be added to the database. Existing sensors (with the same `guid` and `model_id`) will not be updated.
+
+![Update model sequence diagram](./assets/images/updateModelSequenceDiagram.png)
+
 ### Creating spaces in the 3D scene
 
 According to [ThatOpenCompany's documentation](https://docs.thatopen.com/Tutorials/Fragments/Fragments/FragmentsModels/ModelInformation#-accessing-geometry-data:~:text=A%20key%20reason%20why%20a%20FragmentsModel%20is%20highly%20memory%2Defficient%20is%20that%20all%20BufferAttributes%20from%20the%20geometry%20in%20ThreeJS%20are%20removed%20after%20being%20used%20to%20render%20the%20model%20in%20the%20scene.), the `engine_fragment` library disposes of an object's `Three.js` attributes once it has been added to the scene. As a result, it becomes difficult to access an object's `Three.js` meshes through the `engine_fragment` library, since the spaces meshes are first added to a tile and then removed (this behaviour could change in [the future](#check-for-updates-concerning-engine_fragment-edit-apis)).
