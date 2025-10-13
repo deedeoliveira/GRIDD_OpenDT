@@ -283,12 +283,9 @@ Implement authentication and authorization to restrict access to certain models.
 
 Might be interesting to allow users to specify an external source (e.g., an URL) to fetch the model from instead of uploading it directly to the server.
 
-### Upload new version of a model (file versioning)
+### Application architecture
 
-Implement a way to upload a new version of a model. This could be achieve by adding an additional, and optional, parameter to the upload model API specifing the id of the model. If this parameter is provided, the uploaded file will be considered as a new version of the model with the specified id.
+To improve the scalability and maintainability of the application, it could be interesting to split the application (mainly the backend) into multiple microservices. Each microservice would be responsible for a specific functionality (e.g., sensor management, model management, sensors values management, etc.). The microservices could then fetch data from one or multiple databases. The backend would also contained a set of services servers to handle specific task (e.g., read / write IFC files with `IfcOpenShell`, convert IFC files to Fragment files upon upload using `engine_fragment`, versioning model using `IfcDiff`, etc.).
 
-It is also important to handle the extraction of information from the new model. It would be possible to use the `process` endpoint to extract the sensors from the new IFC file and update the `sensors` table with the new sensors. It is also feasible to use the [`IfcDiff`](https://docs.ifcopenshell.org/ifcdiff.html) tool from `IfcOpenShell` to two IFC files.
-
-![File versioning potential sequence diagram](./assets/images/fileVersioningSequencediagram.png)
-
-*Potential sequence diagram for the file versioning feature (necessary changes are highlighted in orange)*
+The software architecture would then look like this:
+![Software architecture potential diagram](./assets/images/potentialApplicationArchitecture.png)
