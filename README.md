@@ -103,3 +103,5 @@ npm run dev
 ```
 
 ## Documentation
+
+The documentation is available in the [documentation directory](./documentation/Documentation.md)].
