@@ -281,7 +281,7 @@ Implement authentication and authorization to restrict access to certain models.
 
 ### Upload a model from an external source
 
-Might be interesting to allow users to specify an external source (e.g., an URL) to fetch the model from instead of uploading it directly to the server.
+It might be interesting to allow users to specify an external source (e.g., an URL) to fetch the model from instead of uploading it directly to the server. A way to do this would be to store the model URL in the database and the fetch the model from the URL when needed.
 
 ### Application architecture
 
