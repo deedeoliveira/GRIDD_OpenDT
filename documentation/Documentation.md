@@ -61,15 +61,15 @@ The application is divided into three main parts:
 To built the frontend, several libraries have been used:
 - [`React`](https://react.dev/): A popular JavaScript library for building user interfaces. It provides a component-based architecture that allows to create reusable UI components and manage the state of the application.
 - [`Next.js`](https://nextjs.org/): A React framework for building server-side rendered and statically generated web applications. It provides a set of features and tools to simplify the development process, such as automatic API routes, routing and middleware.
-- [`Zustand`](https://github.com/pmndrs/zustand): A state management library for React applications. This library will be used to store the sensors data, values and the current state of the timeline.
+- [`Zustand`](https://github.com/pmndrs/zustand): A state management library for React applications. This library will be used to store the sensors information, time series data and the current state of the timeline.
 - `ThatOpenCompany`'s libraries: A set of libraries to work with IFC files and create 3D scenes in a web application. The two main libraries used are `engine_fragment` (to load IFC file and parse its content) and `engine_components` (to create the 3D viewer).
 
 ##### State management
-The sensors data and values are stored in a global state using store created with `Zustand`. Using a global state allows to easily access and update sensors data from any component in the application without having to rely on prop drilling or context providers, and therefore make the application more scalable and maintainable.
+The sensors information and time series data are stored in a global state using store created with `Zustand`. Using a global state allows to easily access and update sensors information from any component in the application without having to rely on prop drilling or context providers, and therefore make the application more scalable and maintainable.
 
-The store also provides a way to set the selected sensor and its values, which can then be used as a reactive data source for other components to display the values of the selected sensor. Also, the current time of the timeline is stored in the store, allowing to easily retrieve the sensor values at the current time and update the 3D scene accordingly.
+The store also provides a way to set the selected sensor and retrieve its associated time series data, which can then be used as a reactive data source for other components to display the values of the selected sensor. Also, the current time of the timeline is stored in the store, allowing to easily retrieve the sensor value at a given time and update the 3D scene accordingly.
 
-The values from all sensors are stored in a single array, and two maps are used to index them by sensor ID and timestamp for efficient retrieval. Example:
+The time series data from all sensors are stored in a single array, and two maps are used to index them by sensor ID and timestamp for efficient retrieval. Example:
 
 ```typescript
 type SensorBinnedValue = {
