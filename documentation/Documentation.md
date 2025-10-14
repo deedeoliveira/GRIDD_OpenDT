@@ -289,3 +289,7 @@ To improve the scalability and maintainability of the application, it could be i
 
 The software architecture would then look like this:
 ![Software architecture potential diagram](./assets/images/potentialApplicationArchitecture.png)
+
+### Document database / Time series database
+
+In a real-world scenario, different types of sensors would generate different types of time series data (e.g., temperature, humidity, occupancy, etc. (some sensors could also generate multiple types of data)). In this case, it would be more efficient to use a document or a time series database to store the sensor values instead of a relational database.
