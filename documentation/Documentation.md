@@ -151,13 +151,14 @@ There is also one junction table:
 ### Pipeline overview
 
 The following diagram illustrates the overall pipeline of the system:
-1. **Update 3D model**: Update the 3D model using a CAD software (e.g., Revit). Sensors should also be placed in the model.
+1. **Update 3D model**: Update the 3D model using a BIM authoring software (e.g., Revit). Sensors should also be placed in the model.
 2. **Convert to IFC**: Convert the model to an IFC file (⚠️ `IfcSensor` elements only exist in the IFC4 schema. The endpoint only accepts IFC-STEP files ('.ifc'), no IFC-ZIP ('.ifczip'))
 3. **Upload model**: Upload the updated model (IFC file) to the server.
-4. (Optional) **Process model**: Process the model to extract information about the sensors placed in the model.
-5. (Optional) **Create mock-up sensors or values**: Create mock-up sensors and/or values if no real sensors are available.
-6. **Visualize model**: Visualize the model in the web application and interact with it.
-7. **Use timeline**: Use the timeline component to visualize the sensor values at different times.
+4. **Extract sensor**: Process the model to extract information about the sensors (e.g., guid, location, name, etc.) and store it in the database.
+5. **Map time series data**: Associate time series data to the sensors (more about this [here](#attach-time-series-data-to-sensors))
+6. (Optional) **Optional steps**: Run optional steps such as creating fake sensors, generating mock-up time series data, etc.
+7. **Visualize model**: Visualize the model in the web application and interact with it.
+8. **Use timeline**: Use the timeline component to visualize the sensor values at different times.
 
 ![System workflow overview diagram](./assets/images/systemGlobalOverview.png)
 
