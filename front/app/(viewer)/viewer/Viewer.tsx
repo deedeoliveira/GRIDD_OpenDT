@@ -51,6 +51,7 @@ export function Viewer(props: {}) {
     const currentBinnedTimestamp = useSensorStore((state) => state.currentBinnedTimestamp);
     const [currentChannel, setCurrentChannel] = useState<string | null>("temperature");
     const [modelTrees, setModelTrees] = useState<object[]>([]);
+    const [selectedObjectProperties, setSelectedObjectProperties] = useState<object | null>(null);
 
     /* -------------------------------------
                 STORES
@@ -113,7 +114,11 @@ export function Viewer(props: {}) {
         container.current.addEventListener("dblclick", async () => {
             const result = await (caster.castRay());
 
-            if (!result) return;
+            if (!result) {
+                // When no item is intersected, clear the selected object properties
+                setSelectedObjectProperties(null);
+                return;
+            }
 
             const modelIdMap = { [result.fragments.modelId]: new Set([result.localId]) };
             onSelectCallback(modelIdMap);
@@ -321,11 +326,13 @@ export function Viewer(props: {}) {
         if (modelId && fragments.list.get(modelId)) {
             const model = fragments.list.get(modelId)!;
             const [data] = await model.getItemsData([...modelIdMap[modelId]]);
-            const attributes = data;
-            console.log("Selected model attributes:", attributes);
+            const attributes = Object.entries(data).reduce((acc, [key, value]) => {
+                if (key.startsWith("_")) return acc;
+                acc[key] = value.value;
+                return acc;
+            }, {});
 
-            console.log("model items", model.getItem([...modelIdMap[modelId]][0]));
-            console.log("model geometry", await model.getItemsGeometry([...modelIdMap[modelId]]));
+            setSelectedObjectProperties(attributes);
         }
 
         await fragments.core.update(true);
@@ -484,6 +491,18 @@ export function Viewer(props: {}) {
         )
     }
 
+    /**
+     * Function to render the properties of the selected object as a table
+     */
+    function computeObjectProperties() {
+        return Object.entries(selectedObjectProperties).map(([key, value]) => (
+            <tr key={key}>
+                <td className="border px-2 py-1 font-bold">{key}</td>
+                <td className="border px-2 py-1">{String(value)}</td>
+            </tr>
+        ));
+    }
+
 	function hideElementAndChilds(elem) {
 		if (!elem) return;
 
@@ -564,6 +583,11 @@ export function Viewer(props: {}) {
             {
 				modelTrees.map((tree) => computeModelTree(tree))
 			}
+            </div>
+            <div style={{ position: "absolute", bottom: 10, left: 10, zIndex: 10, backgroundColor: "white", padding: 10, maxHeight: "75vh", width: "25vw", overflow: "auto" }}>
+            {
+                selectedObjectProperties && <table><tbody>{computeObjectProperties()}</tbody></table>
+            }
             </div>
         </>
     );
