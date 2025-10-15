@@ -285,9 +285,13 @@ It might be interesting to allow users to specify an external source (e.g., an U
 
 ### Application architecture
 
-To improve the scalability and maintainability of the application, it could be interesting to split the application (mainly the backend) into multiple microservices. Each microservice would be responsible for a specific functionality (e.g., sensor management, model management, sensors values management, etc.). The microservices could then fetch data from one or multiple databases. The backend would also contained a set of services servers to handle specific task (e.g., read / write IFC files with `IfcOpenShell`, convert IFC files to Fragment files upon upload using `engine_fragment`, versioning model using `IfcDiff`, etc.).
+To improve the scalability and maintainability of the application, it could be interesting to structure the backend using a more modular architecture. In the diagram below, the backend is divided into two blocks:
+- **API**: The API block is responsible for handling HTTP requests and responses. It uses the services block or perform requests on the databases to fullfill the requests and return the appropriate responses. This block could be considered as a "communication" layer as it is responsible for communicating with the different parts of the application.
+
+- **Services**: The services block is responsible for handling more complex business logic and operations. It could be divided into multiple services (e.g., `IfcOpenShell` service to process IFC files, versioning service using `IfcDiff`, model conversion service using `engine_fragment` (to convert IFC files to Fragment files upon upload), etc.).
 
 The software architecture would then look like this:
+
 ![Software architecture potential diagram](./assets/images/potentialApplicationArchitecture.png)
 
 ### Document database / Time series database
