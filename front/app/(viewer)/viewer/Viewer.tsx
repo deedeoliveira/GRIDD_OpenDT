@@ -211,7 +211,7 @@ export function Viewer(props: {}) {
             const blob = await res.blob();
             const arrayBuffer = new Uint8Array(await blob.arrayBuffer());
 
-            model = await ifcLoader.load(arrayBuffer, false, childModel.name, {
+            model = await ifcLoader.load(arrayBuffer, true, childModel.name, {
                 processData: {
                     progressCallback: (progress) => {
                         console.log(progress);
@@ -219,12 +219,6 @@ export function Viewer(props: {}) {
                     }
                 }
             });
-
-            const coordinationMatrix = await model.getCoordinationMatrix();
-            const inverseMatrix = coordinationMatrix.invert();
-            model.object.matrix.copy(inverseMatrix);
-            model.object.matrixAutoUpdate = false;
-            model.object.updateMatrixWorld(true);
 
             model.tiles.onItemSet.add(({ value: mesh }) => {
                 if ("isMesh" in mesh) {
