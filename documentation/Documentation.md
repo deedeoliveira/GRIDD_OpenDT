@@ -107,7 +107,7 @@ The following diagram illustrates the overall pipeline of the system:
 2. **Convert to IFC**: Convert the model to an IFC file (⚠️ `IfcSensor` elements only exist in the IFC4 schema. The endpoint only accepts IFC-STEP files ('.ifc'), no IFC-ZIP ('.ifczip'))
 3. **Upload model**: Upload the updated model (IFC file) to the server.
 4. **Extract sensor**: Process the model to extract information about the sensors (e.g., guid, location, name, etc.) and store it in the database.
-5. **Map time series data**: Associate time series data to the sensors (more about this [here](#attach-time-series-data-to-sensors))
+5. **Map time series data**: Attach time series data to the sensors (more about this [here](#attach-time-series-data-to-sensors))
 6. (Optional) **Optional steps**: Run optional steps such as creating fake sensors, generating mock-up time series data, etc.
 7. **Visualize model**: Visualize the model in the web application and interact with it.
 8. **Use timeline**: Use the timeline component to visualize the sensor values at different times.
@@ -250,3 +250,23 @@ The software architecture would then look like this:
 ### Document database / Time series database
 
 In a real-world scenario, different types of sensors would generate different types of time series data (e.g., temperature, humidity, occupancy, etc. (some sensors could also generate multiple types of data)). In this case, it would be more efficient to use a document or a time series database to store the sensor values instead of a relational database.
+
+### Attach time series data to sensors
+
+In the case time series data are stored in another database, it will be necessary to link the time series data to the sensors. A possible solution for this would be to define a unique identifier for each sensor (e.g., a UUID, name, etc.) and write this identifier in the time series data. For example, a sensor data point could look like this:
+
+```typescript
+{
+    sensor_id: '0nMsWlH3r2mBJwDqQlrcwP',
+    timestamp: 1760554627367,
+    temperature: 20
+}
+```
+
+One way to achieve this would be to use the "GlobalId" property of the "IfcSensor" element in the IFC file as the unique identifier for each sensor, but doing so would require for the physical sensors to be aware of the "GlobalId" of the corresponding "IfcSensor" element in the IFC file. It is possible to manually set the identifier for each physical sensor, but this would be time-consuming and therefore it is important to make sure that the "GlobalId" of the "IfcSensor" elements in the IFC file do not change when updating the model.
+
+When the model is updated, "GlobalId" of unchanged elements (sensors, spaces, etc.) should remain the same, meaning that it should be possible to update the model without having to change the configuration of the physical sensors. However, in some cases, the "GlobalId" of sensors might change when upating the model, either because the "IfcSensor" element has been modified or due to a mistake (e.g., deleting and re-adding a sensor).
+
+Therefore, it is important to define a process to determine if the sensor has actually been replaced. This might be done by using a "similarity" metric based on other properties of the sensor (e.g., name, location, etc.). For example, if a there is a new "IfcSensor" element in the updated model with a different "GlobalId" but with the same name and located close to the location of an existing sensor, it is likely that this "new" sensor is actually the same as the existing sensor and that its "GlobalId" has changed. In this case, it might be possible to update the identifier of the new sensor in the model to the previous identifer so that the time series data remain linked to the sensor.
+
+![Sensor similarity activity diagram](./assets/images/sensorSimilarityActivityDiagram.png)
