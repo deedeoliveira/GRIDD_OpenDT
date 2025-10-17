@@ -139,6 +139,9 @@ It is possible to update an existing model by uploading a new IFC file using the
 According to [ThatOpenCompany's documentation](https://docs.thatopen.com/Tutorials/Fragments/Fragments/FragmentsModels/ModelInformation#-accessing-geometry-data:~:text=A%20key%20reason%20why%20a%20FragmentsModel%20is%20highly%20memory%2Defficient%20is%20that%20all%20BufferAttributes%20from%20the%20geometry%20in%20ThreeJS%20are%20removed%20after%20being%20used%20to%20render%20the%20model%20in%20the%20scene.), the `engine_fragment` library disposes of an object's `Three.js` attributes once it has been added to the scene. As a result, it becomes difficult to access an object's `Three.js` meshes through the `engine_fragment` library, since the spaces meshes are first added to a tile and then removed (this behaviour could change in [the future](#check-for-updates-concerning-engine_fragment-edit-apis)).
 To overcome this issue, the spaces are recreated using `Three.js` after the model has been loaded and added to the scene. We then store the meshes of each space in a map, which allows us to efficiently access and update their colors later based on sensor data.
 
+> [!WARNING]
+> This approch may actually lead to a higher memory consumption. Some investigations could be done on the "on item added" event (`model.tiles.onItemSet.add`) of the `engine_components` library to see if it is possible to link the `Three.js` meshes (stored in the tile) to the corresponding space in the spaces map.
+
 ```javascript
 async function retrieveSpaces() {
     if (!model) return;
