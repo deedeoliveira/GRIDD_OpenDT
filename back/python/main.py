@@ -8,7 +8,7 @@ app = Flask(__name__)
 @app.post("/api/model/process/<modelId>")
 def process_model(modelId):
     fileUrl = os.getenv("MODEL_DOWNLOAD_ROUTE") + f"/{modelId}"
-
+    
     try:
         if (request.form['path'] is not None):
             fileUrl = request.form['path']

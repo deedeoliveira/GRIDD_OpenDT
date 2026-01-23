@@ -5,13 +5,13 @@ meta {
 }
 
 get {
-  url: http://{{url}}:{{port}}/{{baseRoute}}/{{sensorRoute}}/data/?modelId=6&binSize=3600&startTime=2025-06-01&endTime=2025-07-01
+  url: http://{{url}}:{{port}}/{{baseRoute}}/{{sensorRoute}}/data/?modelId=1&binSize=3600&startTime=2025-06-01&endTime=2025-07-01
   body: none
   auth: inherit
 }
 
 params:query {
-  modelId: 6
+  modelId: 1
   binSize: 3600
   startTime: 2025-06-01
   endTime: 2025-07-01
@@ -19,6 +19,7 @@ params:query {
 
 settings {
   encodeUrl: true
+  timeout: 0
 }
 
 docs {

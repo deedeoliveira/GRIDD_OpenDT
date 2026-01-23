@@ -44,10 +44,15 @@ yarn-error.log*
 next-env.d.ts
 
 # CDN mock-up files
-/back/cdn_resources*
+/back/cdn_resources/models/*
+/back/cdn_resources/models/temp/*
 # Temp file to store the current IFC model being processed by IfcOpenShell
 /back/python/source_model.ifc
+
+# IFCs
+*.ifc
 
 # Python
 /back/python/__pycache__*
 /back/python/.venv*
+/back/python/venv*

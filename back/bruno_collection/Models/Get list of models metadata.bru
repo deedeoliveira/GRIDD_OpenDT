@@ -5,13 +5,14 @@ meta {
 }
 
 get {
-  url: http://{{url}}:{{port}}/{{baseRoute}}/{{modelRoute}}/
+  url: http://{{url}}:{{port}}/{{modelRoute}}/
   body: none
   auth: inherit
 }
 
 settings {
   encodeUrl: true
+  timeout: 0
 }
 
 docs {
