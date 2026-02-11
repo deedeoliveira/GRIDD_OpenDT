@@ -1,16 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
+
 import { Viewer } from "./Viewer";
 import { SensorModal } from "./SensorModal";
+
 import {
-	Accordion,
-	AccordionItem,
-	Button,
-	CircularProgress,
-	DateInput
+  Accordion,
+  AccordionItem,
+  Button,
+  CircularProgress
 } from "@heroui/react";
+
 import { useSensorStore } from "@/stores/sensorStore";
+
+const DateInput = dynamic(
+  () => import("@heroui/react").then(mod => mod.DateInput),
+  { ssr: false }
+);
 
 import type { LinkedModel, Model } from "@/types/model";
 
