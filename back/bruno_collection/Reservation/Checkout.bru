@@ -1,19 +1,19 @@
 meta {
-  name: Checkin
+  name: Checkout
   type: http
   seq: 4
 }
 
 post {
-  url: http://localhost:3001/api/reservation/checkin
+  url: http://{{url}}:{{port}}/{{baseRoute}}/reservation/checkin
   body: json
   auth: inherit
 }
 
 body:json {
   {
-    "assetId": 4,
-    "actorId": "L666"
+    "assetId": 1,
+    "actorId": "A1"
   }
   
 }

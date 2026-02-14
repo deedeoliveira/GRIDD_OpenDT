@@ -1,0 +1,21 @@
+meta {
+  name: Assets per version
+  type: http
+  seq: 6
+}
+
+get {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/asset/by-model/:modelId/:versionId
+  body: none
+  auth: inherit
+}
+
+params:path {
+  modelId: 
+  versionId: 
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

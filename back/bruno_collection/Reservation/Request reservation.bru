@@ -5,7 +5,7 @@ meta {
 }
 
 post {
-  url: http://localhost:3001/api/reservation/request
+  url: http://{{url}}:{{port}}/{{baseRoute}}/reservation/request
   body: json
   auth: inherit
 }
@@ -14,8 +14,8 @@ body:json {
   {
     "assetId": 5,
     "actorId": "k000",
-    "startTime": "2026-02-15T18:20:00",
-    "endTime": "2026-02-15T19:20:00"
+    "startTime": "2026-02-14T15:43:00",
+    "endTime": "2026-02-14T16:00:00"
   }
   
   

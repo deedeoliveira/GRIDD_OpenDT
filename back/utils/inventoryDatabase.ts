@@ -66,11 +66,26 @@ class InventoryDatabase {
               2️⃣ Criar ASSET do tipo SPACE
         ------------------------------------- */
         await this.db.connection.execute(`
-          INSERT INTO assets (name, asset_type, model_entity_id, current_space_entity_id)
-          VALUES (:name, 'space', :entityId, NULL)
+          INSERT INTO assets (
+            name,
+            asset_type,
+            model_entity_id,
+            current_space_entity_id,
+            model_version_id,
+            reservable
+          )
+          VALUES (
+            :name,
+            'space',
+            :entityId,
+            NULL,
+            :versionId,
+            true
+          )
         `, {
           name: space.spaceName,
-          entityId: spaceId
+          entityId: spaceId,
+          versionId
         });
 
         /* -------------------------------------
@@ -79,8 +94,22 @@ class InventoryDatabase {
         for (const element of space.elements) {
 
           const [elementResult]: any = await this.db.connection.execute(`
-            INSERT INTO entities (guid, name, ifc_type, entity_type, model_version_id, parent_id)
-            VALUES (:guid, :name, :ifcType, 'element', :versionId, :parentId)
+            INSERT INTO entities (
+              guid,
+              name,
+              ifc_type,
+              entity_type,
+              model_version_id,
+              parent_id
+            )
+            VALUES (
+              :guid,
+              :name,
+              :ifcType,
+              'element',
+              :versionId,
+              :parentId
+            )
           `, {
             guid: element.guid,
             name: element.name,
@@ -97,13 +126,29 @@ class InventoryDatabase {
                 (Exceto sensores)
           ------------------------------------- */
           if (element.type !== 'IfcSensor') {
+
             await this.db.connection.execute(`
-              INSERT INTO assets (name, asset_type, model_entity_id, current_space_entity_id)
-              VALUES (:name, 'equipment', :entityId, :spaceId)
+              INSERT INTO assets (
+                name,
+                asset_type,
+                model_entity_id,
+                current_space_entity_id,
+                model_version_id,
+                reservable
+              )
+              VALUES (
+                :name,
+                'equipment',
+                :entityId,
+                :spaceId,
+                :versionId,
+                true
+              )
             `, {
               name: element.name,
               entityId: elementId,
-              spaceId: spaceId
+              spaceId: spaceId,
+              versionId
             });
           }
         }

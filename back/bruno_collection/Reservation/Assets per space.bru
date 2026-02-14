@@ -1,0 +1,21 @@
+meta {
+  name: Assets per space
+  type: http
+  seq: 4
+}
+
+get {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/asset/by-space/:spaceEntityId/:versionId
+  body: none
+  auth: inherit
+}
+
+params:path {
+  versionId: 
+  spaceEntityId: 
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
