@@ -1,17 +1,18 @@
 meta {
-  name: Process model's spaces and sensors
+  name: Preprocess by modelId
   type: http
-  seq: 7
+  seq: 9
 }
 
-get {
-  url: http://{{url}}:{{port}}/{{baseRoute}}/{{modelRoute}}/process/:modelId
+post {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/{{modelRoute}}/preprocess/:modelId/:versionId
   body: none
   auth: inherit
 }
 
 params:path {
-  modelId: 2
+  versionId: 
+  modelId: 1
 }
 
 settings {

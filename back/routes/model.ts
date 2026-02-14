@@ -7,6 +7,9 @@ import sensorDb from '../utils/sensorDatabase.ts';
 import fs from 'fs';
 import { SensorChannelEnum } from '../types/sensors.ts';
 
+//Andressa
+import inventoryDb from "../utils/inventoryDatabase.ts";
+
 const app = express();
 
 const MODELS_TEMP_ROOT_PATH = path.join(import.meta.dirname, '../cdn_resources/models/temp');
@@ -84,11 +87,13 @@ app.get('/download/:id', async (req, res) => {
     res.send(data);
 });
 
+//Andressa atualizou
 app.post('/upload', upload.single('file'), async (req, res) => {
-    if (!req.file && !req.body?.fileUrl) return buildErrorResponse(res, 400, 'File or file location is required');
+    if (!req.file && !req.body?.fileUrl)
+        return buildErrorResponse(res, 400, 'File or file location is required');
 
     if (req.fileUrl) {
-        //TODO: implement upload from url
+        // TODO: implement upload from url
         return buildErrorResponse(res, 501, 'Upload from URL not implemented yet');
     }
 
@@ -96,32 +101,72 @@ app.post('/upload', upload.single('file'), async (req, res) => {
     const linkedParentId = req.body.linkedParentId;
     const modelId = req.body.modelId;
 
-    if (!modelId) {
-        /* If modelId is not provided, create a new model */
-        const model = await db.uploadModel(name, null, linkedParentId);
+    try {
 
-        if (model.id) {
-            // Rename the file to its model ID and move it to the models folder
-            fs.renameSync(req.file.path, path.join(MODELS_ROOT_PATH, `${model.id}.${path.extname(req.file.originalname).slice(1)}`));
+        // 🔹 NOVO MODELO
+        if (!modelId) {
+            const model = await db.uploadModel(name, null, linkedParentId);
 
-            return buildSuccessResponse(res, 201, model);
+            if (model.id) {
+
+                // Move file to models folder
+                fs.renameSync(
+                    req.file.path,
+                    path.join(
+                        MODELS_ROOT_PATH,
+                        `${model.id}.${path.extname(req.file.originalname).slice(1)}`
+                    )
+                );
+
+                // 🔹 Criar primeira versão automaticamente
+                const versionId = await inventoryDb.createModelVersion(model.id);
+
+                return buildSuccessResponse(res, 201, {
+                    ...model,
+                    versionId
+                });
+            }
+
+        } else {
+            // 🔹 UPDATE MODELO EXISTENTE
+
+            // Garantir pasta archive
+            if (!fs.existsSync(path.join(MODELS_ROOT_PATH, 'archive'))) {
+                fs.mkdirSync(path.join(MODELS_ROOT_PATH, 'archive'));
+            }
+
+            // Arquivar versão anterior
+            fs.renameSync(
+                path.join(MODELS_ROOT_PATH, `${modelId}.ifc`),
+                path.join(
+                    MODELS_ROOT_PATH,
+                    'archive',
+                    `${Date.now()}_${modelId}.ifc`
+                )
+            );
+
+            // Salvar novo IFC
+            fs.renameSync(
+                req.file.path,
+                path.join(
+                    MODELS_ROOT_PATH,
+                    `${modelId}.${path.extname(req.file.originalname).slice(1)}`
+                )
+            );
+
+            // 🔹 Criar nova versão do modelo
+            const versionId = await inventoryDb.createModelVersion(modelId);
+
+            return buildSuccessResponse(res, 200, {
+                id: modelId,
+                versionId,
+                message: `Model ${modelId} updated successfully`
+            });
         }
-    } else {
-        // If modelId is provided, update the existing model
 
-        // Move the previous file to an archive folder
-        if (!fs.existsSync(path.join(MODELS_ROOT_PATH, 'archive'))) {
-            fs.mkdirSync(path.join(MODELS_ROOT_PATH, 'archive'));
-        }
-
-        fs.renameSync(path.join(MODELS_ROOT_PATH, `${modelId}.ifc`), path.join(MODELS_ROOT_PATH, 'archive', `${Date.now()}_${modelId}.ifc`));
-
-        // Move the new file to the models folder
-        fs.renameSync(req.file.path, path.join(MODELS_ROOT_PATH, `${modelId}.${path.extname(req.file.originalname).slice(1)}`));
-
-        return buildSuccessResponse(res, 200, { id: modelId, message: `Model ${modelId} updated successfully` });
+    } catch (error: any) {
+        return buildErrorResponse(res, 500, error.message);
     }
-
 });
 
 /**
@@ -176,6 +221,46 @@ app.get('/process/:id', async (req, res) => {
     }
 
     return buildSuccessResponse(res, 200, { message: `Model ${modelId} processed successfully`, createdSensors });
+});
+
+//Andressa
+app.post('/preprocess/:modelId/:versionId', async (req, res) => {
+    const { modelId, versionId } = req.params;
+
+    if (!modelId || !versionId) {
+        return buildErrorResponse(res, 400, 'Model ID and Version ID are required');
+    }
+
+    try {
+
+        // 🔹 Extrair inventário do IFC (usando modelId para localizar arquivo)
+        const invResp = await fetch(
+            `${process.env.IFCOPENSHELL_FLASK_API_ROUTE}/model/inventory/${modelId}`,
+            { method: 'POST' }
+        );
+
+        if (!invResp.ok) {
+            return buildErrorResponse(res, 500, `Error extracting inventory for model ${modelId}`);
+        }
+
+        const invPayload = await invResp.json();
+
+        if (!invPayload?.data) {
+            return buildErrorResponse(res, 500, `Inventory extraction failed`);
+        }
+
+        // 🔹 Salvar snapshot associado à versão
+        await inventoryDb.saveInventorySnapshot(Number(versionId), invPayload.data);
+
+        return buildSuccessResponse(res, 200, {
+            message: `Inventory snapshot saved successfully`,
+            modelId,
+            versionId
+        });
+
+    } catch (error: any) {
+        return buildErrorResponse(res, 500, error.message);
+    }
 });
 
 export default app;

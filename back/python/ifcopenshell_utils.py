@@ -1,5 +1,6 @@
 import ifcopenshell
 import ifcopenshell.util.selector
+import ifcopenshell.util.element #Andressa
 
 def process_ifc_file():
     model = ifcopenshell.open("source_model.ifc")
@@ -25,3 +26,49 @@ def process_ifc_file():
         }
 
     return sensorData
+
+#Andressa
+def extract_inventory_by_space():
+    model = ifcopenshell.open("source_model.ifc")
+
+    # Base: spaces existentes
+    spaces = model.by_type("IfcSpace")
+    inventory = {}
+
+    for sp in spaces:
+        inventory[sp.GlobalId] = {
+            "spaceGuid": sp.GlobalId,
+            "spaceName": getattr(sp, "Name", None),
+            "elements": []
+        }
+
+    rels = model.by_type("IfcRelContainedInSpatialStructure")
+    for rel in rels:
+        structure = rel.RelatingStructure
+        if not structure:
+            continue
+
+        # só inventário por IfcSpace
+        if not structure.is_a("IfcSpace"):
+            continue
+
+        space_guid = structure.GlobalId
+        if space_guid not in inventory:
+            inventory[space_guid] = {
+                "spaceGuid": space_guid,
+                "spaceName": getattr(structure, "Name", None),
+                "elements": []
+            }
+
+        for el in rel.RelatedElements or []:
+            # IfcElement em geral
+            if not el.is_a("IfcElement"):
+                continue
+
+            inventory[space_guid]["elements"].append({
+                "guid": el.GlobalId,
+                "type": el.is_a(),
+                "name": getattr(el, "Name", None)
+            })
+
+    return inventory

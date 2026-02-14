@@ -1,0 +1,24 @@
+meta {
+  name: Checkin
+  type: http
+  seq: 4
+}
+
+post {
+  url: http://localhost:3001/api/reservation/checkin
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "assetId": 4,
+    "actorId": "L666"
+  }
+  
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
