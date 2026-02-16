@@ -9,6 +9,7 @@ import { SensorChannelEnum } from '../types/sensors.ts';
 
 //Andressa
 import inventoryDb from "../utils/inventoryDatabase.ts";
+import { runPreprocess } from "../services/preprocessService.ts";
 
 const app = express();
 
@@ -93,7 +94,6 @@ app.post('/upload', upload.single('file'), async (req, res) => {
         return buildErrorResponse(res, 400, 'File or file location is required');
 
     if (req.fileUrl) {
-        // TODO: implement upload from url
         return buildErrorResponse(res, 501, 'Upload from URL not implemented yet');
     }
 
@@ -103,71 +103,94 @@ app.post('/upload', upload.single('file'), async (req, res) => {
 
     try {
 
-        // 🔹 NOVO MODELO
+        /* ==========================================================
+           🔹 NOVO MODELO
+        ========================================================== */
         if (!modelId) {
+
             const model = await db.uploadModel(name, null, linkedParentId);
 
-            if (model.id) {
-
-                // Move file to models folder
-                fs.renameSync(
-                    req.file.path,
-                    path.join(
-                        MODELS_ROOT_PATH,
-                        `${model.id}.${path.extname(req.file.originalname).slice(1)}`
-                    )
-                );
-
-                // 🔹 Criar primeira versão automaticamente
-                const versionId = await inventoryDb.createModelVersion(model.id);
-
-                return buildSuccessResponse(res, 201, {
-                    ...model,
-                    versionId
-                });
+            if (!model.id) {
+                throw new Error("Model creation failed");
             }
 
-        } else {
-            // 🔹 UPDATE MODELO EXISTENTE
-
-            // Garantir pasta archive
-            if (!fs.existsSync(path.join(MODELS_ROOT_PATH, 'archive'))) {
-                fs.mkdirSync(path.join(MODELS_ROOT_PATH, 'archive'));
-            }
-
-            // Arquivar versão anterior
-            fs.renameSync(
-                path.join(MODELS_ROOT_PATH, `${modelId}.ifc`),
-                path.join(
-                    MODELS_ROOT_PATH,
-                    'archive',
-                    `${Date.now()}_${modelId}.ifc`
-                )
-            );
-
-            // Salvar novo IFC
+            // Move file to models folder
             fs.renameSync(
                 req.file.path,
                 path.join(
                     MODELS_ROOT_PATH,
-                    `${modelId}.${path.extname(req.file.originalname).slice(1)}`
+                    `${model.id}.${path.extname(req.file.originalname).slice(1)}`
                 )
             );
 
-            // 🔹 Criar nova versão do modelo
-            const versionId = await inventoryDb.createModelVersion(modelId);
+            // Criar versão
+            const versionId = await inventoryDb.createModelVersion(model.id);
 
-            return buildSuccessResponse(res, 200, {
-                id: modelId,
+            // Rodar preprocess com rollback controlado
+            try {
+                await runPreprocess(Number(model.id), Number(versionId));
+            } catch (err) {
+                await inventoryDb.deleteModelVersion(versionId);
+                throw err;
+            }
+
+            return buildSuccessResponse(res, 201, {
+                ...model,
                 versionId,
-                message: `Model ${modelId} updated successfully`
+                message: "Model uploaded and inventory processed successfully"
             });
         }
+
+        /* ==========================================================
+           🔹 UPDATE MODELO EXISTENTE
+        ========================================================== */
+
+        // Garantir pasta archive
+        if (!fs.existsSync(path.join(MODELS_ROOT_PATH, 'archive'))) {
+            fs.mkdirSync(path.join(MODELS_ROOT_PATH, 'archive'));
+        }
+
+        // Arquivar versão anterior
+        fs.renameSync(
+            path.join(MODELS_ROOT_PATH, `${modelId}.ifc`),
+            path.join(
+                MODELS_ROOT_PATH,
+                'archive',
+                `${Date.now()}_${modelId}.ifc`
+            )
+        );
+
+        // Salvar novo IFC
+        fs.renameSync(
+            req.file.path,
+            path.join(
+                MODELS_ROOT_PATH,
+                `${modelId}.${path.extname(req.file.originalname).slice(1)}`
+            )
+        );
+
+        // Criar nova versão
+        const versionId = await inventoryDb.createModelVersion(modelId);
+
+        // Rodar preprocess com rollback controlado
+        try {
+            await runPreprocess(Number(modelId), Number(versionId));
+        } catch (err) {
+            await inventoryDb.deleteModelVersion(versionId);
+            throw err;
+        }
+
+        return buildSuccessResponse(res, 200, {
+            id: modelId,
+            versionId,
+            message: `Model ${modelId} updated and inventory processed successfully`
+        });
 
     } catch (error: any) {
         return buildErrorResponse(res, 500, error.message);
     }
 });
+
 
 /**
  * Process a model by extracting sensor guid and space guid where the sensor is located.

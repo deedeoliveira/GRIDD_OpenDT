@@ -41,6 +41,16 @@ class InventoryDatabase {
     await this.db.checkConnection();
     await this.db.connection.beginTransaction();
 
+    const [existing]: any = await this.db.connection.execute(`
+      SELECT COUNT(*) as count
+      FROM entities
+      WHERE model_version_id = :versionId
+    `, { versionId });
+
+    if (existing[0].count > 0) {
+      throw new Error("Inventory already exists for this version");
+    }
+
     try {
       const guidToEntityId = new Map<string, number>();
 
@@ -162,6 +172,16 @@ class InventoryDatabase {
       throw error;
     }
   }
+
+  async deleteModelVersion(versionId: number) {
+    await this.db.checkConnection();
+
+    await this.db.connection.execute(`
+      DELETE FROM model_versions
+      WHERE id = :versionId
+    `, { versionId });
+  }
+
 }
 
 export default new InventoryDatabase();
