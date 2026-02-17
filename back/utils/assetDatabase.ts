@@ -95,7 +95,22 @@ class AssetDatabase {
     };
   }
 
+  async getAssetByGuid(guid: string, versionId: number) {
+    await this.db.checkConnection();
 
+    const [rows]: any = await this.db.connection.execute(`
+      SELECT a.*
+      FROM assets a
+      INNER JOIN entities e
+        ON a.model_entity_id = e.id
+      WHERE e.guid = :guid
+        AND e.model_version_id = :versionId
+        AND a.model_version_id = :versionId
+      LIMIT 1
+    `, { guid, versionId });
+
+    return rows[0] || null;
+  }
 }
 
 export default new AssetDatabase();

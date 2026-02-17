@@ -6,6 +6,26 @@ const app = express();
 app.use(express.json());
 
 /* -------------------------------------
+   GET asset by GUID / specific version
+------------------------------------- */
+app.get("/by-guid/:guid/:versionId", async (req, res) => {
+  const { guid, versionId } = req.params;
+
+  try {
+    const asset = await assetDb.getAssetByGuid(
+      guid,
+      Number(versionId)
+    );
+
+    return buildSuccessResponse(res, 200, asset);
+
+  } catch (error: any) {
+    return buildErrorResponse(res, 500, error.message);
+  }
+});
+
+
+/* -------------------------------------
    GET availability (version aware)
 ------------------------------------- */
 app.get("/availability/:assetId/:versionId", async (req, res) => {

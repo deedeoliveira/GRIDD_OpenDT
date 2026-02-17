@@ -1,0 +1,20 @@
+meta {
+  name: Get asset_id from GUID
+  type: http
+  seq: 8
+}
+
+get {
+  url: /api/asset/by-guid/:guid/:versionId
+  body: none
+  auth: inherit
+}
+
+params:path {
+  guid: 
+  versionId: 
+}
+
+settings {
+  encodeUrl: true
+}

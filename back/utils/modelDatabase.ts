@@ -192,6 +192,8 @@ class ModelDatabase implements IModelDatabase {
     }
 
     // TODO: Implement authentication / authorization
+
+
     async listLinkedModels(): Promise<LinkedModel[] | Error> {
         await this.db.checkConnection();
 
@@ -210,14 +212,28 @@ class ModelDatabase implements IModelDatabase {
         }
 
         for (const row of linkedRows as any[]) {
+
+            row.childModels = [];
+
             if (row.childrenIds) {
-                row.childModels = await Promise.all(row.childrenIds.split(',').map(async (id: string) => this.getModelMetadata(id)));
-                delete row.childrenIds;
+                const ids = row.childrenIds.split(',');
+
+                for (const id of ids) {
+                    const model = await this.getModelMetadata(id);
+
+                    if (!(model instanceof Error)) {
+                        row.childModels.push(model);
+                    }
+                }
             }
+
+            delete row.childrenIds;
         }
 
         return linkedRows as LinkedModel[];
     }
+
+
 }
 
 export default new ModelDatabase(MODELS_ROOT_PATH);
