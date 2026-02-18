@@ -111,6 +111,47 @@ class AssetDatabase {
 
     return rows[0] || null;
   }
+
+  async getAssetByGuidLatest(modelId: number, guid: string) {
+    await this.db.checkConnection();
+
+    // Buscar última versão
+    const [versionRows]: any = await this.db.connection.execute(`
+      SELECT id
+      FROM model_versions
+      WHERE model_id = :modelId
+      ORDER BY id DESC
+      LIMIT 1
+    `, { modelId });
+
+    if (!versionRows.length) return null;
+
+    const versionId = versionRows[0].id;
+
+    // Buscar asset na versão
+    const [rows]: any = await this.db.connection.execute(`
+      SELECT a.*
+      FROM assets a
+      INNER JOIN entities e ON a.model_entity_id = e.id
+      WHERE e.guid = :guid
+      AND e.model_version_id = :versionId
+      AND a.model_version_id = :versionId
+      LIMIT 1
+    `, { guid, versionId });
+
+    console.log("modelId:", modelId);
+    console.log("versionRows:", versionRows);
+    console.log("versionId:", versionId);
+    console.log("guid:", guid);
+    console.log("rows:", rows);
+
+
+    return rows[0] || null;
+  }
+
+
+
+
 }
 
 export default new AssetDatabase();

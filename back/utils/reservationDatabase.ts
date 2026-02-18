@@ -252,6 +252,41 @@ class ReservationDatabase {
         AND NOW() > DATE_ADD(start_time, INTERVAL 10 MINUTE)
     `);
   }
+  
+  /* -------------------------------------
+    GET reservations by asset
+  ------------------------------------- */
+  async getReservationsByAsset(assetId: number) {
+    await this.markExpiredReservationsAsNoShow();
+    await this.db.checkConnection();
+
+    const [rows]: any = await this.db.connection.execute(`
+      SELECT *
+      FROM res_reservations
+      WHERE asset_id = :assetId
+      ORDER BY start_time ASC
+    `, { assetId });
+
+    return rows;
+  }
+
+  /* -------------------------------------
+    GET reservations by actor
+  ------------------------------------- */
+  async getReservationsByActor(actorId: string) {
+    await this.markExpiredReservationsAsNoShow();
+    await this.db.checkConnection();
+
+    const [rows]: any = await this.db.connection.execute(`
+      SELECT *
+      FROM res_reservations
+      WHERE actor_id = :actorId
+      ORDER BY start_time ASC
+    `, { actorId });
+
+    return rows;
+  }
+
 
 }
 

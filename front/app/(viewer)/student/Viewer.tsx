@@ -19,13 +19,26 @@ const world = worlds.create<
     OBC.OrthoPerspectiveCamera,
     OBC.SimpleRenderer
 >();
+
+type SelectedIfcInfo = {
+  guid: string;
+  name?: string;
+  tag?: string;
+};
+
+type ViewerProps = {
+  selectedModel: any;
+  onWorldInitialized?: () => void;
+  onElementSelected?: (info: SelectedIfcInfo) => void;
+};
+
 let model: FragmentsModel;
 
 const spaces = new Map<string, any>();
 
-export function Viewer(props: any) {
+export function Viewer(props: ViewerProps) {
 
-    const { selectedModel, onWorldInitialized } = props;
+    const { selectedModel, onWorldInitialized, onElementSelected } = props;
 
     const container = useRef<HTMLDivElement>(null);
     const [worldInitialized, setWorldInitialized] = useState(false);
@@ -107,8 +120,20 @@ export function Viewer(props: any) {
     const loadLinkedModel = async () => {
         if (!selectedModel?.childModels?.length || !container.current) return;
 
-        if (!worldInitialized) initWorld();
-        if (!fragments.initialized) await initFragmentsManager();
+        if (!worldInitialized) {
+            initWorld();
+        }
+
+        // 🔵 GARANTIR que a câmera foi criada
+        if (!world.camera) {
+            console.warn("World camera not ready yet");
+            return;
+        }
+
+        if (!fragments.initialized) {
+            await initFragmentsManager();
+        }
+
         if (fragmentsModelIds.length) await clearWorld();
 
         const ifcLoader = components.get(OBC.IfcLoader);
@@ -119,22 +144,15 @@ export function Viewer(props: any) {
 
         const modelIds: number[] = [];
 
-        console.log("1 - start loadLinkedModel");
-
         for (const childModel of selectedModel.childModels) {
-            console.log("2 - downloading model", childModel.id);
 
             const res = await fetch(`/api/model/download/${childModel.id}`);
-            console.log("3 - download response", res.status);
 
             const blob = await res.blob();
-            console.log("4 - blob received");
 
             const arrayBuffer = new Uint8Array(await blob.arrayBuffer());
-            console.log("5 - arrayBuffer ready");
 
             model = await ifcLoader.load(arrayBuffer, true, childModel.name);
-            console.log("6 - IFC loaded");
 
             modelIds.push(model.modelId);
         }
@@ -144,12 +162,11 @@ export function Viewer(props: any) {
 
         await getSpatialStructure(fragments.list);
 
-        console.log("9 - finishing");
         onWorldInitialized?.();
     }
 
     async function retrieveSpaces() {
-        console.log("7 - retrieving spaces");
+
         if (!model) return;
 
         spaces.clear();
@@ -181,17 +198,36 @@ export function Viewer(props: any) {
             const [data] = await modelInstance.getItemsData([...modelIdMap[modelId]]);
 
             const attributes = Object.entries(data).reduce((acc: any, [key, value]: any) => {
-                if (key.startsWith("_")) return acc;
-                acc[key] = value.value;
-                return acc;
+            if (key.startsWith("_")) return acc;
+            acc[key] = value.value;
+            return acc;
             }, {});
 
-            setSelectedObjectProperties(attributes);
+            const guid =
+            data?._guid?.value ??
+            attributes?.GlobalId ??
+            null;
+
+            const name =
+            attributes?.Name ??
+            attributes?.LongName ??
+            null;
+
+            const tag =
+            attributes?.Tag ??
+            null;
+
+            if (guid && props.onElementSelected) {
+            props.onElementSelected({
+                guid: String(guid),
+                name: name ? String(name) : undefined,
+                tag: tag ? String(tag) : undefined
+            });
+            }
         }
 
         await fragments.core.update(true);
     }
-
 
 
     async function getSpatialStructure(models: any) {
@@ -367,9 +403,6 @@ export function Viewer(props: any) {
     }
 
 
-
-
-
     function computeObjectProperties() {
         return Object.entries(selectedObjectProperties ?? {}).map(([key, value]) => (
             <tr key={key}>
@@ -378,6 +411,46 @@ export function Viewer(props: any) {
             </tr>
         ));
     }
+
+    async function checkAvailability() {
+        if (!selectedAsset) return;
+
+        const versionId = selectedAsset.model_version_id;
+
+        const res = await fetch(
+            `/api/asset/availability/${selectedAsset.id}/${versionId}?start=${startTime}&end=${endTime}`
+        );
+
+        if (res.ok) {
+            const data = await res.json();
+            setAvailabilityResult(data.data);
+        }
+    }
+
+    async function createReservation() {
+        if (!selectedAsset) return;
+
+        const res = await fetch(`/api/reservation/request`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                assetId: selectedAsset.id,
+                actorId,
+                startTime,
+                endTime
+            })
+        });
+
+        if (res.ok) {
+            alert("Reservation requested successfully!");
+            setIsReserveModalOpen(false);
+        } else {
+            const err = await res.json();
+            alert(err.message);
+        }
+    }
+
+
 
     useEffect(() => {
         initWorld();
@@ -391,22 +464,7 @@ export function Viewer(props: any) {
     return (
         <>
             <div ref={container} style={{ width: "100vw", height: "100vh" }} />
-            <div style={{
-                position: "absolute",
-                bottom: 10,
-                left: 10,
-                zIndex: 10,
-                backgroundColor: "white",
-                padding: 10,
-                maxHeight: "75vh",
-                width: "25vw",
-                overflow: "auto"
-            }}>
-                {
-                    selectedObjectProperties &&
-                    <table><tbody>{computeObjectProperties()}</tbody></table>
-                }
-            </div>
+
             <div style={{
                 position: "absolute",
                 top: 40,

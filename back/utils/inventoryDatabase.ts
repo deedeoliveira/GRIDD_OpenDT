@@ -52,14 +52,17 @@ class InventoryDatabase {
     }
 
     try {
-      const guidToEntityId = new Map<string, number>();
+
+      const insertedGuids = new Set<string>();
+
+      console.log("Inventory size:", Object.keys(inventoryData).length);
 
       for (const spaceGuid in inventoryData) {
+
         const space = inventoryData[spaceGuid];
 
-        /* -------------------------------------
-              1️⃣ Criar ENTITY do tipo SPACE
-        ------------------------------------- */
+        /* ------------------- SPACE ENTITY ------------------- */
+
         const [spaceResult]: any = await this.db.connection.execute(`
           INSERT INTO entities (guid, name, ifc_type, entity_type, model_version_id)
           VALUES (:guid, :name, 'IfcSpace', 'space', :versionId)
@@ -70,11 +73,9 @@ class InventoryDatabase {
         });
 
         const spaceId = spaceResult.insertId;
-        guidToEntityId.set(spaceGuid, spaceId);
 
-        /* -------------------------------------
-              2️⃣ Criar ASSET do tipo SPACE
-        ------------------------------------- */
+        /* ------------------- SPACE ASSET ------------------- */
+
         await this.db.connection.execute(`
           INSERT INTO assets (
             name,
@@ -98,10 +99,16 @@ class InventoryDatabase {
           versionId
         });
 
-        /* -------------------------------------
-              3️⃣ Criar ELEMENTS dentro do SPACE
-        ------------------------------------- */
+        /* ------------------- ELEMENTS ------------------- */
+
         for (const element of space.elements) {
+
+          if (insertedGuids.has(element.guid)) {
+            console.warn("[inventory] DUP GUID in payload", element.guid);
+            continue;
+          }
+
+          insertedGuids.add(element.guid);
 
           const [elementResult]: any = await this.db.connection.execute(`
             INSERT INTO entities (
@@ -129,14 +136,8 @@ class InventoryDatabase {
           });
 
           const elementId = elementResult.insertId;
-          guidToEntityId.set(element.guid, elementId);
 
-          /* -------------------------------------
-                4️⃣ Criar ASSET do tipo EQUIPMENT
-                (Exceto sensores)
-          ------------------------------------- */
           if (element.type !== 'IfcSensor') {
-
             await this.db.connection.execute(`
               INSERT INTO assets (
                 name,
@@ -173,6 +174,7 @@ class InventoryDatabase {
     }
   }
 
+
   async deleteModelVersion(versionId: number) {
     await this.db.checkConnection();
 
@@ -181,6 +183,9 @@ class InventoryDatabase {
       WHERE id = :versionId
     `, { versionId });
   }
+
+
+
 
 }
 

@@ -1,18 +1,17 @@
 meta {
-  name: Get asset_id from GUID
+  name: Reservations per asset
   type: http
   seq: 9
 }
 
 get {
-  url: /api/asset/by-guid/:guid/:versionId
+  url: http://{{url}}:{{port}}/{{baseRoute}}/asset/:assetId
   body: none
   auth: inherit
 }
 
 params:path {
-  guid: 
-  versionId: 
+  assetId: 14
 }
 
 settings {

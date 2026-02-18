@@ -89,6 +89,25 @@ app.get("/by-model/:modelId/:versionId", async (req, res) => {
 });
 
 /* -------------------------------------
+   GET asset by GUID - LATEST VERSION
+------------------------------------- */
+app.get("/by-guid-latest/:modelId/:guid", async (req, res) => {
+  const { modelId, guid } = req.params;
+
+  try {
+    const asset = await assetDb.getAssetByGuidLatest(
+      Number(modelId),
+      guid
+    );
+
+    return buildSuccessResponse(res, 200, asset);
+
+  } catch (error: any) {
+    return buildErrorResponse(res, 500, error.message);
+  }
+});
+
+/* -------------------------------------
    GET specific asset / specific version
 ------------------------------------- */
 app.get("/:assetId/:versionId", async (req, res) => {
@@ -105,5 +124,9 @@ app.get("/:assetId/:versionId", async (req, res) => {
     return buildErrorResponse(res, 500, error.message);
   }
 });
+
+
+
+
 
 export default app;
