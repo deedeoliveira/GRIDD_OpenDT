@@ -1,22 +1,16 @@
 import { NextResponse } from "next/server";
 
 export async function GET(
-  _req: Request,
-  { params }: { params: { modelId: string; guid: string } }
+  request: Request,
+  { params }: { params: Promise<{ modelId: string; guid: string }> }
 ) {
-  const { modelId, guid } = params;
+  const { modelId, guid } = await params;
 
-  const backendUrl = `${process.env.BASE_API_URL}/asset/by-guid-latest/${modelId}/${guid}`;
+  const backendUrl =
+    `${process.env.BASE_API_URL}/asset/by-guid-latest/${modelId}/${guid}`;
 
-  try {
-    const res = await fetch(backendUrl);
-    const data = await res.json();
+  const response = await fetch(backendUrl);
+  const data = await response.json();
 
-    return NextResponse.json(data, { status: res.status });
-  } catch (error: any) {
-    return NextResponse.json(
-      { ok: false, error: error.message },
-      { status: 500 }
-    );
-  }
+  return NextResponse.json(data, { status: response.status });
 }

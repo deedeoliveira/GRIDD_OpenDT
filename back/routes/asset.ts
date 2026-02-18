@@ -28,8 +28,8 @@ app.get("/by-guid/:guid/:versionId", async (req, res) => {
 /* -------------------------------------
    GET availability (version aware)
 ------------------------------------- */
-app.get("/availability/:assetId/:versionId", async (req, res) => {
-  const { assetId, versionId } = req.params;
+app.get("/availability/:assetId", async (req, res) => {
+  const { assetId } = req.params;
   const { start, end } = req.query;
 
   if (!start || !end) {
@@ -39,7 +39,6 @@ app.get("/availability/:assetId/:versionId", async (req, res) => {
   try {
     const result = await assetDb.getAvailability(
       Number(assetId),
-      Number(versionId),
       new Date(start as string),
       new Date(end as string)
     );
@@ -50,6 +49,7 @@ app.get("/availability/:assetId/:versionId", async (req, res) => {
     return buildErrorResponse(res, 500, error.message);
   }
 });
+
 
 
 /* -------------------------------------

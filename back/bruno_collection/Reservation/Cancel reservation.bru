@@ -5,18 +5,17 @@ meta {
 }
 
 post {
-  url: http://{{url}}:{{port}}/{{baseRoute}}/reservation/request
+  url: http://{{url}}:{{port}}/{{baseRoute}}/reservation/cancel/
   body: json
   auth: inherit
 }
 
 body:json {
   {
-    "assetId": 5,
-    "actorId": "k000",
-    "startTime": "2026-02-14T15:43:00",
-    "endTime": "2026-02-14T16:00:00"
+    "reservationId": 12,
+    "actorId": "pg202404"
   }
+  
   
   
   

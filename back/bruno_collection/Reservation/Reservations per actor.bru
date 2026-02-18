@@ -5,13 +5,13 @@ meta {
 }
 
 get {
-  url: /reservation/actor/:actorID
+  url: http://{{url}}:{{port}}/{{baseRoute}}/reservation/actor/:actorId
   body: none
   auth: inherit
 }
 
 params:path {
-  actorID: pg202404
+  actorId: pg202404
 }
 
 settings {

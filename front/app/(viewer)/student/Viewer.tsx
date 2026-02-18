@@ -229,6 +229,17 @@ export function Viewer(props: ViewerProps) {
         await fragments.core.update(true);
     }
 
+    function expandTreeToDepth(node: any, depth: number) {
+        if (!node || depth <= 0) return;
+
+        node.expanded = true;
+
+        if (Array.isArray(node.children)) {
+            for (const child of node.children) {
+            expandTreeToDepth(child, depth - 1);
+            }
+        }
+        }
 
     async function getSpatialStructure(models: any) {
         if (!models || models.size === 0) return;
@@ -253,8 +264,9 @@ export function Viewer(props: ViewerProps) {
                 const tree = await getModelTree(model, buildingNode);
 
                 if (tree) {
-                    tree.expanded = true; // 🔵 default aberto
-                    trees.push(tree);
+                // abre o IFCBUILDING + próximos níveis (ajusta o "3" se quiser mais/menos)
+                expandTreeToDepth(tree, 10);
+                trees.push(tree);
                 }
 
                 resolve();

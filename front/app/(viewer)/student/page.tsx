@@ -1,10 +1,15 @@
 "use client";
 
+<html lang="pt-PT"></html>
+
 import { useEffect, useState } from "react";
 import { Viewer } from "./Viewer";
 
 import { Accordion, AccordionItem, Button, CircularProgress } from "@heroui/react";
 import type { LinkedModel } from "@/types/model";
+
+import ReservationModal from "./ReservationModal";
+
 
 type SelectedIfcInfo = {
   guid: string;
@@ -36,6 +41,11 @@ export default function ViewerPage() {
   const [assetReservations, setAssetReservations] = useState<ReservationRow[]>([]);
   const [actorReservations, setActorReservations] = useState<ReservationRow[]>([]);
   const [inventoryMessage, setInventoryMessage] = useState<string>("");
+
+  const [isReservationOpen, setIsReservationOpen] = useState(false);
+  const [isCheckingAsset, setIsCheckingAsset] = useState(false);
+
+
 
   /* -------------------------------------
               HELPERS
@@ -112,6 +122,7 @@ export default function ViewerPage() {
     setAssetReservations([]);
     setActorReservations([]);
     setInventoryMessage("");
+    setIsCheckingAsset(false);
   }, [selectedLinkedModel]);
 
   useEffect(() => {
@@ -121,6 +132,7 @@ export default function ViewerPage() {
     let cancelled = false;
 
     async function loadReservationData() {
+      setIsCheckingAsset(true);
       setInventoryMessage("");
       setSelectedAsset(null);
       setAssetReservations([]);
@@ -135,11 +147,13 @@ export default function ViewerPage() {
 
       if (!ok) {
         setInventoryMessage("Erro ao consultar inventário.");
+        setIsCheckingAsset(false);
         return;
       }
 
       if (!asset) {
         setInventoryMessage("Elemento não pertence ao inventário.");
+        setIsCheckingAsset(false);
         return;
       }
 
@@ -152,6 +166,8 @@ export default function ViewerPage() {
       const uRows = await fetchReservationsByActor(actorId);
       if (cancelled) return;
       setActorReservations(uRows);
+
+      setIsCheckingAsset(false);
     }
 
     loadReservationData();
@@ -160,6 +176,7 @@ export default function ViewerPage() {
       cancelled = true;
     };
   }, [selectedIfc?.guid, selectedLinkedModel?.id, actorId]);
+
 
   /* -------------------------------------
               UI
@@ -201,20 +218,42 @@ export default function ViewerPage() {
 
                 <hr className="my-2" />
 
-                {inventoryMessage ? (
-                  <div className="text-xs text-gray-600">
+                {isCheckingAsset ? (
+                  <div className="text-sm text-gray-500">
+                    Verificando inventário...
+                  </div>
+                ) : inventoryMessage ? (
+                  <div className="text-sm text-gray-500">
                     {inventoryMessage}
                   </div>
+
+                ) : selectedAsset ? (
+                  selectedAsset.reservable ? (
+                    <>
+                      <div><strong>Asset ID:</strong> {selectedAsset.id}</div>
+
+                      <Button
+                        className="mt-3"
+                        onPress={() => setIsReservationOpen(true)}
+                      >
+                        Reservar
+                      </Button>
+                    </>
+                  ) : (
+                    <div className="text-sm text-gray-500 mt-2">
+                      Este elemento não pode ser reservado.
+                    </div>
+                  )
                 ) : (
-                  <>
-                    <div><strong>Asset ID:</strong> {selectedAsset?.id ?? "-"}</div>
-                    <div><strong>Asset Reservations:</strong> {assetReservations.length}</div>
-                    <div><strong>Actor Reservations ({actorId}):</strong> {actorReservations.length}</div>
-                  </>
+
+                  <div className="text-sm text-gray-500 mt-2">
+                    Este elemento não pertence ao inventário e não pode ser reservado.
+                  </div>
                 )}
               </div>
             )}
           </AccordionItem>
+
         </Accordion>
       </div>
 
@@ -222,7 +261,16 @@ export default function ViewerPage() {
         selectedModel={selectedLinkedModel}
         onWorldInitialized={onWorldInitialized}
         onElementSelected={onElementSelected}
+
       />
+      {isReservationOpen && selectedAsset && (
+        <ReservationModal
+          asset={selectedAsset}
+          actorId={actorId}
+          onClose={() => setIsReservationOpen(false)}
+        />
+      )}
+
     </>
   );
 }

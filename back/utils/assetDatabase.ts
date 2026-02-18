@@ -50,50 +50,57 @@ class AssetDatabase {
     return rows;
   }
 
-  async getAvailability(
-    assetId: number,
-    versionId: number,
-    start: Date,
-    end: Date
-  ) {
+  async getAvailability(assetId: number, start: Date, end: Date) {
     await this.db.checkConnection();
 
-    if (!start || !end || end <= start) {
-      throw new Error("Invalid time range");
-    }
+    // Converte para formato MySQL (YYYY-MM-DD HH:mm:ss)
+    const formatDate = (d: Date) => {
+      const pad = (n: number) => n.toString().padStart(2, "0");
 
-    // 1️⃣ Validar asset + versão
-    const [assetRows]: any = await this.db.connection.execute(`
+      return (
+        d.getFullYear() +
+        "-" +
+        pad(d.getMonth() + 1) +
+        "-" +
+        pad(d.getDate()) +
+        " " +
+        pad(d.getHours()) +
+        ":" +
+        pad(d.getMinutes()) +
+        ":" +
+        pad(d.getSeconds())
+      );
+    };
+
+    const startFormatted = formatDate(start);
+    const endFormatted = formatDate(end);
+
+    console.log("REQUEST START:", startFormatted);
+    console.log("REQUEST END:", endFormatted);
+
+    const [rows]: any = await this.db.connection.execute(
+      `
       SELECT id
-      FROM assets
-      WHERE id = :assetId
-      AND model_version_id = :versionId
-      LIMIT 1
-    `, { assetId, versionId });
-
-    if (!assetRows.length) {
-      throw new Error("Asset not found for this model version");
-    }
-
-    // 2️⃣ Verificar conflitos
-    const [rows]: any = await this.db.connection.execute(`
-      SELECT id, status, start_time, end_time
       FROM res_reservations
       WHERE asset_id = :assetId
-      AND status IN ('approved','in_use','no_show')
-      AND start_time < :end
-      AND end_time > :start
-    `, {
-      assetId,
-      start,
-      end
-    });
+        AND status IN ('approved', 'in_use')
+        AND start_time < :end
+        AND end_time > :start
+      `,
+      {
+        assetId,
+        start: startFormatted,
+        end: endFormatted
+      }
+    );
 
     return {
       available: rows.length === 0,
       conflicts: rows
     };
   }
+
+
 
   async getAssetByGuid(guid: string, versionId: number) {
     await this.db.checkConnection();
