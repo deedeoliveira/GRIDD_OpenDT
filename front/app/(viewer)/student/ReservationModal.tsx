@@ -30,6 +30,9 @@ export default function ReservationModal({
   const [reservations, setReservations] = useState<ReservationRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasCheckedAvailability, setHasCheckedAvailability] = useState(false);
+  const [checkingAvailability, setCheckingAvailability] = useState(false);
+  const [creatingReservation, setCreatingReservation] = useState(false);
+
 
   function formatDateTime(dateString: string) {
     const d = new Date(dateString);
@@ -54,26 +57,55 @@ export default function ReservationModal({
     const start = `${startDate}T${startTime}`;
     const end = `${endDate}T${endTime}`;
 
-    setLoading(true);
+    setCheckingAvailability(true);
     setHasCheckedAvailability(true);
 
-    // 1️⃣ Verificar disponibilidade
     const res = await fetch(
       `/api/asset/availability/${asset.id}?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`
     );
 
     const json = await res.json();
-
     setAvailable(json?.data?.available ?? false);
 
-    // 2️⃣ Buscar reservas existentes
     const resList = await fetch(`/api/reservation/asset/${asset.id}`);
     const listJson = await resList.json();
-
     setReservations(listJson?.data ?? listJson ?? []);
 
-    setLoading(false);
+    setCheckingAvailability(false);
   }
+
+
+  async function createReservation() {
+    if (!startDate || !startTime || !endDate || !endTime) return;
+
+    const start = `${startDate}T${startTime}`;
+    const end = `${endDate}T${endTime}`;
+
+    setCreatingReservation(true);
+
+    const res = await fetch(`/api/reservation/request`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        assetId: asset.id,
+        actorId,
+        startTime: start,
+        endTime: end
+      })
+    });
+
+    setCreatingReservation(false);
+
+    if (!res.ok) {
+      const text = await res.text();
+      alert(text);
+      return;
+    }
+
+    alert("Reserva solicitada com sucesso.");
+    onClose();
+  }
+
 
   return (
     <div className="fixed inset-0 bg-black/40 flex justify-center items-center z-50">
@@ -151,7 +183,7 @@ export default function ReservationModal({
             </div>
           </div>
 
-          <Button onPress={checkAvailability} isLoading={loading}>
+          <Button onPress={checkAvailability} isLoading={checkingAvailability}>
             Verificar disponibilidade
           </Button>
 
@@ -164,8 +196,19 @@ export default function ReservationModal({
             </div>
           )}
 
+          {hasCheckedAvailability && available && (
+            <Button
+              color="primary"
+              onPress={createReservation}
+              isLoading={creatingReservation}
+            >
+              Solicitar reserva
+            </Button>
+
+          )}
+
           {/* Reservas existentes (apenas após verificar) */}
-          {hasCheckedAvailability && !loading && (
+          {hasCheckedAvailability && !checkingAvailability && (
             <div className="mt-4">
               <h4 className="font-semibold mb-2">Reservas existentes:</h4>
               <div className="max-h-40 overflow-y-auto text-sm">
