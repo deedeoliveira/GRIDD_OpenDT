@@ -21,20 +21,17 @@ app.get('/asset/:assetId', async (req, res) => {
   }
 });
 
-app.get('/actor/:actorId', async (req, res) => {
+app.get("/actor/:actorId", async (req, res) => {
   const { actorId } = req.params;
 
   try {
-    const reservations = await reservationDb.getReservationsByActor(
-      actorId
-    );
-
-    return buildSuccessResponse(res, 200, reservations);
-
+    const rows = await reservationDb.getReservationsByActor(actorId);
+    return buildSuccessResponse(res, 200, rows);
   } catch (error: any) {
     return buildErrorResponse(res, 500, error.message);
   }
 });
+
 
 app.post('/request', async (req, res) => {
   const { assetId, actorId, startTime, endTime } = req.body;
@@ -62,15 +59,15 @@ app.post('/request', async (req, res) => {
 });
 
 app.post('/checkin', async (req, res) => {
-  const { assetId, actorId } = req.body; // temporariamente
+  const { reservationId, actorId } = req.body;
 
-  if (!assetId || !actorId) {
-    return buildErrorResponse(res, 400, 'Missing assetId or actorId');
+  if (!reservationId || !actorId) {
+    return buildErrorResponse(res, 400, 'Missing reservationId or actorId');
   }
 
   try {
     const result = await reservationDb.checkIn(
-      Number(assetId),
+      Number(reservationId),
       actorId
     );
 
@@ -80,6 +77,7 @@ app.post('/checkin', async (req, res) => {
     return buildErrorResponse(res, 400, error.message);
   }
 });
+
 
 app.post('/checkout', async (req, res) => {
   const { assetId, actorId } = req.body;

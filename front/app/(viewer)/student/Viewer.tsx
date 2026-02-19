@@ -11,6 +11,8 @@ import { EyeHidden } from "@/app/components/icons/eye-hidden";
 import { ChevronUp } from "@/app/components/icons/chevron-up";
 import { ChevronDown } from "@/app/components/icons/chevron-down";
 
+
+
 const components = new OBC.Components();
 const fragments = components.get(OBC.FragmentsManager);
 const worlds = components.get(OBC.Worlds);
@@ -19,6 +21,8 @@ const world = worlds.create<
     OBC.OrthoPerspectiveCamera,
     OBC.SimpleRenderer
 >();
+
+
 
 type SelectedIfcInfo = {
   guid: string;

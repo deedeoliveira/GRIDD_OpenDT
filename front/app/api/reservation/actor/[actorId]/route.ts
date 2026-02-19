@@ -6,11 +6,21 @@ export async function GET(
 ) {
   const { actorId } = await params;
 
-  const backendUrl = `${process.env.BASE_API_URL}/reservation/actor/${actorId}`;
+  const backendUrl =
+    `${process.env.BASE_API_URL}/reservation/actor/${actorId}`;
 
-  const response = await fetch(backendUrl);
-  const data = await response.json();
+  try {
+    const response = await fetch(backendUrl);
+    const data = await response.json();
 
-  return Response.json(data);
+    return NextResponse.json(data, { status: response.status });
+
+  } catch (error: any) {
+    return NextResponse.json(
+      { ok: false, error: error.message },
+      { status: 500 }
+    );
+  }
 }
+
 

@@ -110,7 +110,7 @@ class ReservationDatabase {
     return result.insertId;
   }
 
-  async checkIn(assetId: number, actorId: string) {
+  async checkIn(reservationId: number, actorId: string) {
     await this.markExpiredReservationsAsNoShow();
     await this.db.checkConnection();
 
@@ -120,21 +120,23 @@ class ReservationDatabase {
     const [rows]: any = await this.db.connection.execute(`
       SELECT *
       FROM res_reservations
-      WHERE asset_id = :assetId
-      AND actor_id = :actorId
-      AND status = 'approved'
-      AND NOW() >= DATE_SUB(start_time, INTERVAL :before MINUTE)
-      AND NOW() <= DATE_ADD(start_time, INTERVAL :after MINUTE)
+      WHERE id = :reservationId
+        AND actor_id = :actorId
+        AND status = 'approved'
+        AND NOW() >= DATE_SUB(start_time, INTERVAL :before MINUTE)
+        AND NOW() <= DATE_ADD(start_time, INTERVAL :after MINUTE)
       LIMIT 1
     `, {
-      assetId,
+      reservationId,
       actorId,
       before: GRACE_BEFORE_MIN,
       after: GRACE_AFTER_MIN
     });
 
     if (!rows.length) {
-      throw new Error('Check-in not allowed: outside allowed time window or no approved reservation');
+      throw new Error(
+        "Check-in not allowed: outside allowed time window or no approved reservation"
+      );
     }
 
     const reservation = rows[0];
@@ -155,6 +157,7 @@ class ReservationDatabase {
       reservationId: reservation.id
     };
   }
+
 
   async checkOut(assetId: number, actorId: string) {
     await this.markExpiredReservationsAsNoShow();
@@ -277,15 +280,20 @@ class ReservationDatabase {
     await this.markExpiredReservationsAsNoShow();
     await this.db.checkConnection();
 
-    const [rows]: any = await this.db.connection.execute(`
+    const [rows]: any = await this.db.connection.execute(
+      `
       SELECT *
       FROM res_reservations
-      WHERE actor_id = :actorId
-      ORDER BY start_time ASC
-    `, { actorId });
+      WHERE actor_id = ?
+      ORDER BY start_time DESC
+      `,
+      [actorId]
+    );
 
     return rows;
   }
+
+
 
 
 }

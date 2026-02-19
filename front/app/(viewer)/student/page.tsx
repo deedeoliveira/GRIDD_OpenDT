@@ -9,7 +9,7 @@ import { Accordion, AccordionItem, Button, CircularProgress } from "@heroui/reac
 import type { LinkedModel } from "@/types/model";
 
 import ReservationModal from "./ReservationModal";
-
+import YourReservationsModal from "./YourReservationsModal";
 
 type SelectedIfcInfo = {
   guid: string;
@@ -44,6 +44,9 @@ export default function ViewerPage() {
 
   const [isReservationOpen, setIsReservationOpen] = useState(false);
   const [isCheckingAsset, setIsCheckingAsset] = useState(false);
+  const [isUserReservationsOpen, setIsUserReservationsOpen] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
 
 
 
@@ -102,6 +105,38 @@ export default function ViewerPage() {
     if (!res.ok) return [];
 
     return (json?.data ?? json ?? []) as ReservationRow[];
+  }
+
+  async function handleCheckIn(reservationId: number) {
+    const res = await fetch("/api/reservation/checkin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reservationId, actorId }),
+    });
+
+    const data = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      alert(data?.error ?? data?.message ?? "Check-in failed.");
+      return;
+    }
+
+    // 🔹 Mostra mensagem de sucesso
+    const message =
+      data?.data?.message ??
+      data?.message ??
+      "Check-in successful.";
+
+    setSuccessMessage(message);
+
+    // 🔹 Atualiza lista global
+    const updated = await fetchReservationsByActor(actorId);
+    setActorReservations(updated);
+
+    // 🔹 Limpa mensagem após 3 segundos
+    setTimeout(() => {
+      setSuccessMessage(null);
+    }, 3000);
   }
 
   /* -------------------------------------
@@ -163,10 +198,6 @@ export default function ViewerPage() {
       if (cancelled) return;
       setAssetReservations(aRows);
 
-      const uRows = await fetchReservationsByActor(actorId);
-      if (cancelled) return;
-      setActorReservations(uRows);
-
       setIsCheckingAsset(false);
     }
 
@@ -176,6 +207,41 @@ export default function ViewerPage() {
       cancelled = true;
     };
   }, [selectedIfc?.guid, selectedLinkedModel?.id, actorId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadUserReservations() {
+      const rows = await fetchReservationsByActor(actorId);
+      if (!cancelled) {
+        setActorReservations(rows);
+      }
+    }
+
+    loadUserReservations();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [actorId]);
+
+
+  function formatDateTime(dateString: string) {
+    const d = new Date(dateString);
+    const pad = (n: number) => n.toString().padStart(2, "0");
+
+    return (
+      d.getFullYear() +
+      "-" +
+      pad(d.getMonth() + 1) +
+      "-" +
+      pad(d.getDate()) +
+      " " +
+      pad(d.getHours()) +
+      ":" +
+      pad(d.getMinutes())
+    );
+  }
 
 
   /* -------------------------------------
@@ -190,7 +256,8 @@ export default function ViewerPage() {
         </div>
       )}
 
-      <div className="w-80 absolute top-4 left-4 z-20 rounded shadow bg-white">
+      <div className="w-[420px] absolute top-4 left-4 z-20 rounded shadow bg-white">
+
         <Accordion>
           <AccordionItem key="1" title="Models">
             {linkedModel.map((model) => (
@@ -252,6 +319,125 @@ export default function ViewerPage() {
                 )}
               </div>
             )}
+          </AccordionItem>
+
+          <AccordionItem key="3" title="Your Reservations">
+
+            {actorReservations.length === 0 ? (
+              <div className="p-2 text-sm text-gray-600">
+                No reservations found.
+              </div>
+            ) : (
+              <div className="p-2 text-sm flex flex-col gap-4">
+
+                {/* PENDING */}
+                {actorReservations.filter(r => r.status === "pending").length > 0 && (
+                  <div>
+                    <div className="font-semibold mb-1">Pending</div>
+                    {actorReservations
+                      .filter(r => r.status === "pending")
+                      .map(r => (
+                        <div key={r.id} className="border-b py-2 text-gray-500">
+                          <div className="text-xs">
+                            Asset ID: {r.asset_id}
+                          </div>
+                          <div>
+                            {formatDateTime(r.start_time)} → {formatDateTime(r.end_time)}
+                          </div>
+                        </div>
+                      ))
+                    }
+                  </div>
+                )}
+
+                {/* APPROVED */}
+                {actorReservations.filter(r => r.status === "approved").length > 0 && (
+                  <div>
+                    <div className="font-semibold mb-1">Approved</div>
+
+                      {successMessage && (
+                        <div className="m-3 p-2 text-sm bg-green-100 text-green-700 rounded">
+                          {successMessage}
+                        </div>
+                      )}
+
+                    <div className="text-xs italic text-gray-500 mb-2">
+                      Check-in becomes available 20 minutes prior to the reservation 
+                      start time and remains open until 10 minutes after the scheduled start.
+                    </div>
+
+                    {actorReservations
+                      .filter(r => r.status === "approved")
+                      .map(r => (
+                        <div key={r.id} className="border-b py-2 flex justify-between items-center">
+                          <div>
+                            <div className="text-xs text-gray-500">
+                              Asset ID: {r.asset_id}
+                            </div>
+                            <div>
+                              {formatDateTime(r.start_time)} → {formatDateTime(r.end_time)}
+                            </div>
+                          </div>
+                          <Button
+                            size="sm"
+                            color="primary"
+                            onPress={() => handleCheckIn(r.id)}
+                          >
+                            Check-in
+                          </Button>
+                        </div>
+                      ))
+                    }
+                  </div>
+                )}
+
+                {/* IN USE */}
+                {actorReservations.filter(r => r.status === "in_use").length > 0 && (
+                  <div>
+                    <div className="font-semibold mb-1">In Use</div>
+                    {actorReservations
+                      .filter(r => r.status === "in_use")
+                      .map(r => (
+                        <div key={r.id} className="border-b py-2">
+                          <div className="text-xs text-gray-500">
+                            Asset ID: {r.asset_id}
+                          </div>
+                          <div>
+                            {formatDateTime(r.start_time)} → {formatDateTime(r.end_time)}
+                          </div>
+                        </div>
+                      ))
+                    }
+                  </div>
+                )}
+
+                {/* FINISHED */}
+                {actorReservations.filter(r =>
+                  ["completed", "cancelled", "no_show"].includes(r.status)
+                ).length > 0 && (
+                  <div>
+                    <div className="font-semibold mb-1">Finished</div>
+                    {actorReservations
+                      .filter(r =>
+                        ["completed", "cancelled", "no_show"].includes(r.status)
+                      )
+                      .map(r => (
+                        <div key={r.id} className="border-b py-2 text-gray-500">
+                          <div className="text-xs">
+                            Asset ID: {r.asset_id}
+                          </div>
+                          <div>
+                            {formatDateTime(r.start_time)} → {formatDateTime(r.end_time)} ({r.status})
+                          </div>
+                        </div>
+                      ))
+                    }
+                  </div>
+                )}
+
+              </div>
+            )}
+
           </AccordionItem>
 
         </Accordion>
