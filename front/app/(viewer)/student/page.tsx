@@ -46,6 +46,8 @@ export default function ViewerPage() {
   const [isCheckingAsset, setIsCheckingAsset] = useState(false);
   const [isUserReservationsOpen, setIsUserReservationsOpen] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null);
+
 
 
 
@@ -107,8 +109,8 @@ export default function ViewerPage() {
     return (json?.data ?? json ?? []) as ReservationRow[];
   }
 
-  async function handleCheckIn(reservationId: number) {
-    const res = await fetch("/api/reservation/checkin", {
+  async function handleCheckout(reservationId: number) {
+    const res = await fetch("/api/reservation/checkout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reservationId, actorId }),
@@ -117,27 +119,54 @@ export default function ViewerPage() {
     const data = await res.json().catch(() => null);
 
     if (!res.ok) {
-      alert(data?.error ?? data?.message ?? "Check-in failed.");
+      alert(data?.error ?? data?.message ?? "Checkout failed.");
       return;
     }
 
-    // 🔹 Mostra mensagem de sucesso
-    const message =
+    setCheckoutMessage(
       data?.data?.message ??
       data?.message ??
-      "Check-in successful.";
+      "Checkout successful."
+    );
 
-    setSuccessMessage(message);
-
-    // 🔹 Atualiza lista global
     const updated = await fetchReservationsByActor(actorId);
     setActorReservations(updated);
 
-    // 🔹 Limpa mensagem após 3 segundos
     setTimeout(() => {
-      setSuccessMessage(null);
+      setCheckoutMessage(null);
     }, 3000);
   }
+
+
+  async function handleCheckout(reservationId: number) {
+    const res = await fetch("/api/reservation/checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reservationId, actorId }),
+    });
+
+    const data = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      alert(data?.error ?? data?.message ?? "Checkout failed.");
+      return;
+    }
+
+    const message =
+      data?.data?.message ??
+      data?.message ??
+      "Checkout successful.";
+
+    setCheckoutMessage(message);
+
+    const updated = await fetchReservationsByActor(actorId);
+    setActorReservations(updated);
+
+    setTimeout(() => {
+      setCheckoutMessage(null);
+    }, 3000);
+  }
+
 
   /* -------------------------------------
               EFFECTS
@@ -395,21 +424,39 @@ export default function ViewerPage() {
                 {actorReservations.filter(r => r.status === "in_use").length > 0 && (
                   <div>
                     <div className="font-semibold mb-1">In Use</div>
+
+                    {checkoutMessage && (
+                      <div className="mb-2 p-2 text-xs bg-green-100 text-green-700 rounded">
+                        {checkoutMessage}
+                      </div>
+                    )}
+
                     {actorReservations
                       .filter(r => r.status === "in_use")
                       .map(r => (
-                        <div key={r.id} className="border-b py-2">
-                          <div className="text-xs text-gray-500">
-                            Asset ID: {r.asset_id}
-                          </div>
+                        <div key={r.id} className="border-b py-2 flex justify-between items-center">
                           <div>
-                            {formatDateTime(r.start_time)} → {formatDateTime(r.end_time)}
+                            <div className="text-xs text-gray-500">
+                              Asset ID: {r.asset_id}
+                            </div>
+                            <div>
+                              {formatDateTime(r.start_time)} → {formatDateTime(r.end_time)}
+                            </div>
                           </div>
+
+                          <Button
+                            size="sm"
+                            color="danger"
+                            onPress={() => handleCheckout(r.id)}
+                          >
+                            Checkout
+                          </Button>
                         </div>
                       ))
                     }
                   </div>
                 )}
+
 
                 {/* FINISHED */}
                 {actorReservations.filter(r =>
@@ -456,6 +503,15 @@ export default function ViewerPage() {
           onClose={() => setIsReservationOpen(false)}
         />
       )}
+      {isUserReservationsOpen && (
+        <YourReservationsModal
+          actorId={actorId}
+          onClose={() => setIsUserReservationsOpen(false)}
+          onCheckIn={handleCheckIn}
+          onCheckout={handleCheckout}
+        />
+      )}
+
 
     </>
   );

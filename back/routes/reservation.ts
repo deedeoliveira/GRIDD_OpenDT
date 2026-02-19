@@ -80,15 +80,18 @@ app.post('/checkin', async (req, res) => {
 
 
 app.post('/checkout', async (req, res) => {
-  const { assetId, actorId } = req.body;
+  const { reservationId, actorId } = req.body;
 
-  if (!assetId || !actorId) {
-    return buildErrorResponse(res, 400, 'Missing assetId or actorId');
+  console.log("checkout em routes - reservationID:", reservationId);
+  console.log("checkout em routes - actorId:", actorId);
+
+  if (!reservationId || !actorId) {
+    return buildErrorResponse(res, 400, 'Missing reservationId or actorId');
   }
 
   try {
     const result = await reservationDb.checkOut(
-      Number(assetId),
+      Number(reservationId),
       actorId
     );
 
@@ -98,6 +101,8 @@ app.post('/checkout', async (req, res) => {
     return buildErrorResponse(res, 400, error.message);
   }
 });
+
+
 
 app.post('/cancel', async (req, res) => {
   const { reservationId, actorId } = req.body;

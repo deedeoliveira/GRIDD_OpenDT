@@ -16,12 +16,14 @@ type Props = {
   actorId: string;
   onClose: () => void;
   onCheckIn: (reservationId: number) => void;
+  onCheckout: (reservationId: number) => void; // 🔹 novo
 };
 
 export default function YourReservationsModal({
   actorId,
   onClose,
-  onCheckIn
+  onCheckIn,
+  onCheckout
 }: Props) {
 
   const [reservations, setReservations] = useState<ReservationRow[]>([]);
@@ -89,6 +91,8 @@ export default function YourReservationsModal({
               title="In Use"
               rows={inUse}
               formatDateTime={formatDateTime}
+              showCheckout
+              onCheckout={onCheckout}
             />
 
             <Section
@@ -116,7 +120,9 @@ function Section({
   rows,
   formatDateTime,
   showCheckIn = false,
-  onCheckIn
+  onCheckIn,
+  showCheckout = false,
+  onCheckout
 }: any) {
 
   if (!rows.length) return null;
@@ -147,6 +153,16 @@ function Section({
                 onPress={() => onCheckIn(r.id)}
               >
                 Check-in
+              </Button>
+            )}
+
+            {showCheckout && (
+              <Button
+                size="sm"
+                color="danger"
+                onPress={() => onCheckout(r.id)}
+              >
+                Checkout
               </Button>
             )}
 

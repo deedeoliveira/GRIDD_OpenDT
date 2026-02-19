@@ -159,36 +159,38 @@ class ReservationDatabase {
   }
 
 
-  async checkOut(assetId: number, actorId: string) {
+  async checkOut(reservationId: number, actorId: string) {
     await this.markExpiredReservationsAsNoShow();
     await this.db.checkConnection();
+
+    console.log("checkout em reservationDatase - reservationID:", reservationId);
+    console.log("checkout em reservationDatase - actorId:", actorId);
 
     const [rows]: any = await this.db.connection.execute(`
       SELECT *
       FROM res_reservations
-      WHERE asset_id = :assetId
+      WHERE id = :reservationId
       AND actor_id = :actorId
       AND status = 'in_use'
       LIMIT 1
-    `, { assetId, actorId });
+    `, { reservationId, actorId });
 
     if (!rows.length) {
       throw new Error("No active reservation to checkout");
     }
 
-    const reservation = rows[0];
-
     await this.db.connection.execute(`
       UPDATE res_reservations
       SET status = 'completed'
-      WHERE id = :id
-    `, { id: reservation.id });
+      WHERE id = :reservationId
+    `, { reservationId });
 
     return {
       message: "Checkout successful",
-      reservationId: reservation.id
+      reservationId
     };
   }
+
 
   async cancelReservation(reservationId: number, actorId: string) {
     await this.markExpiredReservationsAsNoShow();
