@@ -56,3 +56,6 @@ next-env.d.ts
 /back/python/__pycache__*
 /back/python/.venv*
 /back/python/venv*
+
+#bruno_collections
+bruno_collection_backup

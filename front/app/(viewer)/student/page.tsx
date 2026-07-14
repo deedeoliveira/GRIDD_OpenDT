@@ -272,6 +272,33 @@ export default function ViewerPage() {
     );
   }
 
+  async function handleCheckIn(reservationId: number) {
+    try {
+      const res = await fetch("/api/reservation/checkin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reservationId, actorId }),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        alert(data?.error ?? data?.message ?? "Check-in failed.");
+        return;
+      }
+
+      alert(data?.data?.message ?? "Check-in successful.");
+
+      // Atualiza lista
+      const updated = await fetchReservationsByActor(actorId);
+      setActorReservations(updated);
+
+    } catch (e: any) {
+      alert(e?.message ?? "Unexpected error during check-in.");
+    }
+  }
+
+
 
   /* -------------------------------------
               UI
