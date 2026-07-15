@@ -67,14 +67,15 @@ class ReservationDatabase {
 
     const now = new Date();
 
+    // 🚫 Período inválido (validado primeiro para dar a mensagem certa
+    // quando ambas as datas estão erradas)
+    if (end <= start) {
+      throw new Error("End time must be after start time");
+    }
+
     // 🚫 Não permitir reservas retroativas
     if (start <= now) {
       throw new Error("Cannot create reservation in the past");
-    }
-
-    // 🚫 Período inválido
-    if (end <= start) {
-      throw new Error("End time must be after start time");
     }
 
 
@@ -171,7 +172,7 @@ class ReservationDatabase {
       FROM res_reservations
       WHERE id = :reservationId
       AND actor_id = :actorId
-      AND status = 'in_use'
+      AND status IN ('in_use','overdue')
       LIMIT 1
     `, { reservationId, actorId });
 
@@ -215,8 +216,8 @@ class ReservationDatabase {
       throw new Error("Not authorized to cancel this reservation");
     }
 
-    // Não pode cancelar in_use
-    if (reservation.status === 'in_use') {
+    // Não pode cancelar in_use (nem overdue)
+    if (['in_use','overdue'].includes(reservation.status)) {
       throw new Error("Cannot cancel reservation that is in use");
     }
 
@@ -225,12 +226,15 @@ class ReservationDatabase {
       throw new Error("Reservation cannot be cancelled");
     }
 
-    // Regra 24h
-    const diffMs = startTime.getTime() - now.getTime();
-    const diffHours = diffMs / (1000 * 60 * 60);
+    // Regra 24h — aplica-se apenas a reservas já aprovadas;
+    // uma reserva pendente pode ser cancelada a qualquer momento
+    if (reservation.status === 'approved') {
+      const diffMs = startTime.getTime() - now.getTime();
+      const diffHours = diffMs / (1000 * 60 * 60);
 
-    if (diffHours < 24) {
-      throw new Error("Cancellation allowed only up to 24h before start time");
+      if (diffHours < 24) {
+        throw new Error("Cancellation allowed only up to 24h before start time");
+      }
     }
 
     await this.db.connection.execute(`
@@ -243,18 +247,30 @@ class ReservationDatabase {
   }
 
   /* -------------------------------------
-      AUTO NO-SHOW UPDATE
+      AUTO STATUS UPDATES (lazy, corridos
+      no início de cada operação)
   ------------------------------------- */
 
   async markExpiredReservationsAsNoShow() {
     await this.db.checkConnection();
 
+    // approved sem check-in até 10 min depois do início → no_show
     await this.db.connection.execute(`
       UPDATE res_reservations
       SET status = 'no_show'
       WHERE status = 'approved'
         AND checkin_time IS NULL
         AND NOW() > DATE_ADD(start_time, INTERVAL 10 MINUTE)
+    `);
+
+    // in_use cujo período já terminou sem checkout → overdue.
+    // O ator continua obrigado a fazer checkout (overdue é aceite no checkout),
+    // mas o sistema passa a distinguir "em uso" de "terminada sem checkout".
+    await this.db.connection.execute(`
+      UPDATE res_reservations
+      SET status = 'overdue'
+      WHERE status = 'in_use'
+        AND NOW() > end_time
     `);
   }
   

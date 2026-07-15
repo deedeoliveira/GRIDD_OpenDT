@@ -44,6 +44,19 @@ test("createReservation: rejeita fim anterior ou igual ao início", async () => 
     );
 });
 
+test("createReservation: fim ≤ início tem precedência sobre início no passado (decisão 2026-07-15)", async () => {
+    respond(NO_CONFLICT);
+    // Ambas as datas erradas: início no passado E fim antes do início.
+    // A mensagem deve ser a do período inválido, não a de reserva retroativa.
+    const start = new Date(Date.now() - 3_600_000);
+    const end = new Date(start.getTime() - 3_600_000);
+
+    await assert.rejects(
+        reservationDb.createReservation(1, "actor1", start, end),
+        /End time must be after start time/
+    );
+});
+
 test("createReservation: conflito com reserva aprovada bloqueia (statuses approved, in_use E no_show)", async () => {
     // Caracterização importante: uma reserva 'no_show' AINDA conta como conflito
     respond([[/status IN \('approved','in_use','no_show'\)/i, [[{ count: 1 }]]]]);
@@ -110,6 +123,12 @@ test("createReservation: antes de tudo marca reservas expiradas como no_show", a
     assert.match(first.sql, /SET status = 'no_show'/);
     assert.match(first.sql, /checkin_time IS NULL/);
     assert.match(first.sql, /INTERVAL 10 MINUTE/);
+
+    // A segunda marca in_use com período terminado como overdue (decisão 2026-07-15)
+    const second = fakeConnection.calls[1]!;
+    assert.match(second.sql, /SET status = 'overdue'/);
+    assert.match(second.sql, /status = 'in_use'/);
+    assert.match(second.sql, /NOW\(\) > end_time/);
 });
 
 /* -------------------------------------
@@ -163,8 +182,8 @@ test("checkIn: sucesso muda status para 'in_use' e grava checkin_time", async ()
    CHECKOUT
 ------------------------------------- */
 
-test("checkOut: sem reserva 'in_use' → erro", async () => {
-    respond([[/SELECT \*[\s\S]*status = 'in_use'/i, [[]]]]);
+test("checkOut: sem reserva 'in_use'/'overdue' → erro", async () => {
+    respond([[/SELECT \*[\s\S]*status IN \('in_use','overdue'\)/i, [[]]]]);
 
     await assert.rejects(
         reservationDb.checkOut(10, "actor1"),
@@ -174,7 +193,7 @@ test("checkOut: sem reserva 'in_use' → erro", async () => {
 
 test("checkOut: sucesso muda status para 'completed'", async () => {
     respond([
-        [/SELECT \*[\s\S]*status = 'in_use'/i, [[{ id: 10, status: "in_use" }]]],
+        [/SELECT \*[\s\S]*status IN \('in_use','overdue'\)/i, [[{ id: 10, status: "in_use" }]]],
         [/UPDATE res_reservations/i, [{}]],
     ]);
 
@@ -183,6 +202,16 @@ test("checkOut: sucesso muda status para 'completed'", async () => {
 
     const update = fakeConnection.callsMatching(/SET status = 'completed'/i)[0]!;
     assert.ok(update);
+});
+
+test("checkOut: reserva 'overdue' (terminada sem checkout) também pode fazer checkout (decisão 2026-07-15)", async () => {
+    respond([
+        [/SELECT \*[\s\S]*status IN \('in_use','overdue'\)/i, [[{ id: 11, status: "overdue" }]]],
+        [/UPDATE res_reservations/i, [{}]],
+    ]);
+
+    const result = await reservationDb.checkOut(11, "actor1");
+    assert.equal(result.message, "Checkout successful");
 });
 
 /* -------------------------------------
@@ -222,13 +251,25 @@ test("cancelReservation: estados finais (completed/cancelled/no_show) não são 
     await assert.rejects(reservationDb.cancelReservation(5, "actor1"), /Reservation cannot be cancelled/);
 });
 
-test("cancelReservation: regra das 24h — menos de 24h antes do início → erro", async () => {
+test("cancelReservation: regra das 24h aplica-se a APPROVED — menos de 24h antes do início → erro", async () => {
     const soon = new Date(Date.now() + 3_600_000).toISOString(); // daqui a 1h
-    respond([[/SELECT \*[\s\S]*WHERE id = :id/i, [[reservationRow({ start_time: soon })]]]]);
+    respond([[/SELECT \*[\s\S]*WHERE id = :id/i,
+        [[reservationRow({ status: "approved", start_time: soon })]]]]);
     await assert.rejects(
         reservationDb.cancelReservation(5, "actor1"),
         /Cancellation allowed only up to 24h before start time/
     );
+});
+
+test("cancelReservation: PENDING pode ser cancelada a qualquer momento, mesmo <24h do início (decisão 2026-07-15)", async () => {
+    const soon = new Date(Date.now() + 3_600_000).toISOString(); // daqui a 1h
+    respond([
+        [/SELECT \*[\s\S]*WHERE id = :id/i, [[reservationRow({ status: "pending", start_time: soon })]]],
+        [/UPDATE res_reservations/i, [{}]],
+    ]);
+
+    const result = await reservationDb.cancelReservation(5, "actor1");
+    assert.equal(result.message, "Reservation cancelled");
 });
 
 test("cancelReservation: sucesso muda status para 'cancelled'", async () => {

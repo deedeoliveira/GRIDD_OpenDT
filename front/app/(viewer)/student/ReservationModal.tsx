@@ -27,6 +27,7 @@ export default function ReservationModal({
   const [endDate, setEndDate] = useState("");
   const [endTime, setEndTime] = useState("");
   const [available, setAvailable] = useState<boolean | null>(null);
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
   const [reservations, setReservations] = useState<ReservationRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasCheckedAvailability, setHasCheckedAvailability] = useState(false);
@@ -57,14 +58,32 @@ export default function ReservationModal({
     const start = `${startDate}T${startTime}`;
     const end = `${endDate}T${endTime}`;
 
-    setCheckingAvailability(true);
+    setAvailabilityError(null);
+    setAvailable(null);
     setHasCheckedAvailability(true);
+
+    // Validação imediata: fim tem de ser depois do início
+    if (new Date(end) <= new Date(start)) {
+      setAvailabilityError("O fim tem de ser depois do início.");
+      return;
+    }
+
+    setCheckingAvailability(true);
 
     const res = await fetch(
       `/api/asset/availability/${asset.id}?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`
     );
 
-    const json = await res.json();
+    const json = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      setAvailabilityError(
+        json?.error ?? json?.message ?? "Erro ao verificar disponibilidade."
+      );
+      setCheckingAvailability(false);
+      return;
+    }
+
     setAvailable(json?.data?.available ?? false);
 
     const resList = await fetch(`/api/reservation/asset/${asset.id}`);
@@ -186,6 +205,13 @@ export default function ReservationModal({
           <Button onPress={checkAvailability} isLoading={checkingAvailability}>
             Verificar disponibilidade
           </Button>
+
+          {/* Aviso de período inválido / erro na verificação */}
+          {hasCheckedAvailability && availabilityError && (
+            <div className="p-2 rounded bg-amber-100 text-amber-800">
+              {availabilityError}
+            </div>
+          )}
 
           {/* Resultado de disponibilidade */}
           {hasCheckedAvailability && available !== null && (

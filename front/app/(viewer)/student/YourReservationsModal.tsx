@@ -61,9 +61,9 @@ export default function YourReservationsModal({
   }, [actorId]);
 
   const approved = reservations.filter(r => r.status === "approved");
-  const inUse = reservations.filter(r => r.status === "in_use");
+  const inUse = reservations.filter(r => ["in_use", "overdue"].includes(r.status));
   const finished = reservations.filter(
-    r => !["approved", "in_use"].includes(r.status)
+    r => !["approved", "in_use", "overdue"].includes(r.status)
   );
 
   return (

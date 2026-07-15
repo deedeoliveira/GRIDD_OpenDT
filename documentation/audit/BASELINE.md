@@ -63,6 +63,13 @@ Outros comandos:
 
 `linked_models`, `models`, `sensors`, `channels`, `sensors_channels`, `sensors_data` (+ seed de `channels`).
 
+> **Atualização 2026-07-15:** o DDL real da BD de desenvolvimento foi extraído para
+> `database/schema_snapshot_2026-07-15.sql` (resolve H1/M0) e existe a primeira migration
+> em `database/migrations/2026-07-15_add_overdue_status.sql`. Nota importante descoberta:
+> `res_reservations.status` é um **ENUM** (que já incluía `rejected`, nunca usado pelo
+> código) — novos estados exigem `ALTER TABLE`, senão o MySQL devolve
+> "Data truncated for column 'status'".
+
 ### 4.2 Tabelas usadas pelo código SEM DDL no repositório ⚠️
 
 `model_versions`, `entities`, `assets`, `res_reservations` são referenciadas por
@@ -187,6 +194,29 @@ Node cria linhas em `sensors` (skip por guid+model já existente) com todos os c
 - No-show automático: cada chamada a métodos de reserva começa por marcar `approved` sem
   check-in e passados 10 min do início como `no_show` (lazy update, não é um job).
 
+### 5.4.1 Alterações pós-baseline aprovadas (2026-07-15, após testes manuais)
+
+Depois da baseline, a utilizadora aprovou quatro mudanças de comportamento nas reservas:
+
+1. **Ordem de validação**: `end ≤ start` é validado **antes** de `start` no passado — quando ambas as datas estão erradas, a mensagem é "End time must be after start time".
+2. **Novo estado `overdue`**: reservas `in_use` cujo `end_time` já passou são marcadas
+   como `overdue` pelo mesmo mecanismo lazy do no-show (UPDATE no início de cada
+   operação de reserva). O ator continua obrigado a fazer checkout (o checkout aceita
+   `in_use` e `overdue` e leva a `completed`), mas o sistema e a UI distinguem
+   "em uso" de "terminada sem checkout" (etiqueta na secção In Use).
+3. **Cancelamento de pendentes**: a regra das 24h passa a aplicar-se **apenas** a
+   reservas `approved`; uma `pending` pode ser cancelada a qualquer momento.
+4. **Bruno**: request "Asset avaiability" corrigida (a rota não tem `:versionId`).
+5. **Validação na disponibilidade** (2.ª ronda de testes): `GET /api/asset/availability/:assetId`
+   devolve `400 "End time must be after start time"` quando `end ≤ start` (e `400` para
+   datas inválidas), em vez de responder "available". O modal de reserva também valida
+   localmente e mostra aviso antes de chamar a API; o botão "Solicitar reserva" não aparece.
+
+Máquina de estados atualizada:
+`pending → approved → in_use → completed`, com desvios `pending/approved → cancelled`,
+`approved → no_show` (sem check-in até +10 min) e `in_use → overdue → completed` (fim
+do período sem checkout; ainda exige checkout do ator).
+
 ### 5.5 Decisão de reservabilidade (atual)
 
 - Definida na criação do snapshot: **todos** os espaços e todos os elementos não-sensor
@@ -265,6 +295,7 @@ endpoint SPARQL, nenhuma validação SHACL. Será tudo trabalho novo nas próxim
 - **P10** — `actor_id` é uma string livre hardcoded no frontend (`pg202404`); não há autenticação.
 - **P11** — Grafo semântico inexistente (será construído de raiz).
 - **P12** — `sensors_data` tem colunas fixas por canal (temperature, humidity, …) em vez de usar `channels`.
+- **P14** — *(observado em teste manual, 2026-07-15; por decisão, ainda não corrigido)* Na página `/student`, a lista "Your Reservations" só aparece preenchida quando **nenhum modelo está selecionado**: ao selecionar um modelo, o efeito de seleção limpa `actorReservations` (`setActorReservations([])`) e a lista só é recarregada quando se seleciona um elemento com asset. A corrigir numa etapa futura (recarregar as reservas do ator após a seleção do modelo, ou não as limpar).
 - **P13** — *(confirmado em teste manual, 2026-07-15)* Atualizar um modelo com um IFC **sem IfcSpace** cria silenciosamente uma versão com inventário vazio: o Flask devolve `{}`, `saveInventorySnapshot` aceita `{}` sem erro e faz commit de zero entities/assets. Como `getAssetByGuidLatest` só procura na última versão, todo o inventário das versões anteriores fica invisível — o viewer passa a mostrar "não pertence ao inventário" para todos os elementos, embora os assets antigos continuem na BD com `reservable = 1`. O inventário também só inclui elementos contidos em IfcSpace: elementos fora de espaços nunca entram, mesmo em modelos com espaços. Correção sugerida para a etapa das migrations/inventário: rejeitar (ou pedir confirmação para) snapshots vazios e/ou registar aviso na resposta do upload.
 
 ## 10. Riscos antes das próximas etapas

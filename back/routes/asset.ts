@@ -36,11 +36,24 @@ app.get("/availability/:assetId", async (req, res) => {
     return buildErrorResponse(res, 400, "Missing start or end query parameters");
   }
 
+  const startDate = new Date(start as string);
+  const endDate = new Date(end as string);
+
+  if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+    return buildErrorResponse(res, 400, "Invalid start or end date");
+  }
+
+  // Mesma regra da criação de reserva: período inválido é avisado já na
+  // verificação de disponibilidade, não apenas ao solicitar
+  if (endDate <= startDate) {
+    return buildErrorResponse(res, 400, "End time must be after start time");
+  }
+
   try {
     const result = await assetDb.getAvailability(
       Number(assetId),
-      new Date(start as string),
-      new Date(end as string)
+      startDate,
+      endDate
     );
 
     return buildSuccessResponse(res, 200, result);

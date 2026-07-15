@@ -116,13 +116,17 @@ Recarrega `/student` → a reserva aparece em **Approved** com botão **Check-in
 2. Botão **Check-in** → esperado: alert "Check-in successful"; reserva passa a **In Use** (`status='in_use'`, `checkin_time` preenchido).
 3. Fora da janela (start_time a mais de 20 min no futuro) → esperado: alert "Check-in not allowed: outside allowed time window or no approved reservation".
 4. Botão **Checkout** → esperado: "Checkout successful"; reserva passa a **Finished** (`status='completed'`).
+5. Reserva com check-in cujo período já terminou sem checkout: passa automaticamente a
+   `status='overdue'` (na próxima operação de reservas) e aparece na secção **In Use**
+   com a etiqueta "Reserva terminada — checkout pendente"; o botão **Checkout** continua
+   disponível e leva a `completed`.
 
 ## 9. Cancelamento (só via Bruno/curl — sem botão na UI)
 
 Bruno **Reservation → Cancel reservation** com `{ "reservationId": <id>, "actorId": "pg202404" }`.
 
-- Reserva `pending` com início a mais de 24h → `200` "Reservation cancelled".
-- Início a menos de 24h → `400` "Cancellation allowed only up to 24h before start time".
+- Reserva `pending` → `200` "Reservation cancelled" **a qualquer momento** (mesmo <24h do início).
+- Reserva `approved` com início a menos de 24h → `400` "Cancellation allowed only up to 24h before start time" (a regra das 24h só se aplica a aprovadas).
 - `actorId` diferente → `400` "Not authorized to cancel this reservation".
 
 ## 10. Sensores
@@ -142,6 +146,7 @@ curl "http://localhost:3001/api/asset/availability/<assetId>?start=2026-08-01T10
 
 **Esperado:** `{"data": {"available": true, "conflicts": []}}` se não houver reserva
 `approved`/`in_use` sobreposta; caso contrário `available: false` com os ids em conflito.
+Com `end ≤ start` → `400 "End time must be after start time"`; datas inválidas → `400`.
 Nota: reservas `pending` não afetam este endpoint (comportamento atual).
 
 ## 12. Testes automatizados

@@ -416,8 +416,8 @@ export default function ViewerPage() {
                   </div>
                 )}
 
-                {/* IN USE */}
-                {actorReservations.filter(r => r.status === "in_use").length > 0 && (
+                {/* IN USE (inclui overdue: período terminou sem checkout) */}
+                {actorReservations.filter(r => ["in_use", "overdue"].includes(r.status)).length > 0 && (
                   <div>
                     <div className="font-semibold mb-1">In Use</div>
 
@@ -428,7 +428,7 @@ export default function ViewerPage() {
                     )}
 
                     {actorReservations
-                      .filter(r => r.status === "in_use")
+                      .filter(r => ["in_use", "overdue"].includes(r.status))
                       .map(r => (
                         <div key={r.id} className="border-b py-2 flex justify-between items-center">
                           <div>
@@ -438,6 +438,11 @@ export default function ViewerPage() {
                             <div>
                               {formatDateTime(r.start_time)} → {formatDateTime(r.end_time)}
                             </div>
+                            {r.status === "overdue" && (
+                              <div className="text-xs text-amber-600 font-medium">
+                                Reserva terminada — checkout pendente
+                              </div>
+                            )}
                           </div>
 
                           <Button
