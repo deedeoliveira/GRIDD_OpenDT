@@ -41,8 +41,8 @@ app.get('/data', async (req: Request, res: Response) => {
     }
 
     const binSize = Number(req.query.binSize) || 3600;
-    const startTime = req.query.startTime ? new Date(req.query.startTime) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const endTime = req.query.endTime ? new Date(req.query.endTime) : new Date(Date.now());
+    const startTime = req.query.startTime ? new Date(req.query.startTime as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const endTime = req.query.endTime ? new Date(req.query.endTime as string) : new Date(Date.now());
 
     try {
         const data = await db.getSensorsData(modelId, binSize, startTime, endTime, sensorId);
@@ -103,7 +103,7 @@ app.patch('/:id', async (req: Request, res: Response) => {
 
     if (!id) return buildErrorResponse(res, 400, 'Sensor ID is required');
 
-    const originalSensors = await db.getSensors(id);
+    const originalSensors: any = await db.getSensors(id);
 
     if (!originalSensors || originalSensors.length === 0) return buildErrorResponse(res, 404, 'Sensor not found');
 
@@ -123,7 +123,7 @@ app.delete('/:id', async (req: Request, res: Response) => {
 
     if (!id) return buildErrorResponse(res, 400, 'Sensor ID is required');
 
-    const originalSensors = await db.getSensors(id);
+    const originalSensors: any = await db.getSensors(id);
 
     if (!originalSensors || originalSensors.length === 0) return buildErrorResponse(res, 404, 'Sensor not found');
 

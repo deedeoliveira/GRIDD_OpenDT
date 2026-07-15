@@ -1,7 +1,5 @@
 "use client";
 
-<html lang="pt-PT"></html>
-
 import { useEffect, useState } from "react";
 import { Viewer } from "./Viewer";
 
@@ -123,35 +121,6 @@ export default function ViewerPage() {
       return;
     }
 
-    setCheckoutMessage(
-      data?.data?.message ??
-      data?.message ??
-      "Checkout successful."
-    );
-
-    const updated = await fetchReservationsByActor(actorId);
-    setActorReservations(updated);
-
-    setTimeout(() => {
-      setCheckoutMessage(null);
-    }, 3000);
-  }
-
-
-  async function handleCheckout(reservationId: number) {
-    const res = await fetch("/api/reservation/checkout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reservationId, actorId }),
-    });
-
-    const data = await res.json().catch(() => null);
-
-    if (!res.ok) {
-      alert(data?.error ?? data?.message ?? "Checkout failed.");
-      return;
-    }
-
     const message =
       data?.data?.message ??
       data?.message ??
@@ -203,8 +172,8 @@ export default function ViewerPage() {
       setActorReservations([]);
 
       const { ok, asset } = await fetchAssetByGuidLatest(
-        selectedLinkedModel.id,
-        selectedIfc.guid
+        selectedLinkedModel!.id as any,
+        selectedIfc!.guid
       );
 
       if (cancelled) return;

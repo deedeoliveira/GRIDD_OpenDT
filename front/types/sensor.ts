@@ -10,7 +10,7 @@ export type Sensor = {
     channels: Channel[],
     room_id: string
     modelId: string,
-    currentValues: { [channel: Channel]: number }
+    currentValues: { [channel: string]: number }
 }
 
 export type SensorBinnedValue = {

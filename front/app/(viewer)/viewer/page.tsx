@@ -38,7 +38,7 @@ export default function ViewerPage({}: {
 	// Misc
 	const [isLoading, setIsLoading] = useState(false);
 
-	const [date, setDate] = useState<Date | null>(null);
+	const [date, setDate] = useState<any>(null);
 
     /* -------------------------------------
                 STORES

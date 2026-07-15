@@ -16,9 +16,9 @@
     // and npm install -D @types/node
 
     // Other Outputs
-    "sourceMap": true,
-    "declaration": true,
-    "declarationMap": true,
+    // A execução em runtime usa tsx (npm run dev); o build é apenas typecheck.
+    // "emitDeclarationOnly" sem "outDir" gerava .d.ts ao lado das fontes.
+    "noEmit": true,
 
     // Stricter Typechecking Options
     "noUncheckedIndexedAccess": true,
@@ -41,7 +41,6 @@
     "moduleDetection": "force",
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "emitDeclarationOnly": true,
     "allowImportingTsExtensions": true
   }
 }

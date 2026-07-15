@@ -17,7 +17,7 @@ class SensorDatabase implements ISensorDatabase {
      */
     #canUseCachedSensors() {
         if (SensorDatabase.cachedTimestamp) {
-            const age = new Date() - SensorDatabase.cachedTimestamp;
+            const age = Date.now() - SensorDatabase.cachedTimestamp.getTime();
             // If cached data is less than 10 minutes old, use it
             return age < 10 * 60 * 1000;
         }
@@ -32,12 +32,12 @@ class SensorDatabase implements ISensorDatabase {
     async getSensors(id?: string): Promise<Sensor[] | Sensor | Error> {
         await this.db.checkConnection();
 
-        if (this.#canUseCachedSensors() && (id === null || SensorDatabase.cachedSensors.has(id) )) {
+        if (this.#canUseCachedSensors() && (id === null || SensorDatabase.cachedSensors.has(id as string) )) {
             if (id) return SensorDatabase.cachedSensors.get(id) as Sensor;
             else return Array.from(SensorDatabase.cachedSensors.values());
         }
 
-        const [rows] = await this.db.connection.query(`
+        const [rows]: any = await this.db.connection.query(`
             SELECT	sensors.id,
                     sensors.guid,
                     sensors.room_id,
@@ -60,7 +60,7 @@ class SensorDatabase implements ISensorDatabase {
         }
 
         if (rows.length > 0)
-            rows.forEach((sensor) => {
+            rows.forEach((sensor: any) => {
                 sensor.channels = sensor.channels?.split(',')
 
                 SensorDatabase.cachedSensors.set(sensor.id.toString(), sensor);
@@ -70,7 +70,7 @@ class SensorDatabase implements ISensorDatabase {
             SensorDatabase.cachedTimestamp = new Date();
         }
 
-        return id ? SensorDatabase.cachedSensors.get(id) : Array.from(SensorDatabase.cachedSensors.values());
+        return id ? SensorDatabase.cachedSensors.get(id) as Sensor : Array.from(SensorDatabase.cachedSensors.values());
     }
 
     /**
@@ -86,7 +86,7 @@ class SensorDatabase implements ISensorDatabase {
         await this.db.connection.beginTransaction();
 
         try {
-            const [result] = await this.db.connection.execute(`
+            const [result]: any = await this.db.connection.execute(`
                 INSERT INTO sensors (guid, name, x, y, z, status, room_id, model_id)
                 VALUES (:guid, :name, :x, :y, :z, :status, :room_id, :model_id)
             `, {
@@ -302,7 +302,7 @@ class SensorDatabase implements ISensorDatabase {
         await this.db.checkConnection();
         
         try {
-            const [sensorRow] = await this.db.connection.execute(`
+            const [sensorRow]: any = await this.db.connection.execute(`
                 SELECT sensors.id
                 FROM sensors
                 WHERE model_id = :modelId
@@ -313,7 +313,7 @@ class SensorDatabase implements ISensorDatabase {
             for (const sensorId of sensorRow) {
                 const sensor = await this.getSensors(sensorId.id.toString());
 
-                if (sensor) sensors.push(sensor);
+                if (sensor) sensors.push(sensor as Sensor);
             }
 
             return sensors;

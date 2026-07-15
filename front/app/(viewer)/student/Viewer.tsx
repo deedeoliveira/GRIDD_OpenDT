@@ -46,7 +46,7 @@ export function Viewer(props: ViewerProps) {
 
     const container = useRef<HTMLDivElement>(null);
     const [worldInitialized, setWorldInitialized] = useState(false);
-    const [fragmentsModelIds, setFragmentsModelIds] = useState<number[]>([]);
+    const [fragmentsModelIds, setFragmentsModelIds] = useState<string[]>([]);
     const [modelTrees, setModelTrees] = useState<any[]>([]);
     const [selectedObjectProperties, setSelectedObjectProperties] = useState<any | null>(null);
 
@@ -59,7 +59,7 @@ export function Viewer(props: ViewerProps) {
         if (worldInitialized) return;
 
         world.scene = new OBC.ShadowedScene(components);
-        world.renderer = new OBC.SimpleRenderer(components, container.current);
+        world.renderer = new OBC.SimpleRenderer(components, container.current!);
         world.camera = new OBC.OrthoPerspectiveCamera(components);
 
         // ✅ THIS IS THE IMPORTANT PART
@@ -89,7 +89,7 @@ export function Viewer(props: ViewerProps) {
                 return;
             }
 
-            const modelIdMap = { [result.fragments.modelId]: new Set([result.localId]) };
+            const modelIdMap = { [(result as any).fragments.modelId]: new Set([(result as any).localId]) };
             onSelectCallback(modelIdMap);
         });
 
@@ -146,7 +146,7 @@ export function Viewer(props: ViewerProps) {
             wasm: { absolute: true, path: "" },
         });
 
-        const modelIds: number[] = [];
+        const modelIds: string[] = [];
 
         for (const childModel of selectedModel.childModels) {
 
@@ -182,7 +182,7 @@ export function Viewer(props: ViewerProps) {
             const modelInstance = fragments.list.get(modelId);
             if (!modelInstance) continue;
 
-            const spaceItemData = await modelInstance.getItemsData([...localIds]);
+            const spaceItemData: any[] = await modelInstance.getItemsData([...localIds]);
 
             for (const spaceData of spaceItemData) {
                 spaces.set(spaceData._guid.value, {
@@ -199,7 +199,7 @@ export function Viewer(props: ViewerProps) {
 
         if (modelId && fragments.list.get(modelId)) {
             const modelInstance = fragments.list.get(modelId)!;
-            const [data] = await modelInstance.getItemsData([...modelIdMap[modelId]]);
+            const [data]: any[] = await modelInstance.getItemsData([...modelIdMap[modelId]]);
 
             const attributes = Object.entries(data).reduce((acc: any, [key, value]: any) => {
             if (key.startsWith("_")) return acc;
@@ -427,46 +427,6 @@ export function Viewer(props: ViewerProps) {
             </tr>
         ));
     }
-
-    async function checkAvailability() {
-        if (!selectedAsset) return;
-
-        const versionId = selectedAsset.model_version_id;
-
-        const res = await fetch(
-            `/api/asset/availability/${selectedAsset.id}/${versionId}?start=${startTime}&end=${endTime}`
-        );
-
-        if (res.ok) {
-            const data = await res.json();
-            setAvailabilityResult(data.data);
-        }
-    }
-
-    async function createReservation() {
-        if (!selectedAsset) return;
-
-        const res = await fetch(`/api/reservation/request`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                assetId: selectedAsset.id,
-                actorId,
-                startTime,
-                endTime
-            })
-        });
-
-        if (res.ok) {
-            alert("Reservation requested successfully!");
-            setIsReserveModalOpen(false);
-        } else {
-            const err = await res.json();
-            alert(err.message);
-        }
-    }
-
-
 
     useEffect(() => {
         initWorld();

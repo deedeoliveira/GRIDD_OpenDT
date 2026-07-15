@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 
-export async function GET(request: NextRequest, { params } : { params: Promise<{ modelId: string, binSize: string, start: string, end: string }> }) {
+export async function GET(request: NextRequest) {
     const modelId = request.nextUrl.searchParams.get("modelId");
 
     if (!modelId)

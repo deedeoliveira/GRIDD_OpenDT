@@ -5,7 +5,8 @@
   "scripts": {
     "build": "npx tsc",
     "start": "node dist/index.js",
-    "dev": "npx tsx index.ts"
+    "dev": "npx tsx index.ts",
+    "test": "tsx --test \"tests/characterization/*.test.ts\""
   },
   "keywords": [],
   "author": "",
@@ -20,6 +21,7 @@
     "tsx": "^4.20.3"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "@types/multer": "^2.0.0",
     "@types/node": "^24.2.0",

@@ -14,6 +14,8 @@ interface SensorState {
     selectedSensor: Sensor | null;
     selectedSensorValues: SensorBinnedValue[] | null;
     currentBinnedTimestamp: string | null;
+    _sensorsValuesMap: Map<string, Map<any, any>>;
+    _timestampValuesMap: Map<any, Map<string, any>>;
 }
 
 interface SensorActions {
@@ -23,7 +25,7 @@ interface SensorActions {
     setSensorLocalInfo: (sensorId: string, modelId: string, localInfo: Object) => void;
     clear: () => void;
     fetchValues: (modelId: string, binSize?: number, start?: string, end?: string) => Promise<void>;
-    setCurrentBinnedTimestamp?: (timestamp: string | null) => void;
+    setCurrentBinnedTimestamp: (timestamp: string | null) => void;
     getBinnedValues: (timestamp: string) => Map<string, SensorBinnedValue>;
 }
 
@@ -46,7 +48,7 @@ export const useSensorStore = create<SensorState & SensorActions>()((set, get) =
         set((state) => {
             return {
                 selectedSensor: sensor,
-                selectedSensorValues: sensor?.id ? Array.from(state._sensorsValuesMap.get(sensor.id.toString()).values()).map((index) => state.values[index]) : null
+                selectedSensorValues: sensor?.id ? Array.from(state._sensorsValuesMap.get(sensor.id.toString())!.values()).map((index) => state.values[index]) : null
             };
         })
     },
@@ -117,8 +119,8 @@ export const useSensorStore = create<SensorState & SensorActions>()((set, get) =
 
             const index = values.push(value) - 1;
 
-            sensorsValuesMap.get(value.id.toString()).set(value.timestamp, index);
-            timestampValuesMap.get(value.timestamp).set(value.id.toString(), index);
+            sensorsValuesMap.get(value.id.toString())!.set(value.timestamp, index);
+            timestampValuesMap.get(value.timestamp)!.set(value.id.toString(), index);
         });
 
         set({ values });

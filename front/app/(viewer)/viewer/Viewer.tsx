@@ -27,14 +27,14 @@ let model: FragmentsModel;
 spaces: A map representing spaces in the model.
 The keys are space global IDs (from IFC) and the values are THREE.Mesh objects representing the spaces in the 3D scene.
 */
-const spaces = new Map<string, object>();
+const spaces = new Map<string, any>();
 
 /*
 Props:
 - selectedModel: The model selected by the user in the ViewerPage component. It is used to load the corresponding child models in the Three.js world.
 - onWorldInitialized: A callback function that is called when the Three.js world has been initialized. Used to show / hide the loading indicator in the ViewerPage component.
 */
-export function Viewer(props: {}) {
+export function Viewer(props: any) {
     const {
         selectedModel,
         onWorldInitialized
@@ -46,7 +46,7 @@ export function Viewer(props: {}) {
     /* Engine web IFC variables */
     const container = useRef<HTMLDivElement>(null);
     const [worldInitialized, setWorldInitialized] = useState(false);
-    const [fragmentsModelIds, setFragmentsModelIds] = useState([]);
+    const [fragmentsModelIds, setFragmentsModelIds] = useState<any[]>([]);
     const sensors = useSensorStore((state) => state.sensors);
     const currentBinnedTimestamp = useSensorStore((state) => state.currentBinnedTimestamp);
     const [currentChannel, setCurrentChannel] = useState<string | null>("temperature");
@@ -74,7 +74,7 @@ export function Viewer(props: {}) {
 
         world.scene = new OBC.ShadowedScene(components);
 
-        world.renderer = new OBC.SimpleRenderer(components, container.current);
+        world.renderer = new OBC.SimpleRenderer(components, container.current!);
         world.renderer.three.shadowMap.enabled = true;
         world.renderer.three.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -99,7 +99,7 @@ export function Viewer(props: {}) {
 
         world.scene.three.background = new THREE.Color(0xfafafa);
 
-        container.current.addEventListener("resize", resizeWorld);
+        container.current!.addEventListener("resize", resizeWorld);
 
         world.dynamicAnchor = false;
 
@@ -111,7 +111,7 @@ export function Viewer(props: {}) {
         */
         const caster = components.get(OBC.Raycasters).get(world);
 
-        container.current.addEventListener("dblclick", async () => {
+        container.current!.addEventListener("dblclick", async () => {
             const result = await (caster.castRay());
 
             if (!result) {
@@ -120,7 +120,7 @@ export function Viewer(props: {}) {
                 return;
             }
 
-            const modelIdMap = { [result.fragments.modelId]: new Set([result.localId]) };
+            const modelIdMap = { [(result as any).fragments.modelId]: new Set([(result as any).localId]) };
             onSelectCallback(modelIdMap);
         });
 
@@ -213,7 +213,7 @@ export function Viewer(props: {}) {
 
             model = await ifcLoader.load(arrayBuffer, true, childModel.name, {
                 processData: {
-                    progressCallback: (progress) => {
+                    progressCallback: (progress: any) => {
                         console.log(progress);
                         // setLoadingProgress(progress * 100 / childModels.length);
                     }
@@ -236,7 +236,7 @@ export function Viewer(props: {}) {
         await retrieveSpaces();
         setFragmentsModelIds(modelIds);
 
-        const bboxCenter = model._bbox.getCenter(new THREE.Vector3());
+        const bboxCenter = (model as any)._bbox.getCenter(new THREE.Vector3());
         world.camera.controls.setLookAt(bboxCenter.x + 25, bboxCenter.y + 25, bboxCenter.z + 25, bboxCenter.x, bboxCenter.y, bboxCenter.z, true);
 
         for (const child of model.object.children) {
@@ -291,7 +291,7 @@ export function Viewer(props: {}) {
             if (!model) continue;
 
             // Retrieve space item data and geometry
-            const spaceItemData = await model.getItemsData([...localIds]);
+            const spaceItemData: any[] = await model.getItemsData([...localIds]);
             const spaceItemGeometry = await model.getItemsGeometry([...localIds]);
 
             for (const [index, spaceData] of spaceItemData.entries()) {
@@ -304,8 +304,8 @@ export function Viewer(props: {}) {
                     meshes: spaceItemGeometry[index]?.map((geom) => createMesh(geom))
                 });
 
-                if (spaces.get(spaceData._guid.value).meshes)
-                    spaces.get(spaceData._guid.value).meshes.forEach(mesh => world.scene.three.add(mesh));
+                if (spaces.get(spaceData._guid.value)!.meshes)
+                    spaces.get(spaceData._guid.value)!.meshes.forEach((mesh: any) => world.scene.three.add(mesh));
             }
 
             promises.push(model.setVisible([...localIds], false));
@@ -320,7 +320,7 @@ export function Viewer(props: {}) {
         if (modelId && fragments.list.get(modelId)) {
             const model = fragments.list.get(modelId)!;
             const [data] = await model.getItemsData([...modelIdMap[modelId]]);
-            const attributes = Object.entries(data).reduce((acc, [key, value]) => {
+            const attributes = Object.entries(data).reduce((acc: any, [key, value]: any) => {
                 if (key.startsWith("_")) return acc;
                 acc[key] = value.value;
                 return acc;
@@ -342,13 +342,13 @@ export function Viewer(props: {}) {
         });
     }
 
-    async function getSpatialStructure(models) {
+    async function getSpatialStructure(models: any) {
         if (!models || models.size === 0) return;
 
-        const trees = [];
-        const promises = [];
+        const trees: any[] = [];
+        const promises: Promise<void>[] = [];
 
-        models.values().toArray().forEach((model) => {
+        models.values().toArray().forEach((model: any) => {
             promises.push(new Promise<void>(async (resolve) => {
             	const structure = await model.getSpatialStructure();
                 const tree = await getModelTree(model, structure);
@@ -371,20 +371,20 @@ export function Viewer(props: {}) {
 
     const getModelTree = async (
         model: FRAGS.FragmentsModel,
-        structure,
+        structure: any,
         hierarchy: string = '/'
-    ) => {
+    ): Promise<any> => {
         const { localId, category, children } = structure;
 
         if (localId !== null)
             hierarchy = hierarchy + localId + '/';
 
         if (category && children) {
-            const row = {
+            const row: any = {
                 data: {
                     Name: category,
                     modelId: model.modelId,
-                    children: JSON.stringify(children.map(item => item.localId)),
+                    children: JSON.stringify(children.map((item: any) => item.localId)),
                     hierarchy
                 }
             }
@@ -406,7 +406,7 @@ export function Viewer(props: {}) {
 
             if (!attrs) return null;
 
-            const row = {
+            const row: any = {
                 data: {
                     Name: String(attrs.getValue("Name")),
                     modelId: model.modelId,
@@ -448,14 +448,14 @@ export function Viewer(props: {}) {
     /**
      * Function to render the model tree structure as an JSX element.
      */
-    function computeModelTree(elem) {
+    function computeModelTree(elem: any) {
 		// elem.ref = createRef();
         
         elem.childRef = createRef();
 		let childs = undefined;
 
 		if (elem.children && elem.children.length > 0)
-			childs = elem.children.map((child) => computeModelTree(child));
+			childs = elem.children.map((child: any) => computeModelTree(child));
 
         return (
 			<div key={elem.data?.localId || Math.random()} className="flex flex-col ml-1 border-l border-gray-300 pl-2">
@@ -489,7 +489,7 @@ export function Viewer(props: {}) {
      * Function to render the properties of the selected object as a table
      */
     function computeObjectProperties() {
-        return Object.entries(selectedObjectProperties).map(([key, value]) => (
+        return Object.entries(selectedObjectProperties ?? {}).map(([key, value]) => (
             <tr key={key}>
                 <td className="border px-2 py-1 font-bold">{key}</td>
                 <td className="border px-2 py-1">{String(value)}</td>
@@ -497,7 +497,7 @@ export function Viewer(props: {}) {
         ));
     }
 
-	function hideElementAndChilds(elem) {
+	function hideElementAndChilds(elem: any) {
 		if (!elem) return;
 
 		const modelId = elem.data?.modelId;
@@ -510,13 +510,13 @@ export function Viewer(props: {}) {
 		hider.toggle(modelIdMap);
 	}
 
-	function getChildsRecursively(elem) {
+	function getChildsRecursively(elem: any) {
 		if (!elem) return [];
 
-		let arr = [];
+		let arr: any[] = [];
 
 		if (elem.children && elem.children.length > 0) {
-			elem.children.forEach((child) => {
+			elem.children.forEach((child: any) => {
 				arr.push(child.data.localId);
 				arr = arr.concat(getChildsRecursively(child));
 			});
@@ -525,13 +525,13 @@ export function Viewer(props: {}) {
 		return arr.filter((v, i, a) => a.indexOf(v) === i && !!v); // remove duplicates
 	}
 
-    function handleExpandButton(elem) {
+    function handleExpandButton(elem: any) {
         elem.expanded = !elem.expanded;
         elem.childRef.current.style.display = elem.expanded ? 'block' : 'none';
         console.log(elem)
     }
 
-    function handleVisibilityButton(elem) {
+    function handleVisibilityButton(elem: any) {
         elem.hidden = !elem.hidden;
         hideElementAndChilds(elem);
     }

@@ -20,7 +20,7 @@ class ModelDatabase implements IModelDatabase {
         await this.db.checkConnection();
 
         try {
-            const [rows] = await this.db.connection.query(`
+            const [rows]: any = await this.db.connection.query(`
                     SELECT  linked_models.id,
                             linked_models.name,
                             GROUP_CONCAT(models.id) AS childrenIds
@@ -35,10 +35,10 @@ class ModelDatabase implements IModelDatabase {
                 return new Error('No linked models found');
             }
 
-            const linkedModel = rows[0] as LinkedModel;
+            const linkedModel = rows[0] as LinkedModel & { childrenIds?: string };
 
             if (linkedModel.childrenIds) {
-                linkedModel.childModels = await Promise.all(linkedModel.childrenIds.split(',').map(async (id: string) => this.getModelMetadata(id)));
+                linkedModel.childModels = await Promise.all(linkedModel.childrenIds.split(',').map(async (id: string) => this.getModelMetadata(id))) as Model[];
                 delete linkedModel.childrenIds;
             }
 
@@ -52,7 +52,7 @@ class ModelDatabase implements IModelDatabase {
         await this.db.checkConnection();
 
         try {
-            const [rows] = await this.db.connection.query(`
+            const [rows]: any = await this.db.connection.query(`
                     SELECT  id,
                             name,
                             linked_parent_id
@@ -97,7 +97,7 @@ class ModelDatabase implements IModelDatabase {
 
         if (!linkedParentId) {
             try {
-                const [linkedRows] = await this.db.connection.query(`
+                const [linkedRows]: any = await this.db.connection.query(`
                     INSERT INTO linked_models (name)
                     VALUES (:name)
                 `, { name: name });
@@ -177,7 +177,7 @@ class ModelDatabase implements IModelDatabase {
     async listModels(): Promise<Partial<Model>[] | Error> {
         await this.db.checkConnection();
 
-        const [rows] = await this.db.connection.query(`
+        const [rows]: any = await this.db.connection.query(`
             SELECT id,
                     name,
                     linked_parent_id AS linkedParentId
@@ -197,7 +197,7 @@ class ModelDatabase implements IModelDatabase {
     async listLinkedModels(): Promise<LinkedModel[] | Error> {
         await this.db.checkConnection();
 
-        const [linkedRows] = await this.db.connection.query(`
+        const [linkedRows]: any = await this.db.connection.query(`
             SELECT  linked_models.id,
                     linked_models.name,
                     GROUP_CONCAT(models.id) AS childrenIds

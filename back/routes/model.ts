@@ -93,11 +93,11 @@ app.post('/upload', upload.single('file'), async (req, res) => {
     if (!req.file && !req.body?.fileUrl)
         return buildErrorResponse(res, 400, 'File or file location is required');
 
-    if (req.fileUrl) {
+    if ((req as any).fileUrl) {
         return buildErrorResponse(res, 501, 'Upload from URL not implemented yet');
     }
 
-    const name = req.body.name || req.file.originalname.split('.')[0];
+    const name = req.body.name || req.file!.originalname.split('.')[0];
     const linkedParentId = req.body.linkedParentId;
     const modelId = req.body.modelId;
 
@@ -108,7 +108,7 @@ app.post('/upload', upload.single('file'), async (req, res) => {
         ========================================================== */
         if (!modelId) {
 
-            const model = await db.uploadModel(name, null, linkedParentId);
+            const model = await db.uploadModel(name, null as any, linkedParentId) as any;
 
             if (!model.id) {
                 throw new Error("Model creation failed");
@@ -116,10 +116,10 @@ app.post('/upload', upload.single('file'), async (req, res) => {
 
             // Move file to models folder
             fs.renameSync(
-                req.file.path,
+                req.file!.path,
                 path.join(
                     MODELS_ROOT_PATH,
-                    `${model.id}.${path.extname(req.file.originalname).slice(1)}`
+                    `${model.id}.${path.extname(req.file!.originalname).slice(1)}`
                 )
             );
 
@@ -162,10 +162,10 @@ app.post('/upload', upload.single('file'), async (req, res) => {
 
         // Salvar novo IFC
         fs.renameSync(
-            req.file.path,
+            req.file!.path,
             path.join(
                 MODELS_ROOT_PATH,
-                `${modelId}.${path.extname(req.file.originalname).slice(1)}`
+                `${modelId}.${path.extname(req.file!.originalname).slice(1)}`
             )
         );
 
@@ -208,7 +208,7 @@ app.get('/process/:id', async (req, res) => {
     if (!resp.ok)
         return buildErrorResponse(res, 500, `Error processing model ${modelId}`);
 
-    const data = (await resp.json()).data;
+    const data = ((await resp.json()) as any).data;
 
     if (!data)
         return buildErrorResponse(res, 500, `Error processing model ${modelId}`);
@@ -218,11 +218,11 @@ app.get('/process/:id', async (req, res) => {
     if (!existingSensors.ok)
         return buildErrorResponse(res, 500, `Error fetching existing sensors for model ${modelId}`);
 
-    const existingSensorsId = (await existingSensors.json()).data.map((sensor: any) => sensor.guid);
+    const existingSensorsId = ((await existingSensors.json()) as any).data.map((sensor: any) => sensor.guid);
 
     const createdSensors = [];
 
-    for (const [sensorGuid, sensorData] of Object.entries(data)) {
+    for (const [sensorGuid, sensorData] of Object.entries(data) as [string, any][]) {
         try {
             // If there is already a sensor with the same guid and model_id, skip it
             if (existingSensorsId.includes(sensorGuid.toString()))
@@ -236,7 +236,7 @@ app.get('/process/:id', async (req, res) => {
                 y: sensorData.y,
                 z: sensorData.z,
                 model_id: modelId,
-                channels: Object.keys(SensorChannelEnum)
+                channels: Object.keys(SensorChannelEnum) as any
             }));
         } catch (error) {
             console.error(`Error creating sensor ${sensorData.guid}:`, error);

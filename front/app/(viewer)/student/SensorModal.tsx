@@ -42,9 +42,9 @@ export function SensorModal(props: SensorModalProps) {
     const { sensor, values } = props;
 
     const { isOpen, onOpen, onClose } = useDisclosure();
-    const modalRef = useRef(null);
+    const modalRef = useRef<any>(null);
     const {moveProps} = useDraggable({targetRef: modalRef, canOverflow: true, isDisabled: !isOpen});
-    const [chartData, setChartData] = useState({});
+    const [chartData, setChartData] = useState<any>({});
 
     useEffect(() => {
         if (sensor && values) {
@@ -77,7 +77,7 @@ export function SensorModal(props: SensorModalProps) {
         >
             <ModalContent>{(onClose) => (
                 <>
-                    <ModalHeader {...moveProps} className="flex flex-col gap-1">{sensor.name}</ModalHeader>
+                    <ModalHeader {...moveProps} className="flex flex-col gap-1">{sensor!.name}</ModalHeader>
                     <ModalBody className="flex flex-col gap-2">
                         <Line data={chartData} />
                     </ModalBody>
