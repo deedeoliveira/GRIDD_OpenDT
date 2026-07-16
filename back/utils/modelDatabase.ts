@@ -3,6 +3,7 @@ import fs from 'fs';
 import type { IModelDatabase } from "../types/database.ts";
 import type { LinkedModel, Model } from "../types/models.ts";
 import path from "path";
+import { resolveStorageKey } from "./storage.ts";
 
 const MODELS_ROOT_PATH = path.join(import.meta.dirname, '../cdn_resources/models');
 
@@ -77,7 +78,30 @@ class ModelDatabase implements IModelDatabase {
             return new Error(`Error fetching model information: ${modelData.message}`);
         }
 
-        const filePath = `${this.MODELS_ROOT_PATH}/${id}.ifc`;
+        // Ficheiro corrente = storage_key da versão corrente explícita
+        // (Prompt 2). Fallback para o layout legado models/<id>.ifc apenas
+        // quando o modelo ainda não tem versão corrente com storage_key.
+        let filePath: string | null = null;
+
+        try {
+            const [rows]: any = await this.db.connection.execute(`
+                SELECT v.storage_key
+                FROM models m
+                LEFT JOIN model_versions v ON v.id = m.current_version_id
+                WHERE m.id = :id
+                LIMIT 1
+            `, { id });
+
+            if (rows.length && rows[0].storage_key) {
+                filePath = resolveStorageKey(rows[0].storage_key);
+            }
+        } catch (error: any) {
+            return new Error(`Error resolving current version file: ${error.message}`);
+        }
+
+        if (!filePath) {
+            filePath = `${this.MODELS_ROOT_PATH}/${id}.ifc`;
+        }
 
         if (!fs.existsSync(filePath)) {
             return new Error(`Model file ${filePath} not found`);

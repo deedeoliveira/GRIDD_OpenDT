@@ -18,27 +18,30 @@ beforeEach(() => fakeConnection.reset());
    ÚLTIMA VERSÃO
 ------------------------------------- */
 
-test("getAssetByGuidLatest: a 'última versão' é o MAIOR id de model_versions (ORDER BY id DESC LIMIT 1)", async () => {
+// (Prompt 2) Comportamento explicitamente alterado: a "versão corrente" deixou
+// de ser o maior id (ORDER BY id DESC) e passou a ser a referência explícita
+// models.current_version_id — uma versão 'failed'/'processing' nunca é corrente.
+test("getAssetByGuidLatest: a versão corrente vem de models.current_version_id (não do maior id)", async () => {
     respond([
-        [/FROM model_versions/i, [[{ id: 12 }]]],
+        [/SELECT current_version_id AS id[\s\S]*FROM models/i, [[{ id: 12 }]]],
         [/FROM assets a[\s\S]*INNER JOIN entities/i, [[{ id: 77, model_version_id: 12, reservable: 1 }]]],
     ]);
 
     const asset = await assetDb.getAssetByGuidLatest(3, "guid-abc");
     assert.equal(asset.id, 77);
 
-    const versionQuery = fakeConnection.callsMatching(/FROM model_versions/i)[0]!;
-    assert.match(versionQuery.sql, /ORDER BY id DESC/);
-    assert.match(versionQuery.sql, /LIMIT 1/);
+    const versionQuery = fakeConnection.callsMatching(/FROM models/i)[0]!;
+    assert.match(versionQuery.sql, /current_version_id/);
+    assert.doesNotMatch(versionQuery.sql, /ORDER BY id DESC/);
 
-    // O asset é procurado na versão devolvida (12), com o guid via JOIN a entities
+    // O asset é procurado na versão corrente (12), com o guid via JOIN a entities
     const assetQuery = fakeConnection.callsMatching(/INNER JOIN entities/i)[0]!;
     assert.equal(assetQuery.params.versionId, 12);
     assert.equal(assetQuery.params.guid, "guid-abc");
 });
 
-test("getAssetByGuidLatest: modelo sem versões → null", async () => {
-    respond([[/FROM model_versions/i, [[]]]]);
+test("getAssetByGuidLatest: modelo sem versão corrente (current_version_id NULL) → null", async () => {
+    respond([[/SELECT current_version_id AS id[\s\S]*FROM models/i, [[{ id: null }]]]]);
 
     const asset = await assetDb.getAssetByGuidLatest(3, "guid-abc");
     assert.equal(asset, null);
@@ -46,7 +49,7 @@ test("getAssetByGuidLatest: modelo sem versões → null", async () => {
 
 test("getAssetByGuidLatest: elemento não inventariado (sem asset) → null — é assim que o viewer detecta 'não pertence ao inventário'", async () => {
     respond([
-        [/FROM model_versions/i, [[{ id: 12 }]]],
+        [/SELECT current_version_id AS id[\s\S]*FROM models/i, [[{ id: 12 }]]],
         [/INNER JOIN entities/i, [[]]],
     ]);
 

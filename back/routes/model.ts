@@ -9,7 +9,10 @@ import { SensorChannelEnum } from '../types/sensors.ts';
 
 //Andressa
 import inventoryDb from "../utils/inventoryDatabase.ts";
-import { runPreprocess } from "../services/preprocessService.ts";
+import versionDb from "../utils/modelVersionDatabase.ts";
+import { handleModelUpload } from "../services/modelUploadService.ts";
+import { resolveStorageKey } from "../utils/storage.ts";
+import fsSync from 'fs';
 
 const app = express();
 
@@ -88,7 +91,7 @@ app.get('/download/:id', async (req, res) => {
     res.send(data);
 });
 
-//Andressa atualizou
+//Andressa atualizou (Prompt 2: fluxo por etapas com versões imutáveis)
 app.post('/upload', upload.single('file'), async (req, res) => {
     if (!req.file && !req.body?.fileUrl)
         return buildErrorResponse(res, 400, 'File or file location is required');
@@ -102,90 +105,128 @@ app.post('/upload', upload.single('file'), async (req, res) => {
     const modelId = req.body.modelId;
 
     try {
+        const result = await handleModelUpload({
+            tempFilePath: req.file!.path,
+            originalFilename: req.file!.originalname,
+            name,
+            modelId: modelId ? Number(modelId) : undefined,
+            linkedParentId: linkedParentId ? Number(linkedParentId) : undefined,
+            description: req.body.description ?? null,
+        });
 
-        /* ==========================================================
-           🔹 NOVO MODELO
-        ========================================================== */
-        if (!modelId) {
-
-            const model = await db.uploadModel(name, null as any, linkedParentId) as any;
-
-            if (!model.id) {
-                throw new Error("Model creation failed");
-            }
-
-            // Move file to models folder
-            fs.renameSync(
-                req.file!.path,
-                path.join(
-                    MODELS_ROOT_PATH,
-                    `${model.id}.${path.extname(req.file!.originalname).slice(1)}`
-                )
-            );
-
-            // Criar versão
-            const versionId = await inventoryDb.createModelVersion(model.id);
-
-            // Rodar preprocess com rollback controlado
-            try {
-                await runPreprocess(Number(model.id), Number(versionId));
-            } catch (err) {
-                await inventoryDb.deleteModelVersion(versionId);
-                throw err;
-            }
-
+        if (result.isNewModel) {
             return buildSuccessResponse(res, 201, {
-                ...model,
-                versionId,
+                id: result.modelId,
+                name,
+                linkedParentId: result.linkedParentId,
+                versionId: result.versionId,
+                versionNumber: result.versionNumber,
                 message: "Model uploaded and inventory processed successfully"
             });
         }
 
-        /* ==========================================================
-           🔹 UPDATE MODELO EXISTENTE
-        ========================================================== */
-
-        // Garantir pasta archive
-        if (!fs.existsSync(path.join(MODELS_ROOT_PATH, 'archive'))) {
-            fs.mkdirSync(path.join(MODELS_ROOT_PATH, 'archive'));
-        }
-
-        // Arquivar versão anterior
-        fs.renameSync(
-            path.join(MODELS_ROOT_PATH, `${modelId}.ifc`),
-            path.join(
-                MODELS_ROOT_PATH,
-                'archive',
-                `${Date.now()}_${modelId}.ifc`
-            )
-        );
-
-        // Salvar novo IFC
-        fs.renameSync(
-            req.file!.path,
-            path.join(
-                MODELS_ROOT_PATH,
-                `${modelId}.${path.extname(req.file!.originalname).slice(1)}`
-            )
-        );
-
-        // Criar nova versão
-        const versionId = await inventoryDb.createModelVersion(modelId);
-
-        // Rodar preprocess com rollback controlado
-        try {
-            await runPreprocess(Number(modelId), Number(versionId));
-        } catch (err) {
-            await inventoryDb.deleteModelVersion(versionId);
-            throw err;
-        }
-
         return buildSuccessResponse(res, 200, {
-            id: modelId,
-            versionId,
-            message: `Model ${modelId} updated and inventory processed successfully`
+            id: result.modelId,
+            versionId: result.versionId,
+            versionNumber: result.versionNumber,
+            message: `Model ${result.modelId} updated and inventory processed successfully`
         });
 
+    } catch (error: any) {
+        return buildErrorResponse(res, 500, error.message);
+    }
+});
+
+/* ==========================================================
+   Versões (Prompt 2)
+========================================================== */
+
+/* Metadados de uma versão específica */
+app.get('/versions/:versionId', async (req, res) => {
+    const versionId = Number(req.params.versionId);
+
+    if (!Number.isInteger(versionId) || versionId <= 0) {
+        return buildErrorResponse(res, 400, 'Valid version ID is required');
+    }
+
+    try {
+        const version = await versionDb.getVersionById(versionId);
+
+        if (!version) {
+            return buildErrorResponse(res, 404, `Version ${versionId} not found`);
+        }
+
+        return buildSuccessResponse(res, 200, version);
+    } catch (error: any) {
+        return buildErrorResponse(res, 500, error.message);
+    }
+});
+
+/* Download do ficheiro de uma versão específica (corrente ou histórica) */
+app.get('/versions/:versionId/download', async (req, res) => {
+    const versionId = Number(req.params.versionId);
+
+    if (!Number.isInteger(versionId) || versionId <= 0) {
+        return buildErrorResponse(res, 400, 'Valid version ID is required');
+    }
+
+    try {
+        const version = await versionDb.getVersionById(versionId);
+
+        if (!version) {
+            return buildErrorResponse(res, 404, `Version ${versionId} not found`);
+        }
+
+        if (!version.storage_key) {
+            return buildErrorResponse(res, 404, `Version ${versionId} has no recoverable file (historical limitation)`);
+        }
+
+        const filePath = resolveStorageKey(version.storage_key);
+
+        if (!fsSync.existsSync(filePath)) {
+            return buildErrorResponse(res, 404, `File for version ${versionId} not found on storage`);
+        }
+
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader('Content-Disposition', `attachment; filename=model_${version.model_id}_v${version.version_number}.ifc`);
+        res.send(fsSync.readFileSync(filePath));
+    } catch (error: any) {
+        return buildErrorResponse(res, 500, error.message);
+    }
+});
+
+/* Lista de versões de um modelo */
+app.get('/:modelId/versions', async (req, res) => {
+    const modelId = Number(req.params.modelId);
+
+    if (!Number.isInteger(modelId) || modelId <= 0) {
+        return buildErrorResponse(res, 400, 'Valid model ID is required');
+    }
+
+    try {
+        const versions = await versionDb.getVersionsByModel(modelId);
+        return buildSuccessResponse(res, 200, versions);
+    } catch (error: any) {
+        return buildErrorResponse(res, 500, error.message);
+    }
+});
+
+/* Versão corrente de um modelo (referência explícita, não "maior id") */
+app.get('/:modelId/current', async (req, res) => {
+    const modelId = Number(req.params.modelId);
+
+    if (!Number.isInteger(modelId) || modelId <= 0) {
+        return buildErrorResponse(res, 400, 'Valid model ID is required');
+    }
+
+    try {
+        const version = await versionDb.getCurrentVersion(modelId);
+
+        if (!version) {
+            return buildErrorResponse(res, 404, `Model ${modelId} has no current version`);
+        }
+
+        return buildSuccessResponse(res, 200, version);
     } catch (error: any) {
         return buildErrorResponse(res, 500, error.message);
     }

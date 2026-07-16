@@ -15,43 +15,28 @@ const { default: inventoryDb } = await import("../../utils/inventoryDatabase.ts"
 beforeEach(() => fakeConnection.reset());
 
 /* -------------------------------------
-   CRIAÇÃO DE VERSÃO
+   NOTA (Prompt 2): os testes de createModelVersion/deleteModelVersion foram
+   substituídos — a criação de versões passou para modelVersionDatabase
+   (reserva segura com version_number, estados processing/active/failed/
+   archived) e a compensação de falha deixou de apagar a linha da versão
+   (fica 'failed') e passou a apagar o inventário parcial. Os comportamentos
+   novos estão caracterizados em tests/versioning/.
 ------------------------------------- */
 
-test("createModelVersion: insere em model_versions e devolve insertId", async () => {
-    respond([[/INSERT INTO model_versions/i, [{ insertId: 9 }]]]);
+test("deleteInventoryForVersion: apaga assets e entities da versão (filhas antes das raízes), em transação", async () => {
+    respond([
+        [/DELETE FROM assets WHERE model_version_id/i, [{}]],
+        [/DELETE FROM entities WHERE model_version_id/i, [{}]],
+    ]);
 
-    const versionId = await inventoryDb.createModelVersion("3", "desc");
-    assert.equal(versionId, 9);
+    await inventoryDb.deleteInventoryForVersion(9);
 
-    const insert = fakeConnection.callsMatching(/INSERT INTO model_versions/i)[0]!;
-    assert.equal(insert.params.modelId, "3");
-    assert.equal(insert.params.description, "desc");
-});
-
-test("createModelVersion: sem descrição envia null", async () => {
-    respond([[/INSERT INTO model_versions/i, [{ insertId: 1 }]]]);
-
-    await inventoryDb.createModelVersion("3");
-    const insert = fakeConnection.callsMatching(/INSERT INTO model_versions/i)[0]!;
-    assert.equal(insert.params.description, null);
-});
-
-test("createModelVersion: sem insertId → lança 'Failed to create model version'", async () => {
-    respond([[/INSERT INTO model_versions/i, [{}]]]);
-
-    await assert.rejects(
-        inventoryDb.createModelVersion("3"),
-        /Failed to create model version/
-    );
-});
-
-test("deleteModelVersion: apaga a linha de model_versions", async () => {
-    respond([[/DELETE FROM model_versions/i, [{}]]]);
-
-    await inventoryDb.deleteModelVersion(9);
-    const del = fakeConnection.callsMatching(/DELETE FROM model_versions/i)[0]!;
-    assert.equal(del.params.versionId, 9);
+    const deletes = fakeConnection.calls.filter((c) => /^\s*DELETE/i.test(c.sql));
+    assert.equal(deletes.length, 3);
+    assert.match(deletes[0]!.sql, /DELETE FROM assets/i);
+    assert.match(deletes[1]!.sql, /parent_id IS NOT NULL/i);
+    assert.match(deletes[2]!.sql, /DELETE FROM entities WHERE model_version_id/i);
+    assert.deepEqual(fakeConnection.transactions, ["begin", "commit"]);
 });
 
 /* -------------------------------------

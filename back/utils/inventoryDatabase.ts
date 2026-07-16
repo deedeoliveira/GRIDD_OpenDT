@@ -10,31 +10,6 @@ class InventoryDatabase {
   }
 
   /* -------------------------------------
-        MODEL VERSION
-  ------------------------------------- */
-
-  async createModelVersion(modelId: string, description?: string): Promise<number> {
-    await this.db.checkConnection();
-
-    const [result]: any = await this.db.connection.execute(
-      `
-      INSERT INTO model_versions (model_id, description)
-      VALUES (:modelId, :description)
-      `,
-      {
-        modelId,
-        description: description ?? null
-      }
-    );
-
-    if (!result || !result.insertId) {
-      throw new Error("Failed to create model version");
-    }
-
-    return result.insertId;
-  }
-
-  /* -------------------------------------
         SAVE INVENTORY SNAPSHOT
   ------------------------------------- */
 
@@ -196,18 +171,31 @@ class InventoryDatabase {
   }
 
 
-  async deleteModelVersion(versionId: number) {
+  /**
+   * Compensação de falha do upload: apaga o inventário de uma versão que não
+   * chegou a ser ativada, para não deixar entities/assets parciais utilizáveis.
+   * A linha de model_versions é preservada (fica 'failed', para diagnóstico).
+   * Ordem: assets → entities filhas (parent_id) → entities raiz, por causa
+   * das FKs (assets→entities e entities.parent_id→entities).
+   */
+  async deleteInventoryForVersion(versionId: number) {
     await this.db.checkConnection();
+    await this.db.connection.beginTransaction();
 
-    await this.db.connection.execute(`
-      DELETE FROM model_versions
-      WHERE id = :versionId
-    `, { versionId });
+    try {
+      await this.db.connection.execute(
+        "DELETE FROM assets WHERE model_version_id = :versionId", { versionId });
+      await this.db.connection.execute(
+        "DELETE FROM entities WHERE model_version_id = :versionId AND parent_id IS NOT NULL", { versionId });
+      await this.db.connection.execute(
+        "DELETE FROM entities WHERE model_version_id = :versionId", { versionId });
+
+      await this.db.connection.commit();
+    } catch (error) {
+      await this.db.connection.rollback();
+      throw error;
+    }
   }
-
-
-
-
 }
 
 export default new InventoryDatabase();

@@ -122,16 +122,16 @@ class AssetDatabase {
   async getAssetByGuidLatest(modelId: number, guid: string) {
     await this.db.checkConnection();
 
-    // Buscar última versão
+    // Versão corrente = referência explícita models.current_version_id
+    // (Prompt 2 — substituiu o atalho "maior id" ORDER BY id DESC)
     const [versionRows]: any = await this.db.connection.execute(`
-      SELECT id
-      FROM model_versions
-      WHERE model_id = :modelId
-      ORDER BY id DESC
+      SELECT current_version_id AS id
+      FROM models
+      WHERE id = :modelId
       LIMIT 1
     `, { modelId });
 
-    if (!versionRows.length) return null;
+    if (!versionRows.length || versionRows[0].id === null) return null;
 
     const versionId = versionRows[0].id;
 
