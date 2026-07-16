@@ -10,7 +10,14 @@
 
 ### Database *(optional)*
 
-1. If you don't have a database yet, you can use the provided SQL script (`database/create_tables.sql`) to create the necessary tables.
+1. If you don't have a database yet, you can use the provided SQL script (`database/create_tables.sql`) to create the necessary tables. Then apply the migrations in `database/migrations/` (in date order):
+
+```bash
+cd back
+npx tsx scripts/runSqlFile.ts ../database/migrations/<migration>.sql
+```
+
+`database/schema_snapshot_2026-07-15.sql` is historical evidence of the development schema (do not apply or regenerate it).
 
 2. Populate the database with mock-up data using the provided JavaScript file (`database/mock-up/index.js`). You may need to modify the database connection settings in the file.
 

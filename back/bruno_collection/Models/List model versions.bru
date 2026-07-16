@@ -1,0 +1,20 @@
+meta {
+  name: List model versions
+  type: http
+  seq: 10
+}
+
+get {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/{{modelRoute}}/:modelId/versions
+  body: none
+  auth: inherit
+}
+
+params:path {
+  modelId: 3
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

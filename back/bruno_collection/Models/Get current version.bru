@@ -1,0 +1,20 @@
+meta {
+  name: Get current version
+  type: http
+  seq: 11
+}
+
+get {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/{{modelRoute}}/:modelId/current
+  body: none
+  auth: inherit
+}
+
+params:path {
+  modelId: 3
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

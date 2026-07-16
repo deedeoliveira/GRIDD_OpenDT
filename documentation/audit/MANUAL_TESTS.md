@@ -1,6 +1,9 @@
-# Procedimento de teste manual — Baseline
+# Procedimento de teste manual
 
-Procedimento reproduzível para validar o comportamento atual descrito em `BASELINE.md`.
+Documento vivo, organizado por etapa:
+- **§0–§13**: procedimento da baseline (Prompt 0), com anotações posteriores;
+- **§14 (Prompt 2)**: versionamento de modelos e ficheiros imutáveis.
+
 Todos os caminhos, rotas e dados abaixo existem realmente no repositório.
 
 ## 0. Preparação da base de dados
@@ -59,6 +62,9 @@ SELECT asset_type, COUNT(*) FROM assets WHERE model_version_id = <versionId> GRO
 
 Esperado: 1 linha nova em models e model_versions; entities com `space` (nº de IfcSpace) e `element`; assets com `space` e `equipment` (sem sensores), todos `reservable = 1`. O ficheiro aparece em `back/cdn_resources/models/<modelId>.ifc`.
 
+> 📌 *Nota histórica (Prompt 2):* desde o versionamento, o ficheiro passa a ficar em
+> `models/<modelId>/versions/<versionId>/model.ifc` e a resposta inclui `versionNumber` — ver §14.
+
 ## 3. Atualização do mesmo modelo (2.ª versão)
 
 Repete o Upload model acrescentando o campo `modelId` = `<modelId>` do passo 2.
@@ -68,8 +74,10 @@ Repete o Upload model acrescentando o campo `modelId` = `<modelId>` do passo 2.
 > "não pertence ao inventário" para todos os elementos. Se acontecer, faz nova
 > atualização com o ficheiro correto (o anterior fica em `cdn_resources/models/archive/`).
 
-**Esperado:** `200` com novo `versionId`; o IFC anterior movido para
-`back/cdn_resources/models/archive/<timestamp>_<modelId>.ifc`; novas linhas em entities/assets para a nova versão (as antigas mantêm-se).
+**Esperado:** `200` com novo `versionId`; novas linhas em entities/assets para a nova versão (as antigas mantêm-se).
+
+> 📌 *Nota histórica (Prompt 2):* o arquivamento por rename (`models/archive/...`)
+> deixou de existir — cada versão tem o seu próprio ficheiro imutável; ver §14.
 
 ## 4. Visualização do modelo
 
@@ -172,3 +180,98 @@ mysql -h localhost -P 3336 -u <user> -p digital_twin < backup_baseline.sql
 
 E apaga os ficheiros criados durante o teste: `back/cdn_resources/models/<novoModelId>.ifc`
 e o conteúdo novo de `back/cdn_resources/models/archive/`.
+
+---
+
+## 14. Prompt 2 — Versionamento de modelos e ficheiros imutáveis
+
+### 14.0 Preparação
+
+1. Migrations (já aplicadas na BD de dev em 2026-07-16; numa BD nova, por ordem):
+   ```bash
+   cd back
+   npx tsx scripts/runSqlFile.ts ../database/migrations/2026-07-15_add_overdue_status.sql
+   npx tsx scripts/runSqlFile.ts ../database/migrations/2026-07-16_model_versioning.sql
+   npx tsx scripts/backfillModelVersions.ts            # relatório
+   npx tsx scripts/backfillModelVersions.ts --apply    # aplicação (idempotente)
+   ```
+2. MySQL a correr (como na §0); backup opcional: `mysqldump ... > backup_prompt2.sql`.
+3. Serviços (⚠️ reinicia o backend para carregar o código novo):
+   `back: npm run dev` · `back/python: flask --app main run -p 3002` · `front: npm run dev`.
+4. Ficheiro necessário: um IFC com IfcSpace (ex.: o ModeloA da baseline).
+
+### 14.1 Primeiro upload (novo modelo lógico)
+
+5. Bruno **Models → Upload model** (file + name=`ModeloV2Teste`, sem modelId) ou:
+   ```bash
+   curl -X POST http://localhost:3001/api/model/upload -F "file=@ModeloA.ifc" -F "name=ModeloV2Teste"
+   ```
+   **Esperado:** `201` com `{id, versionId, versionNumber: 1, ...}`.
+6. Confirmações SQL:
+   ```sql
+   SELECT * FROM linked_models ORDER BY id DESC LIMIT 1;   -- novo linked_model
+   SELECT id, name, current_version_id FROM models ORDER BY id DESC LIMIT 1;  -- novo model, corrente preenchida
+   SELECT id, version_number, status, storage_key, original_filename, file_hash, file_size, activated_at
+   FROM model_versions ORDER BY id DESC LIMIT 1;
+   ```
+   **Esperado:** `version_number=1`, `status='active'`, `storage_key='models/<id>/versions/<vid>/model.ifc'`,
+   `original_filename` com o nome real do ficheiro, `file_hash` (64 hex), `activated_at` preenchido.
+7. Caminho no disco: `back/cdn_resources/models/<modelId>/versions/<versionId>/model.ifc` existe.
+8. Hash: compara `file_hash` com `certutil -hashfile <caminho> SHA256` (Windows) — devem coincidir.
+9. Viewer: `http://localhost:3000/student` → o modelo novo abre normalmente.
+
+### 14.2 Segunda revisão
+
+10. Repete o upload com `modelId=<id do passo 5>`.
+    **Esperado:** `200` com `versionNumber: 2`.
+11. SQL:
+    ```sql
+    SELECT COUNT(*) FROM models WHERE name='ModeloV2Teste';           -- continua 1 (não criou novo model)
+    SELECT id, version_number, status FROM model_versions WHERE model_id=<id> ORDER BY version_number;
+    -- v1: archived; v2: active
+    SELECT current_version_id FROM models WHERE id=<id>;              -- id da v2
+    ```
+12. API: `GET http://localhost:3001/api/model/<id>/versions` (Bruno **List model versions**) → 2 versões;
+    `GET .../api/model/<id>/current` → v2.
+13. Downloads: `GET .../api/model/versions/<v1>/download` e `<v2>/download` (Bruno **Download model version**)
+    → ambos devolvem ficheiro; se enviaste ficheiros diferentes, hashes diferem; o ficheiro da v1 permanece intacto no disco.
+14. Viewer: continua a abrir o modelo (agora a v2, via versão corrente).
+
+### 14.3 Falha de processamento (segura e reversível)
+
+15. Envia um "IFC" inválido como revisão:
+    ```bash
+    echo "isto nao e um ifc" > invalido.ifc
+    curl -X POST http://localhost:3001/api/model/upload -F "file=@invalido.ifc" -F "modelId=<id>"
+    ```
+    **Esperado:** `500` com mensagem de erro de inventário; no terminal do backend, uma linha
+    `{"type":"model_upload_failure","stage":"processing",...}`.
+16. Confirmações:
+    ```sql
+    SELECT id, version_number, status, failure_reason, storage_key FROM model_versions
+    WHERE model_id=<id> ORDER BY id DESC LIMIT 1;   -- status='failed', failure_reason preenchida, storage_key NULL
+    SELECT current_version_id FROM models WHERE id=<id>;   -- CONTINUA a v2
+    SELECT COUNT(*) FROM entities WHERE model_version_id=<idFalhada>;  -- 0 (sem parciais)
+    SELECT COUNT(*) FROM assets   WHERE model_version_id=<idFalhada>;  -- 0
+    ```
+17. Disco: `back/cdn_resources/models/<id>/versions/<idFalhada>/` NÃO existe;
+    `back/cdn_resources/models/temp/` sem ficheiros novos.
+18. Viewer: o modelo continua a abrir (a v2 permanece corrente).
+
+### 14.4 Compatibilidade (sem regressões)
+
+19. Ativos/reserva: duplo-clique num equipamento em `/student` → `Asset ID` + **Reservar**;
+    cria uma reserva → `pending`.
+20. Disponibilidade: início no passado → `400 "Cannot create reservation in the past"`.
+21. `overdue` existente continua visível; regras de cancelamento inalteradas (§9).
+22. Sensores: `/viewer` com timeline continua a funcionar (dependem de model_id, não de caminhos).
+23. Sem aprovação de gestor: `POST /api/reservation/approve` → `404`.
+24. P14 inalterado (lista de reservas só sem modelo selecionado).
+
+### 14.5 Limpeza / repetição
+
+- Os modelos de teste podem ficar; para repetir do zero:
+  `mysql ... < backup_prompt2.sql` e apaga `back/cdn_resources/models/<modelId>/` do modelo de teste.
+- O rollback do esquema (se alguma vez necessário):
+  `npx tsx scripts/runSqlFile.ts ../database/migrations/2026-07-16_model_versioning_rollback.sql`
+  (⚠️ perde os metadados novos; não apaga ficheiros nem reservas).
