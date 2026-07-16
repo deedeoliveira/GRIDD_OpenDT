@@ -156,6 +156,10 @@ para carregar o código novo.
   cancelável) — foi o que aconteceu no teste.
 - **Teste 12 (logs)**: os logs `policy_evaluation` só existem no código novo — é preciso
   **reiniciar o backend** depois desta etapa.
+- **Disponibilidade com início no passado** (pedido do feedback): a verificação de
+  disponibilidade passou a responder `400 "Cannot create reservation in the past"`
+  (além do `400` para fim ≤ início), e o modal avisa "O início não pode estar no passado."
+  sem chamar a API — em espelho do que já acontecia com fim ≤ início.
 - **Pedido duplicado do mesmo utilizador**: a regra **já existe desde a baseline** —
   `hasActorConflict` bloqueia no backend um segundo pedido do mesmo ator para o mesmo
   asset com período sobreposto, enquanto o primeiro estiver `pending` ou `approved`

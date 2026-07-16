@@ -68,6 +68,12 @@ export default function ReservationModal({
       return;
     }
 
+    // Validação imediata: o início não pode estar no passado
+    if (new Date(start) <= new Date()) {
+      setAvailabilityError("O início não pode estar no passado.");
+      return;
+    }
+
     setCheckingAvailability(true);
 
     const res = await fetch(

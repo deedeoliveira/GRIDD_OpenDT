@@ -43,10 +43,14 @@ app.get("/availability/:assetId", async (req, res) => {
     return buildErrorResponse(res, 400, "Invalid start or end date");
   }
 
-  // Mesma regra da criação de reserva: período inválido é avisado já na
-  // verificação de disponibilidade, não apenas ao solicitar
+  // Mesmas regras da criação de reserva: período inválido e início no passado
+  // são avisados já na verificação de disponibilidade, não apenas ao solicitar
   if (endDate <= startDate) {
     return buildErrorResponse(res, 400, "End time must be after start time");
+  }
+
+  if (startDate <= new Date()) {
+    return buildErrorResponse(res, 400, "Cannot create reservation in the past");
   }
 
   try {

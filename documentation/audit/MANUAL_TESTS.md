@@ -149,7 +149,8 @@ curl "http://localhost:3001/api/asset/availability/<assetId>?start=2026-08-01T10
 
 **Esperado:** `{"data": {"available": true, "conflicts": []}}` se não houver reserva
 `approved`/`in_use` sobreposta; caso contrário `available: false` com os ids em conflito.
-Com `end ≤ start` → `400 "End time must be after start time"`; datas inválidas → `400`.
+Com `end ≤ start` → `400 "End time must be after start time"`; com início no passado →
+`400 "Cannot create reservation in the past"`; datas inválidas → `400`.
 Nota: reservas `pending` não afetam este endpoint (comportamento atual).
 
 ## 12. Testes automatizados
