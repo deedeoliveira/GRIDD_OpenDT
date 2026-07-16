@@ -1,0 +1,71 @@
+/**
+ * Contratos da camada de políticas de reserva.
+ *
+ * Separa quatro preocupações que antes estavam misturadas no código:
+ *  1. Reservabilidade   — um elemento do modelo pode ser um ativo reservável?
+ *                          (ReservabilityEvaluator, avaliado na criação do inventário)
+ *  2. Validação de pedido — um pedido de reserva pode entrar no fluxo existente?
+ *                          (ReservationRequestValidator, avaliado na submissão)
+ *  3. Disponibilidade temporal — continua fora desta camada
+ *                          (reservationDatabase.hasApprovedConflict / assetDatabase.getAvailability)
+ *  4. Aprovação humana   — não existe operação implementada; o estado 'approved'
+ *                          só é atingível fora da aplicação. Esta camada NÃO aprova
+ *                          reservas; apenas decide se o pedido pode ser submetido.
+ */
+
+export type PolicyDecision = "allow" | "deny" | "undetermined" | "error";
+
+export interface PolicyEvaluationResult {
+    decision: PolicyDecision;
+    /** Razões legíveis que justificam a decisão (vazio apenas se não houver nada a dizer). */
+    reasons: string[];
+    /** Identificador estável do avaliador que produziu a decisão. */
+    evaluatorId: string;
+    /** Versão das regras aplicadas, quando o avaliador a define. */
+    rulesVersion?: string;
+    /** Momento da avaliação (ISO 8601). */
+    evaluatedAt: string;
+}
+
+/** Contexto partilhado passado a qualquer avaliação de política. */
+export interface PolicyContext {
+    modelId?: number | string;
+    modelVersionId?: number | string;
+    [extra: string]: unknown;
+}
+
+/** Candidato a ativo reservável (um elemento ou espaço vindo do inventário IFC). */
+export interface ReservabilityCandidate {
+    guid: string;
+    name?: string | null;
+    /** Classe IFC tal como extraída pelo serviço Python (ex.: IfcSpace, IfcFurniture, IfcSensor). */
+    ifcType?: string | null;
+    entityType: "space" | "element";
+}
+
+/** Pedido de reserva a validar antes de entrar no fluxo existente. */
+export interface ReservationValidationRequest {
+    assetId: number;
+    actorId: string;
+    startTime: Date;
+    endTime: Date;
+}
+
+export interface ReservabilityEvaluator {
+    evaluate(
+        candidate: ReservabilityCandidate,
+        context: PolicyContext
+    ): Promise<PolicyEvaluationResult>;
+}
+
+export interface ReservationRequestValidator {
+    /**
+     * Decide se o pedido pode ser SUBMETIDO ao fluxo de reservas existente.
+     * Não aprova a reserva: um pedido permitido entra como 'pending',
+     * exatamente como na baseline.
+     */
+    validate(
+        request: ReservationValidationRequest,
+        context: PolicyContext
+    ): Promise<PolicyEvaluationResult>;
+}

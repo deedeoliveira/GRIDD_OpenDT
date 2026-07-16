@@ -126,7 +126,10 @@ Recarrega `/student` → a reserva aparece em **Approved** com botão **Check-in
 Bruno **Reservation → Cancel reservation** com `{ "reservationId": <id>, "actorId": "pg202404" }`.
 
 - Reserva `pending` → `200` "Reservation cancelled" **a qualquer momento** (mesmo <24h do início).
-- Reserva `approved` com início a menos de 24h → `400` "Cancellation allowed only up to 24h before start time" (a regra das 24h só se aplica a aprovadas).
+- Reserva `approved` com início **no futuro** a menos de 24h → `400` "Cancellation allowed only up to 24h before start time" (a regra das 24h só se aplica a aprovadas).
+  ⚠️ Se o início já tiver passado há >10 min sem check-in, a reserva converte-se primeiro
+  em `no_show` e a resposta passa a ser "Reservation cannot be cancelled" — usa uma
+  reserva com início futuro (ex.: `NOW() + INTERVAL 2 HOUR`) para ver a mensagem das 24h.
 - `actorId` diferente → `400` "Not authorized to cancel this reservation".
 
 ## 10. Sensores

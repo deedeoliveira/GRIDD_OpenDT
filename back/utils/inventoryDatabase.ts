@@ -1,4 +1,5 @@
 import MySQLDatabase from "./mysqlDatabase.ts";
+import { getReservabilityEvaluator } from "../policies/policyProvider.ts";
 
 class InventoryDatabase {
   private db: MySQLDatabase;
@@ -55,6 +56,10 @@ class InventoryDatabase {
 
       const insertedGuids = new Set<string>();
 
+      // A decisão de reservabilidade é delegada na política configurada
+      // (default: legacy, que reproduz o comportamento da baseline).
+      const reservability = getReservabilityEvaluator();
+
       console.log("Inventory size:", Object.keys(inventoryData).length);
 
       for (const spaceGuid in inventoryData) {
@@ -76,28 +81,37 @@ class InventoryDatabase {
 
         /* ------------------- SPACE ASSET ------------------- */
 
-        await this.db.connection.execute(`
-          INSERT INTO assets (
-            name,
-            asset_type,
-            model_entity_id,
-            current_space_entity_id,
-            model_version_id,
-            reservable
-          )
-          VALUES (
-            :name,
-            'space',
-            :entityId,
-            NULL,
-            :versionId,
-            true
-          )
-        `, {
+        const spaceDecision = await reservability.evaluate({
+          guid: spaceGuid,
           name: space.spaceName,
-          entityId: spaceId,
-          versionId
-        });
+          ifcType: "IfcSpace",
+          entityType: "space"
+        }, { modelVersionId: versionId });
+
+        if (spaceDecision.decision === "allow") {
+          await this.db.connection.execute(`
+            INSERT INTO assets (
+              name,
+              asset_type,
+              model_entity_id,
+              current_space_entity_id,
+              model_version_id,
+              reservable
+            )
+            VALUES (
+              :name,
+              'space',
+              :entityId,
+              NULL,
+              :versionId,
+              true
+            )
+          `, {
+            name: space.spaceName,
+            entityId: spaceId,
+            versionId
+          });
+        }
 
         /* ------------------- ELEMENTS ------------------- */
 
@@ -137,7 +151,14 @@ class InventoryDatabase {
 
           const elementId = elementResult.insertId;
 
-          if (element.type !== 'IfcSensor') {
+          const elementDecision = await reservability.evaluate({
+            guid: element.guid,
+            name: element.name,
+            ifcType: element.type,
+            entityType: "element"
+          }, { modelVersionId: versionId });
+
+          if (elementDecision.decision === "allow") {
             await this.db.connection.execute(`
               INSERT INTO assets (
                 name,

@@ -1,4 +1,5 @@
 import MySQLDatabase from "./mysqlDatabase.ts";
+import { getReservationRequestValidator, logPolicyDecision } from "../policies/policyProvider.ts";
 
 class ReservationDatabase {
   private db: MySQLDatabase;
@@ -65,19 +66,21 @@ class ReservationDatabase {
     await this.markExpiredReservationsAsNoShow();
     await this.db.checkConnection();
 
-    const now = new Date();
+    // Validação de submissão delegada na política configurada (default: legacy,
+    // que reproduz as validações técnicas da baseline: fim > início, início no
+    // futuro — por esta ordem). Não é aprovação: um pedido permitido entra
+    // como 'pending'. Conflitos temporais continuam abaixo, fora da política.
+    const validator = getReservationRequestValidator();
+    const validation = await validator.validate(
+      { assetId, actorId, startTime: start, endTime: end },
+      {}
+    );
 
-    // 🚫 Período inválido (validado primeiro para dar a mensagem certa
-    // quando ambas as datas estão erradas)
-    if (end <= start) {
-      throw new Error("End time must be after start time");
+    logPolicyDecision("reservation_request", validation, { assetId, actorId });
+
+    if (validation.decision !== "allow") {
+      throw new Error(validation.reasons[0] ?? "Reservation request rejected by policy");
     }
-
-    // 🚫 Não permitir reservas retroativas
-    if (start <= now) {
-      throw new Error("Cannot create reservation in the past");
-    }
-
 
     // 1️⃣ Check approved conflict
     const approvedConflict = await this.hasApprovedConflict(assetId, start, end);
