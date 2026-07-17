@@ -11,6 +11,9 @@
  * o SQL exato enviado — sem alterar o código da aplicação.
  */
 import mysql from "mysql2/promise";
+import fs from "fs";
+import path from "path";
+import os from "os";
 
 export type Call = { sql: string; params?: any };
 
@@ -60,6 +63,18 @@ export function installFakeMySQL() {
     process.env.DB_NAME ??= "test-db";
     process.env.DB_USER ??= "test-user";
     process.env.DB_PASSWORD ??= "test-password";
+
+    /* ---- segurança do storage (incidente de 2026-07-17): a BD é falsa mas
+            o FILESYSTEM é real. NODE_ENV=test ativa as guardas fail-safe e
+            OSWADT_STORAGE_ROOT redireciona TODO o storage dos testes para um
+            diretório temporário descartável — nenhum teste toca em
+            back/cdn_resources. Tem de acontecer ANTES do import dinâmico de
+            utils/storage.ts. ---- */
+    process.env.NODE_ENV = "test";
+    if (!process.env.OSWADT_STORAGE_ROOT) {
+        process.env.OSWADT_STORAGE_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "oswadt-test-storage-"));
+        fs.mkdirSync(path.join(process.env.OSWADT_STORAGE_ROOT, "models/temp"), { recursive: true });
+    }
 
     (mysql as any).createConnection = async () => fakeConnection;
 }

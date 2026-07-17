@@ -14,7 +14,17 @@ import path from "path";
 import fs from "fs";
 import crypto from "crypto";
 
-export const STORAGE_ROOT = path.join(import.meta.dirname, "../cdn_resources");
+/**
+ * Root do storage. OSWADT_STORAGE_ROOT permite redirecionar TODO o storage
+ * (usado pelos testes para um diretório temporário descartável — depois do
+ * incidente de 2026-07-17, NENHUM teste pode tocar em back/cdn_resources).
+ */
+export const STORAGE_ROOT = process.env.OSWADT_STORAGE_ROOT
+    ? path.resolve(process.env.OSWADT_STORAGE_ROOT)
+    : path.join(import.meta.dirname, "../cdn_resources");
+
+/** Root REAL de desenvolvimento (para guardas de segurança nos scripts). */
+export const REAL_DEV_STORAGE_ROOT = path.join(import.meta.dirname, "../cdn_resources");
 
 /** Diretório temporário dos uploads (multer) — separado do armazenamento definitivo. */
 export const TEMP_DIR = path.join(STORAGE_ROOT, "models/temp");

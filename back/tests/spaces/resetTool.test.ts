@@ -4,12 +4,21 @@
  */
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
 import { installFakeMySQL, fakeConnection, respond } from "../helpers/fakeDb.ts";
 
 installFakeMySQL();
 
 const { runOperationalReset, OPERATIONAL_TABLES, PRESERVED_TABLES } =
     await import("../../scripts/resetOperationalData.ts");
+
+// ⚠️ O filesystem NÃO é falso nos testes: usar SEMPRE um storage descartável
+// (em 2026-07-17 uma execução da suite apagou IFCs reais por faltar isto).
+const SCRATCH_STORAGE = fs.mkdtempSync(path.join(os.tmpdir(), "oswadt-reset-test-"));
+fs.mkdirSync(path.join(SCRATCH_STORAGE, "models/temp"), { recursive: true });
+const OPTS = { storageRoot: SCRATCH_STORAGE };
 
 beforeEach(() => fakeConnection.reset());
 
@@ -22,14 +31,27 @@ const COUNT_ROUTES: [RegExp, any][] = [[/SELECT COUNT\(\*\) AS n FROM/i, [[{ n: 
 test("reset em --dry-run não escreve nada", async () => {
     respond(COUNT_ROUTES);
 
-    await runOperationalReset(false);
+    await runOperationalReset(false, OPTS);
 
     assert.equal(fakeConnection.callsMatching(/DELETE|TRUNCATE|DROP|ALTER/i).length, 0);
 });
 
 test("reset --apply sem ALLOW_DESTRUCTIVE_DEV_RESET falha de forma controlada", async () => {
     delete process.env.ALLOW_DESTRUCTIVE_DEV_RESET;
-    await assert.rejects(runOperationalReset(true), /ALLOW_DESTRUCTIVE_DEV_RESET/);
+    await assert.rejects(runOperationalReset(true, OPTS), /ALLOW_DESTRUCTIVE_DEV_RESET/);
+});
+
+test("guarda pós-incidente: em NODE_ENV=test o reset SEM storageRoot injetado falha (nunca default silencioso)", async () => {
+    assert.equal(process.env.NODE_ENV, "test");
+    await assert.rejects(runOperationalReset(false), /explicitly injected disposable storageRoot/);
+});
+
+test("guarda pós-incidente: storage real (back/cdn_resources) é rejeitado em ambiente de teste", async () => {
+    const realRoot = path.join(import.meta.dirname, "../../cdn_resources");
+    await assert.rejects(
+        runOperationalReset(false, { storageRoot: realRoot }),
+        /refusing to run against the real development storage/
+    );
 });
 
 test("reset --apply limpa as tabelas operacionais por ordem segura de FKs, preserva channels e o schema", async () => {
@@ -44,7 +66,7 @@ test("reset --apply limpa as tabelas operacionais por ordem segura de FKs, prese
     ]);
 
     try {
-        await runOperationalReset(true);
+        await runOperationalReset(true, OPTS);
     } finally {
         delete process.env.ALLOW_DESTRUCTIVE_DEV_RESET;
     }
@@ -52,7 +74,7 @@ test("reset --apply limpa as tabelas operacionais por ordem segura de FKs, prese
     const deletes = fakeConnection.calls.filter((c) => /^DELETE FROM/i.test(c.sql));
     // +1: entities tem um DELETE extra (filhas com parent_id antes das raízes)
     assert.equal(deletes.length, OPERATIONAL_TABLES.length + 1);
-    assert.match(deletes[0]!.sql, /space_bindings/, "filhos antes dos pais");
+    assert.match(deletes[0]!.sql, /asset_bindings/, "filhos antes dos pais");
     assert.match(deletes[deletes.length - 1]!.sql, /linked_models/);
 
     // channels preservada (sensors_channels é operacional e É limpa); nenhum
@@ -76,7 +98,7 @@ test("segunda execução do reset é segura (idempotente: DELETE sobre tabelas v
     ]);
 
     try {
-        await runOperationalReset(true);
+        await runOperationalReset(true, OPTS);
         await assert.doesNotReject(async () => { /* já correu uma vez acima */ });
     } finally {
         delete process.env.ALLOW_DESTRUCTIVE_DEV_RESET;

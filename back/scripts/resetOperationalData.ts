@@ -15,8 +15,9 @@
  *  - backup JSON automático antes do --apply (diretório gitignored);
  *  - contagens antes e depois; nenhum dado fictício é inserido.
  *
- * Tabelas LIMPAS (operacionais): space_bindings, spaces, res_reservations,
- *   assets, entities, model_versions, sensors_channels, sensors_data, sensors,
+ * Tabelas LIMPAS (operacionais): asset_bindings, asset_reconciliation_cases,
+ *   legacy_asset_mapping, space_bindings, res_reservations, assets, spaces,
+ *   entities, model_versions, sensors_channels, sensors_data, sensors,
  *   models, linked_models.
  * Tabelas PRESERVADAS: channels (dados de referência dos sensores).
  *   (Não existem tabelas de utilizadores/papéis — a aplicação não tem
@@ -31,14 +32,17 @@ import "dotenv/config";
 import mysql from "mysql2/promise";
 import fs from "fs";
 import path from "path";
-import { STORAGE_ROOT } from "../utils/storage.ts";
+import { STORAGE_ROOT, REAL_DEV_STORAGE_ROOT } from "../utils/storage.ts";
 
 /** Ordem segura de FKs: filhos antes de pais. */
 export const OPERATIONAL_TABLES = [
+    "asset_bindings",
+    "asset_reconciliation_cases",
+    "legacy_asset_mapping",
     "space_bindings",
-    "spaces",
     "res_reservations",
     "assets",
+    "spaces",
     "entities",
     "model_versions",
     "sensors_channels",
@@ -50,7 +54,36 @@ export const OPERATIONAL_TABLES = [
 
 export const PRESERVED_TABLES = ["channels"] as const;
 
-export async function runOperationalReset(apply: boolean): Promise<void> {
+export interface ResetOptions {
+    /** Root do storage a limpar. Nos TESTES tem de ser um diretório descartável
+     *  — a BD é falsa mas o filesystem é real (lição de 2026-07-17: uma suite
+     *  de testes apagou ficheiros de versões reais por usar o root verdadeiro). */
+    storageRoot?: string;
+}
+
+export async function runOperationalReset(apply: boolean, options: ResetOptions = {}): Promise<void> {
+    const isTestEnv = process.env.NODE_ENV === "test";
+
+    /* ---- guardas pós-incidente de 2026-07-17 (falha SEGURA, nunca default
+            silencioso): em ambiente de teste o root TEM de ser explicitamente
+            injetado e NUNCA pode ser o storage real de desenvolvimento. ---- */
+    if (isTestEnv && !options.storageRoot) {
+        throw new Error(
+            "resetOperationalData: NODE_ENV=test requires an explicitly injected disposable storageRoot " +
+            "(tests must never touch the real development storage)"
+        );
+    }
+
+    const storageRoot = options.storageRoot ?? STORAGE_ROOT;
+    const resolvedRoot = path.resolve(storageRoot);
+    const realRoot = path.resolve(REAL_DEV_STORAGE_ROOT);
+
+    if (isTestEnv && (resolvedRoot === realRoot || resolvedRoot.startsWith(realRoot + path.sep))) {
+        throw new Error(
+            "resetOperationalData: refusing to run against the real development storage (back/cdn_resources) in a test environment"
+        );
+    }
+
     if (process.env.NODE_ENV === "production") {
         throw new Error("resetOperationalData: refusing to run with NODE_ENV=production");
     }
@@ -84,8 +117,9 @@ export async function runOperationalReset(apply: boolean): Promise<void> {
         return;
     }
 
-    /* ---- backup JSON antes de apagar ---- */
-    const backupDir = path.join(STORAGE_ROOT, `_backup_reset_${new Date().toISOString().slice(0, 10)}`);
+    /* ---- backup JSON antes de apagar (nome único por execução — nunca
+            sobrescreve backups anteriores) ---- */
+    const backupDir = path.join(storageRoot, `_backup_reset_${new Date().toISOString().replace(/[:.]/g, "-")}`);
     fs.mkdirSync(backupDir, { recursive: true });
     const backup: Record<string, any[]> = {};
     for (const table of [...OPERATIONAL_TABLES, ...PRESERVED_TABLES]) {
@@ -119,7 +153,7 @@ export async function runOperationalReset(apply: boolean): Promise<void> {
     }
 
     /* ---- ficheiros runtime correspondentes aos dados apagados ---- */
-    const modelsDir = path.join(STORAGE_ROOT, "models");
+    const modelsDir = path.join(storageRoot, "models");
     if (fs.existsSync(modelsDir)) {
         for (const entry of fs.readdirSync(modelsDir, { withFileTypes: true })) {
             const full = path.join(modelsDir, entry.name);
