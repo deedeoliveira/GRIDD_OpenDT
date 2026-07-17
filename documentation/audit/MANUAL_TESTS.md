@@ -2,7 +2,10 @@
 
 Documento vivo, organizado por etapa:
 - **§0–§13**: procedimento da baseline (Prompt 0), com anotações posteriores;
-- **§14 (Prompt 2)**: versionamento de modelos e ficheiros imutáveis.
+- **§14 (Prompt 2)**: versionamento de modelos e ficheiros imutáveis;
+- **§15 (Prompt 3)**: identidade persistente dos espaços — ⚠️ parcialmente
+  substituída pela revisão (regra estrita); usa o roteiro atualizado do §16;
+- **§16 (revisão do Prompt 3)**: spatial_preflight estrito + ambiente pós-reset.
 
 Todos os caminhos, rotas e dados abaixo existem realmente no repositório.
 
@@ -275,3 +278,158 @@ e o conteúdo novo de `back/cdn_resources/models/archive/`.
 - O rollback do esquema (se alguma vez necessário):
   `npx tsx scripts/runSqlFile.ts ../database/migrations/2026-07-16_model_versioning_rollback.sql`
   (⚠️ perde os metadados novos; não apaga ficheiros nem reservas).
+
+---
+
+## 15. Prompt 3 — Identidade persistente dos espaços
+
+> ⚠️ **REVISÃO (ADR-0009):** os passos abaixo que mostram espaços SEM código a
+> serem aceites com diagnóstico já não se aplicam ao modelo espacial
+> autoritativo — agora o upload é REJEITADO (422). Usa o roteiro atualizado
+> do **§16**; esta secção fica como registo do comportamento intermédio.
+
+### 15.0 Preparação
+
+1. Migrations (a de espaços já foi aplicada na BD de dev em 2026-07-16; numa BD nova, por ordem de data):
+   ```bash
+   cd back
+   npx tsx scripts/runSqlFile.ts ../database/migrations/2026-07-16_space_identity.sql
+   ```
+2. Serviços a correr (⚠️ reinicia backend E Flask — ambos têm código novo):
+   `back: npm run dev` · `back/python: flask --app main run -p 3002` · `front: npm run dev`.
+3. Fixtures (os teus IFCs reais não têm `Pset_SpaceCommon.Reference` — usa o gerador):
+   ```bash
+   cd back/python
+   ./venv/Scripts/python.exe make_space_fixture.py fx_v1.ifc --space "R-101:Sala 101:GUIDFIXO01" --space "R-102:Sala 102" --space ":Sem Codigo"
+   ./venv/Scripts/python.exe make_space_fixture.py fx_v2.ifc --space "R-101:Sala Renomeada" --space "R-102:Sala 102" --space "R-103:Sala Nova"
+   ./venv/Scripts/python.exe make_space_fixture.py fx_dup.ifc --space "R-500:Sala X" --space "R-500:Sala Y"
+   ./venv/Scripts/python.exe make_space_fixture.py fx_split.ifc --space "R-101A:Metade A" --space "R-101B:Metade B" --space "R-102:Sala 102" --space "R-103:Sala Nova"
+   ```
+
+### 15.1 Primeiro upload com códigos
+
+4. `curl -X POST http://localhost:3001/api/model/upload -F "file=@fx_v1.ifc" -F "name=FixtureEspacos"` → `201` (guarda `<modelId>`/`<versionId>`; o linked_model criado é `<lm>`).
+5. SQL / API:
+   ```sql
+   SELECT id, space_uuid, inventory_code, status FROM spaces WHERE linked_model_id = <lm>;
+   -- 2 linhas: R-101 e R-102, status 'active' (o espaço sem código NÃO cria linha)
+   SELECT * FROM space_bindings WHERE model_version_id = <versionId>;
+   -- 2 bindings com ifc_guid, snapshots e model_version_id explícito
+   ```
+   `GET http://localhost:3001/api/space/linked/<lm>` devolve o mesmo. No terminal do backend: log `space_identity` com `ignored_missing_inventory_code` para o espaço sem código.
+6. O espaço sem código continua como entity + asset legado: `SELECT COUNT(*) FROM assets WHERE model_version_id = <versionId> AND asset_type='space';` → 3 (lista legada não reduzida).
+
+### 15.2 Nova versão — mesmo código, GUIDs/nome diferentes
+
+7. `curl -X POST ... -F "file=@fx_v2.ifc" -F "modelId=<modelId>"` → `200`, versão 2.
+8. Confirmações:
+   ```sql
+   SELECT id, inventory_code, status FROM spaces WHERE linked_model_id = <lm>;
+   -- R-101 e R-102 mantêm os MESMOS ids (GUID novo e nome novo não mudam identidade);
+   -- R-103 é novo; nenhum foi apagado
+   SELECT space_id, model_version_id, ifc_guid FROM space_bindings ORDER BY id;
+   -- bindings da v1 intactos (históricos); novos bindings para a v2
+   ```
+   `GET /api/space/<spaceId de R-101>/bindings` → 2 bindings (v1 e v2), com GUIDs diferentes.
+
+### 15.3 GUID igual, código diferente
+
+9. Gera `fx_v3.ifc` reutilizando o GUID fixo com outro código: `--space "R-999:Sala Recodificada:GUIDFIXO01"` (+ os outros espaços que quiseres manter) e faz upload como versão 3. Esperado: **novo** espaço R-999 (id novo); R-101 fica `absent` se ausente da v3 — GUID não transfere identidade.
+
+### 15.4 Duplicado bloqueia ativação (modelo autoritativo)
+
+10. `curl -X POST ... -F "file=@fx_dup.ifc" -F "modelId=<modelId>"` → `500 "Duplicate space inventory code(s)..."`.
+11. Confirmações: `SELECT status, failure_reason FROM model_versions WHERE model_id=<modelId> ORDER BY id DESC LIMIT 1;` → `failed`, razão `spatial_identity: ...`; `SELECT current_version_id FROM models WHERE id=<modelId>;` → continua a versão anterior; `SELECT COUNT(*) FROM space_bindings WHERE model_version_id=<idFalhada>;` → 0; espaços preexistentes intactos; viewer continua a abrir o modelo.
+
+### 15.5 Divisão / fusão / ausência
+
+12. Upload de `fx_split.ifc` como nova versão (R-101 desaparece; R-101A/R-101B aparecem) → esperado: 2 espaços novos; R-101 fica `status='absent'` (preservado, com histórico); nada apagado.
+13. Fusão: gera um ficheiro onde R-101A/R-101B desaparecem e surge R-101AB → 1 espaço novo, os dois anteriores `absent`.
+14. Ausência em modelo NÃO espacial: faz upload de um IFC sem IfcSpace como **outro** modelo (ex.: `casa_modelo`) — os espaços da fixture não mudam de estado (autoridade é por federação).
+
+### 15.6 Backfill
+
+15. Com backend + Flask a correr: `cd back && npx tsx scripts/backfillSpaces.ts` (relatório) → nos teus modelos reais, todos os espaços dão `missing_reference` (não têm o pset — limitação histórica honesta); a versão `failed` aparece como `skipped_failed_version`. `--apply` + repetir → `already_bound`/no-op nas fixtures.
+
+### 15.7 Compatibilidade
+
+16. Viewer (`/student`): seleciona um modelo real → tudo como antes; sensores (`/viewer`) sem regressão; reserva nova → `pending`; início no passado → `400`; `overdue` continua; APIs de versões e downloads funcionam; `POST /api/reservation/approve` → 404; P14 inalterado.
+
+### 15.8 Limpeza / rollback
+
+17. Limpar fixtures: apaga o linked_model de teste (cascata para models) e os diretórios `back/cdn_resources/models/<modelId>/`; `DELETE FROM spaces WHERE linked_model_id=<lm>;` (bindings primeiro se necessário).
+18. Rollback (ambiente descartável): `npx tsx scripts/runSqlFile.ts ../database/migrations/2026-07-16_space_identity_rollback.sql` — remove spaces/bindings/coluna de autoridade; não toca em entities, assets, reservas, ficheiros nem `current_version_id`.
+
+---
+
+## 16. Revisão do Prompt 3 — spatial_preflight estrito (ambiente pós-reset)
+
+> A base foi limpa (reset operacional) — começa do zero. Nota: a aplicação não
+> tem autenticação/login; "confirmar login" = abrir as páginas normalmente.
+
+### 16.0 Preparação
+
+1. Serviços (⚠️ reinicia backend E Flask — código novo em ambos):
+   `back: npm run dev` · `back/python: flask --app main run -p 3002` · `front: npm run dev`.
+2. Confirmar base vazia: `SELECT COUNT(*) FROM models; SELECT COUNT(*) FROM res_reservations; SELECT COUNT(*) FROM spaces;` → 0/0/0; `GET http://localhost:3001/api/model/linked` → `[]`; `/student` abre com lista de modelos vazia.
+3. Fixtures (gera onde quiseres; os comandos criam os ficheiros na pasta atual):
+   ```bash
+   cd back/python
+   ./venv/Scripts/python.exe make_space_fixture.py fx_valido_v1.ifc --space "R-101:Sala 101" --space "R-102:Sala 102"
+   ./venv/Scripts/python.exe make_space_fixture.py fx_valido_v2.ifc --space "R-101:Sala Renomeada" --space "R-102:Sala 102" --space "R-103:Sala Nova"
+   ./venv/Scripts/python.exe make_space_fixture.py fx_um_semcod.ifc --space "R-201:Sala OK" --space "R-202:Outra OK" --space ":Sem Codigo"
+   ./venv/Scripts/python.exe make_space_fixture.py fx_dup.ifc --space "R-500:Sala X" --space "R-500:Sala Y"
+   ```
+   Para "modelo sem IfcSpace" usa um IFC teu sem espaços (ex.: Project1.ifc / casa_modelo_v5.ifc).
+
+### 16.1 Modelo sem IfcSpace → rejeitado
+
+4. `curl -X POST http://localhost:3001/api/model/upload -F "file=@Project1.ifc" -F "name=SemEspacos"`
+   **Esperado:** `422` `"The spatial model cannot be processed because it contains no IfcSpace elements."`
+5. `SELECT id, status, failure_reason FROM model_versions ORDER BY id DESC LIMIT 1;`
+   → `failed`, `failure_reason = 'spatial_preflight: no IfcSpace found'`.
+6. `SELECT COUNT(*) FROM entities; SELECT COUNT(*) FROM assets;` → 0/0 (nada persistido);
+   `back/cdn_resources/models/<id>/` sem diretório da versão; `models/temp/` vazio.
+   (A linha em `models`/`linked_models` fica — é o modelo lógico, não a versão.)
+
+### 16.2 Espaço sem Reference → rejeitado (sem aceitação parcial)
+
+7. Upload de `fx_um_semcod.ifc` (novo modelo `Misto`).
+   **Esperado:** `422` `"... one or more IfcSpace elements do not contain a valid Pset_SpaceCommon.Reference. 1 of 3 IfcSpace elements are missing a valid inventory reference."`
+8. No terminal do backend: log `spatial_preflight`/`invalid_references` com guid/Name/LongName/motivo (`missing_reference`).
+9. SQL: versão `failed` com `spatial_preflight: 1 of 3 ...`; zero entities/assets/spaces/bindings.
+
+### 16.3 Modelo totalmente válido → ativa
+
+10. Upload de `fx_valido_v1.ifc` (novo modelo `FixValida`). **Esperado:** `201`, versão 1 `active`.
+11. `SELECT * FROM spaces;` → R-101 e R-102 `active`; `SELECT * FROM space_bindings;` → 2 bindings; viewer abre o modelo.
+
+### 16.4 Identidade persistente entre versões
+
+12. Upload de `fx_valido_v2.ifc` com `modelId=<FixValida>`. **Esperado:** `200`, versão 2.
+13. `SELECT id, inventory_code, status FROM spaces;` → R-101/R-102 mantêm os MESMOS ids (GUIDs/nome mudaram); R-103 novo; `GET /api/space/<idR101>/bindings` → bindings v1 e v2.
+
+### 16.5 Duplicados → rejeitados no preflight
+
+14. Upload de `fx_dup.ifc` com `modelId=<FixValida>`. **Esperado:** `422 "Duplicate space inventory code(s) in authoritative spatial model: R-500"`; corrente continua a v2; versão `failed` com `spatial_preflight: duplicate inventory code(s): R-500`; zero linhas novas em entities/assets/spaces/bindings.
+
+### 16.6 Modelo não autoritativo (federação)
+
+15. Com a federação de `FixValida` (`<lm>`): fixa a autoridade e carrega um disciplinar sem espaços NA MESMA federação:
+    ```sql
+    UPDATE linked_models SET spatial_authority_model_id = <FixValidaModelId> WHERE id = <lm>;
+    ```
+    `curl -X POST ... -F "file=@Project1.ifc" -F "name=MEP" -F "linkedParentId=<lm>"`
+    **Esperado:** `201` — modelos disciplinares sem IfcSpace continuam permitidos.
+
+### 16.7 Compatibilidade e encerramento
+
+16. Bruno: pastas **Models/Spaces** funcionam; `GET /api/space/linked/<lm>`; downloads de versões OK.
+17. Reservas: cria uma reserva num asset das fixtures → `pending`; início no passado → `400`; **nenhuma reserva pré-existente** (`SELECT COUNT(*) FROM res_reservations;` só com as que criares).
+18. Limpeza para repetir: novo reset —
+    ```bash
+    cd back
+    npx tsx scripts/resetOperationalData.ts                                   # dry-run (plano)
+    ALLOW_DESTRUCTIVE_DEV_RESET=true npx tsx scripts/resetOperationalData.ts --apply
+    ```
+    (backup JSON automático em `cdn_resources/_backup_reset_<data>/`; nunca guardes a variável num .env.)

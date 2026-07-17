@@ -1,0 +1,20 @@
+meta {
+  name: Space bindings history
+  type: http
+  seq: 2
+}
+
+get {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/space/:spaceId/bindings
+  body: none
+  auth: inherit
+}
+
+params:path {
+  spaceId: 1
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

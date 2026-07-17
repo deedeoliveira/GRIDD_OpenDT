@@ -1,0 +1,20 @@
+meta {
+  name: List spaces by linked model
+  type: http
+  seq: 1
+}
+
+get {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/space/linked/:linkedModelId
+  body: none
+  auth: inherit
+}
+
+params:path {
+  linkedModelId: 1
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
