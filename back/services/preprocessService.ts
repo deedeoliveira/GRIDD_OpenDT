@@ -1,17 +1,17 @@
-import inventoryDb from "../utils/inventoryDatabase.ts";
-
 /**
- * Extrai o inventário via serviço Python/IfcOpenShell e grava o snapshot.
+ * Extração do inventário via serviço Python/IfcOpenShell (SEM persistência).
  *
- * O Python continua apenas a extrair candidatos — não decide reservabilidade
- * (a decisão é do provider de política dentro de saveInventorySnapshot).
+ * O Python continua apenas a extrair candidatos — não decide identidade,
+ * reservabilidade nem requisitos de informação. A persistência do snapshot
+ * (entities/assets) acontece separadamente, DEPOIS do spatial_preflight
+ * (ver modelUploadService).
  *
  * @param fileUrl URL de onde o Python deve descarregar o IFC. Quando fornecido
  *   (fluxo de versionamento: aponta para o download da versão em processamento),
  *   é passado no campo de formulário `path`, que o main.py já suporta. Quando
  *   omitido, o Python usa MODEL_DOWNLOAD_ROUTE/<modelId> (ficheiro corrente).
  */
-export async function runPreprocess(modelId: number, versionId: number, fileUrl?: string) {
+export async function fetchInventory(modelId: number, fileUrl?: string): Promise<Record<string, any>> {
 
   const invResp = await fetch(
     `${process.env.IFCOPENSHELL_FLASK_API_ROUTE}/model/inventory/${modelId}`,
@@ -34,7 +34,5 @@ export async function runPreprocess(modelId: number, versionId: number, fileUrl?
     throw new Error("Inventory extraction failed");
   }
 
-  const { spaceEntityIdsByGuid } = await inventoryDb.saveInventorySnapshot(versionId, invPayload.data);
-
-  return { inventoryData: invPayload.data, spaceEntityIdsByGuid };
+  return invPayload.data;
 }

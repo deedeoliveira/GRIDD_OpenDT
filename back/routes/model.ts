@@ -133,7 +133,10 @@ app.post('/upload', upload.single('file'), async (req, res) => {
         });
 
     } catch (error: any) {
-        return buildErrorResponse(res, 500, error.message);
+        // Falhas de requisitos de informação espacial (spatial_preflight)
+        // devolvem 422 com mensagem específica; o resto mantém 500.
+        const status = Number.isInteger(error?.statusCode) ? error.statusCode : 500;
+        return buildErrorResponse(res, status, error.message);
     }
 });
 

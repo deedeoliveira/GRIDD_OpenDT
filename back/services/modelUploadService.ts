@@ -3,7 +3,8 @@ import modelDb from "../utils/modelDatabase.ts";
 import versionDb from "../utils/modelVersionDatabase.ts";
 import inventoryDb from "../utils/inventoryDatabase.ts";
 import spaceDb from "../utils/spaceDatabase.ts";
-import { runPreprocess } from "./preprocessService.ts";
+import { fetchInventory } from "./preprocessService.ts";
+import { runSpatialPreflight } from "./spatialPreflightService.ts";
 import { persistSpaceIdentities, reconcileSpaceStatusesAfterActivation, type SpaceCandidateInput } from "./spaceIdentityService.ts";
 import { hashFile, promoteFile, removeTempFile, removeVersionDir, versionStorageKey } from "../utils/storage.ts";
 
@@ -119,12 +120,27 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
         promoted = true;
         await versionDb.setStorageKey(versionId, storageKey);
 
-        /* -------- 4+5. processamento + inventário -------- */
+        /* -------- 4. processamento Python (extração, sem persistência) -------- */
         stage = "processing";
         const versionFileUrl = `${selfApiBase()}/api/model/versions/${versionId}/download`;
-        const { inventoryData, spaceEntityIdsByGuid } = await runPreprocess(modelId, versionId, versionFileUrl);
+        const inventoryData = await fetchInventory(modelId, versionFileUrl);
 
-        /* -------- 6. identidade persistente dos espaços (Prompt 3) -------- */
+        /* -------- 5. spatial_preflight: requisitos de informação espacial,
+                       ANTES de criar entities/assets/spaces/bindings.
+                       Falha de requisitos ≠ decisão de política. -------- */
+        stage = "spatial_preflight";
+        await runSpatialPreflight({
+            linkedModelId: linkedParentId,
+            modelId,
+            modelVersionId: versionId,
+            inventoryData,
+        });
+
+        /* -------- 6. inventário (entities + assets legados via política) -------- */
+        stage = "inventory";
+        const { spaceEntityIdsByGuid } = await inventoryDb.saveInventorySnapshot(versionId, inventoryData);
+
+        /* -------- 7. identidade persistente dos espaços (Prompt 3) -------- */
         stage = "spatial_identity";
         let presentNormalizedCodes: string[] = [];
 
@@ -150,11 +166,11 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
             presentNormalizedCodes = spatial.presentNormalizedCodes;
         }
 
-        /* -------- 7. ativação e troca da versão corrente -------- */
+        /* -------- 8. ativação e troca da versão corrente -------- */
         stage = "activation";
         await versionDb.activateVersion(modelId, versionId);
 
-        /* -------- 8. reconciliação de estados espaciais (pós-ativação,
+        /* -------- 9. reconciliação de estados espaciais (pós-ativação,
                        só no modelo espacial autoritativo; nunca apaga) -------- */
         if (linkedParentId !== null) {
             await reconcileSpaceStatusesAfterActivation({
@@ -192,7 +208,10 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
             try { await inventoryDb.deleteInventoryForVersion(versionId); } catch (e) {
                 logUploadFailure("compensation_inventory", e, { modelId, versionId });
             }
-            try { await versionDb.markFailed(versionId, `${stage}: ${error?.message ?? error}`); } catch (e) {
+            try {
+                const reason = error?.failureReason ?? error?.message ?? String(error);
+                await versionDb.markFailed(versionId, `${stage}: ${reason}`);
+            } catch (e) {
                 logUploadFailure("compensation_mark_failed", e, { modelId, versionId });
             }
             if (promoted && modelId) {

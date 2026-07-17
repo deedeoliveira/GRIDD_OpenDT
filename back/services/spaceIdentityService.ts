@@ -1,5 +1,6 @@
 import spaceDb from "../utils/spaceDatabase.ts";
 import { getSpaceIdentityResolver } from "../identity/spaceIdentityProvider.ts";
+import { groupDuplicateReferences } from "./spatialPreflightService.ts";
 import type { SpaceIdentityResult } from "../identity/types.ts";
 
 /**
@@ -98,15 +99,11 @@ export async function persistSpaceIdentities(input: {
         resolved.push({ candidate, result });
     }
 
-    /* -------- 2. detetar duplicações no contexto da versão -------- */
-    const byCode = new Map<string, { candidate: SpaceCandidateInput; result: SpaceIdentityResult }[]>();
-    for (const entry of resolved) {
-        if (entry.result.status !== "valid") continue;
-        const code = entry.result.normalizedValue!;
-        if (!byCode.has(code)) byCode.set(code, []);
-        byCode.get(code)!.push(entry);
-    }
-    const duplicates = new Map([...byCode].filter(([, group]) => group.length > 1));
+    /* -------- 2. duplicações: verificação DEFENSIVA (a deteção primária,
+                    para o modelo autoritativo, corre no spatial_preflight
+                    antes de qualquer persistência; a lógica de agrupamento
+                    é a MESMA — groupDuplicateReferences) -------- */
+    const duplicates = groupDuplicateReferences(resolved);
 
     for (const [code, entries] of duplicates) {
         for (const entry of entries) entry.result.status = "duplicate";
