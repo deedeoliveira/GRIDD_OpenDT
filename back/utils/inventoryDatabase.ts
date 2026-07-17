@@ -13,7 +13,11 @@ class InventoryDatabase {
         SAVE INVENTORY SNAPSHOT
   ------------------------------------- */
 
-  async saveInventorySnapshot(versionId: number, inventoryData: any) {
+  /**
+   * Grava o snapshot de inventário e devolve o mapa guid→entity_id dos
+   * ESPAÇOS criados (usado pela identidade espacial do Prompt 3).
+   */
+  async saveInventorySnapshot(versionId: number, inventoryData: any): Promise<{ spaceEntityIdsByGuid: Record<string, number> }> {
     await this.db.checkConnection();
     await this.db.connection.beginTransaction();
 
@@ -26,6 +30,8 @@ class InventoryDatabase {
     if (existing[0].count > 0) {
       throw new Error("Inventory already exists for this version");
     }
+
+    const spaceEntityIdsByGuid: Record<string, number> = {};
 
     try {
 
@@ -53,6 +59,7 @@ class InventoryDatabase {
         });
 
         const spaceId = spaceResult.insertId;
+        spaceEntityIdsByGuid[spaceGuid] = spaceId;
 
         /* ------------------- SPACE ASSET ------------------- */
 
@@ -162,7 +169,7 @@ class InventoryDatabase {
       }
 
       await this.db.connection.commit();
-      return true;
+      return { spaceEntityIdsByGuid };
 
     } catch (error) {
       await this.db.connection.rollback();

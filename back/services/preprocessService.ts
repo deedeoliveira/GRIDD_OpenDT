@@ -34,7 +34,7 @@ export async function runPreprocess(modelId: number, versionId: number, fileUrl?
     throw new Error("Inventory extraction failed");
   }
 
-  await inventoryDb.saveInventorySnapshot(versionId, invPayload.data);
+  const { spaceEntityIdsByGuid } = await inventoryDb.saveInventorySnapshot(versionId, invPayload.data);
 
-  return true;
+  return { inventoryData: invPayload.data, spaceEntityIdsByGuid };
 }

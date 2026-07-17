@@ -28,6 +28,26 @@ def process_ifc_file():
     return sensorData
 
 #Andressa
+def _space_entry(sp):
+    """
+    Extrai os dados brutos de um IfcSpace, incluindo todos os property sets.
+    A extração NÃO decide nada: identidade persistente, reservabilidade e
+    validação de códigos são responsabilidade da camada de domínio no Node.js
+    (o provider de identidade escolhe que property set/propriedade usar).
+    """
+    try:
+        psets = ifcopenshell.util.element.get_psets(sp)
+    except Exception:
+        psets = {}
+
+    return {
+        "spaceGuid": sp.GlobalId,
+        "spaceName": getattr(sp, "Name", None),
+        "spaceLongName": getattr(sp, "LongName", None),
+        "psets": psets,
+        "elements": []
+    }
+
 def extract_inventory_by_space():
     model = ifcopenshell.open("source_model.ifc")
 
@@ -36,11 +56,7 @@ def extract_inventory_by_space():
     inventory = {}
 
     for sp in spaces:
-        inventory[sp.GlobalId] = {
-            "spaceGuid": sp.GlobalId,
-            "spaceName": getattr(sp, "Name", None),
-            "elements": []
-        }
+        inventory[sp.GlobalId] = _space_entry(sp)
 
     rels = model.by_type("IfcRelContainedInSpatialStructure")
     for rel in rels:
@@ -54,11 +70,7 @@ def extract_inventory_by_space():
 
         space_guid = structure.GlobalId
         if space_guid not in inventory:
-            inventory[space_guid] = {
-                "spaceGuid": space_guid,
-                "spaceName": getattr(structure, "Name", None),
-                "elements": []
-            }
+            inventory[space_guid] = _space_entry(structure)
 
         for el in rel.RelatedElements or []:
             # IfcElement em geral

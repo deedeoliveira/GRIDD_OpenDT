@@ -11,6 +11,7 @@ import modelRoutes from "./routes/model.ts";
 //Andressa
 import reservationRoutes from "./routes/reservation.ts";
 import assetRoutes from "./routes/asset.ts";
+import spaceRoutes from "./routes/space.ts";
 
 app.use(cors());
 app.use(express.json());
@@ -21,6 +22,7 @@ app.use('/api/model', modelRoutes);
 //Andressa
 app.use('/api/reservation', reservationRoutes);
 app.use("/api/asset", assetRoutes);
+app.use("/api/space", spaceRoutes);
 
 app.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);

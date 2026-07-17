@@ -2,7 +2,9 @@ import fs from "fs";
 import modelDb from "../utils/modelDatabase.ts";
 import versionDb from "../utils/modelVersionDatabase.ts";
 import inventoryDb from "../utils/inventoryDatabase.ts";
+import spaceDb from "../utils/spaceDatabase.ts";
 import { runPreprocess } from "./preprocessService.ts";
+import { persistSpaceIdentities, reconcileSpaceStatusesAfterActivation, type SpaceCandidateInput } from "./spaceIdentityService.ts";
 import { hashFile, promoteFile, removeTempFile, removeVersionDir, versionStorageKey } from "../utils/storage.ts";
 
 /**
@@ -75,6 +77,7 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
     let versionId: number | null = null;
     let promoted = false;
     let isNewModel = false;
+    let createdSpaceIds: number[] = [];
 
     try {
         /* -------- modelo lógico: reutilizar ou criar -------- */
@@ -119,11 +122,47 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
         /* -------- 4+5. processamento + inventário -------- */
         stage = "processing";
         const versionFileUrl = `${selfApiBase()}/api/model/versions/${versionId}/download`;
-        await runPreprocess(modelId, versionId, versionFileUrl);
+        const { inventoryData, spaceEntityIdsByGuid } = await runPreprocess(modelId, versionId, versionFileUrl);
 
-        /* -------- 6. ativação e troca da versão corrente -------- */
+        /* -------- 6. identidade persistente dos espaços (Prompt 3) -------- */
+        stage = "spatial_identity";
+        let presentNormalizedCodes: string[] = [];
+
+        if (linkedParentId !== null) {
+            const candidates: SpaceCandidateInput[] = Object.entries(inventoryData as Record<string, any>)
+                .filter(([guid]) => spaceEntityIdsByGuid[guid] !== undefined)
+                .map(([guid, space]) => ({
+                    guid,
+                    name: space.spaceName ?? null,
+                    longName: space.spaceLongName ?? null,
+                    psets: space.psets ?? null,
+                    entityId: spaceEntityIdsByGuid[guid]!,
+                }));
+
+            const spatial = await persistSpaceIdentities({
+                linkedModelId: linkedParentId,
+                modelId,
+                modelVersionId: versionId,
+                candidates,
+            });
+
+            createdSpaceIds = spatial.createdSpaceIds;
+            presentNormalizedCodes = spatial.presentNormalizedCodes;
+        }
+
+        /* -------- 7. ativação e troca da versão corrente -------- */
         stage = "activation";
         await versionDb.activateVersion(modelId, versionId);
+
+        /* -------- 8. reconciliação de estados espaciais (pós-ativação,
+                       só no modelo espacial autoritativo; nunca apaga) -------- */
+        if (linkedParentId !== null) {
+            await reconcileSpaceStatusesAfterActivation({
+                linkedModelId: linkedParentId,
+                modelId,
+                presentNormalizedCodes,
+            });
+        }
 
         return {
             modelId,
@@ -140,6 +179,16 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
 
         /* -------- compensações: a versão anterior continua corrente -------- */
         if (versionId) {
+            // bindings primeiro (FK para entities); depois espaços criados
+            // EXCLUSIVAMENTE por esta operação e sem outros bindings —
+            // espaços preexistentes nunca são apagados
+            try {
+                await spaceDb.deleteBindingsForVersion(versionId);
+                const toRemove = [...createdSpaceIds, ...(error?.createdSpaceIds ?? [])];
+                await spaceDb.deleteSpacesWithoutBindings(toRemove);
+            } catch (e) {
+                logUploadFailure("compensation_spaces", e, { modelId, versionId });
+            }
             try { await inventoryDb.deleteInventoryForVersion(versionId); } catch (e) {
                 logUploadFailure("compensation_inventory", e, { modelId, versionId });
             }

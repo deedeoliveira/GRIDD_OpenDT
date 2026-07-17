@@ -6,7 +6,7 @@
     "build": "npx tsc",
     "start": "node dist/index.js",
     "dev": "npx tsx index.ts",
-    "test": "tsx --test \"tests/characterization/*.test.ts\" \"tests/policies/*.test.ts\" \"tests/versioning/*.test.ts\""
+    "test": "tsx --test \"tests/characterization/*.test.ts\" \"tests/policies/*.test.ts\" \"tests/versioning/*.test.ts\" \"tests/spaces/*.test.ts\""
   },
   "keywords": [],
   "author": "",
