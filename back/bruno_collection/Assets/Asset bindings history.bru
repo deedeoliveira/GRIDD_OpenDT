@@ -1,0 +1,20 @@
+meta {
+  name: Asset bindings history
+  type: http
+  seq: 2
+}
+
+get {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/asset/:assetId/bindings
+  body: none
+  auth: inherit
+}
+
+params:path {
+  assetId: 1
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

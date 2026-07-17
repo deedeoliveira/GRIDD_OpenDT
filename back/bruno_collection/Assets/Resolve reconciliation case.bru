@@ -1,0 +1,28 @@
+meta {
+  name: Resolve reconciliation case
+  type: http
+  seq: 5
+}
+
+post {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/asset/reconciliation/cases/:caseId/resolve
+  body: json
+  auth: inherit
+}
+
+params:path {
+  caseId: 1
+}
+
+body:json {
+  {
+    "resolution": "link_to_existing_asset",
+    "assetId": 1,
+    "resolvedBy": "admin"
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

@@ -1,0 +1,20 @@
+meta {
+  name: Bindings of a version
+  type: http
+  seq: 3
+}
+
+get {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/asset/version/:versionId/bindings
+  body: none
+  auth: inherit
+}
+
+params:path {
+  versionId: 1
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

@@ -433,3 +433,220 @@ e o conteúdo novo de `back/cdn_resources/models/archive/`.
     ALLOW_DESTRUCTIVE_DEV_RESET=true npx tsx scripts/resetOperationalData.ts --apply
     ```
     (backup JSON automático em `cdn_resources/_backup_reset_<data>/`; nunca guardes a variável num .env.)
+
+## 17. Prompt 4 — Identidade persistente dos ativos
+
+> ⚠️ Começa de base limpa (reset §16.7/18) e **reinicia backend E Flask**
+> (o Python passou a extrair psets dos elementos). A invariante central a
+> validar: **uma nova versão nunca cria outro `asset_id` para o mesmo
+> recurso — as reservas sobrevivem às versões.**
+
+### 17.0 Preparação e fixtures
+
+1. Serviços como em §16.0; base a zeros.
+2. Fixtures com equipamentos (código no `Pset_DistributionElementCommon.Reference`):
+   ```bash
+   cd back/python
+   ./venv/Scripts/python.exe make_space_fixture.py fx_assets_v1.ifc \
+     --space "R-101:Sala 101" --space "R-102:Sala 102" \
+     --element "R-101|EQ-001:Betoneira:GUIDEQ001" --element "R-101|EQ-002:Serra:GUIDEQ002" \
+     --element "R-102|:SemCodigo:GUIDEQ003"
+   ./venv/Scripts/python.exe make_space_fixture.py fx_assets_v2.ifc \
+     --space "R-101:Sala 101" --space "R-102:Sala 102" \
+     --element "R-101|EQ-001:Betoneira Renomeada:GUIDNOVO1" \
+     --element "R-102|EQ-004:Equip Novo:GUIDEQ004" \
+     --element "R-102|:Misterio:GUIDMIST"
+   ```
+   Notas: em v2 a EQ-001 muda de GUID e de nome (só o código a identifica);
+   a EQ-002 desaparece (→ `absent`); `SemCodigo` mantém o GUID GUIDEQ003 em
+   v1 mas NÃO existe em v2; `Misterio` não tem código nem GUID conhecido
+   (→ caso de reconciliação).
+
+### 17.1 Primeira versão — ativos persistentes
+
+3. Upload `fx_assets_v1.ifc` (novo modelo `Ativos`). **Esperado:** `201`.
+4. `SELECT id, asset_uuid, asset_code, asset_type, space_id, lifecycle_status, reservable FROM assets;`
+   → 2 ativos-espaço (R-101/R-102, `space_id` preenchido) + 3 equipamentos
+   (EQ-001, EQ-002 e SemCodigo — primeira versão aceita sem código), todos
+   `active`, `asset_uuid` preenchido, `model_version_id` NULL.
+5. `SELECT asset_id, model_version_id, ifc_guid, reconciliation_method FROM asset_bindings;`
+   → 5 bindings da v1 (`space_id`, `asset_code`/`first_version`).
+6. Bruno **Assets → Persistent asset / Asset bindings history** funcionam.
+
+### 17.2 Reserva + nova versão — invariante central
+
+7. No `/student` (ou Bruno), reserva a **Betoneira** (anota o `asset_id`,
+   ex.: A) para amanhã. `SELECT asset_id, asset_binding_id_at_booking,
+   model_version_id_at_booking, asset_name_snapshot, space_code_snapshot
+   FROM res_reservations;` → snapshots preenchidos.
+8. Upload `fx_assets_v2.ifc` com `modelId=<Ativos>`. **Esperado:** `200`.
+9. **Invariante:** `SELECT id, asset_code, lifecycle_status FROM assets;` →
+   a Betoneira mantém o MESMO id A (matched por código apesar de GUID e
+   nome novos); NENHUM ativo novo para ela. A reserva continua a apontar
+   para A e os snapshots não mudaram.
+10. Tenta reservar a Betoneira no MESMO horário com outro actorId →
+    **rejeitado** (`Asset already reserved for this period`) — a nova
+    versão não contornou a reserva.
+
+### 17.3 Ausente, novo e reconciliação
+
+11. EQ-002 (Serra): `lifecycle_status = 'absent'`; tentar reservá-la →
+    `Asset is not available for new reservations (lifecycle: absent)`;
+    uma reserva já existente dela (se criaste) permanece intacta.
+12. EQ-004: ativo NOVO (código novo = identidade nova, mesmo em versão
+    posterior).
+13. `Misterio`: `GET /api/asset/reconciliation/cases` → 1 caso `open`
+    (sem asset nem binding — não reservável); a versão 2 ativou na mesma;
+    log `pending_reconciliation` no backend.
+14. Resolve o caso (Bruno **Resolve reconciliation case**), p.ex.
+    `{"resolution":"confirm_as_new_asset"}` → cria ativo + binding
+    `manual`; `?status=open` fica vazio; repetir a resolução → `409`.
+
+### 17.4 Backfill (só se existirem dados legados)
+
+15. Em base pós-reset não há linhas legadas: `npx tsx scripts/backfillAssets.ts`
+    → "Nada a migrar (no-op)". (O relatório/aplicação com dados legados
+    está coberto por testes automatizados; em produção corre primeiro sem
+    `--apply` e revê o relatório.)
+
+### 17.5 Encerramento
+
+16. `npm test` (198 testes), viewer e páginas `/student`/`/viewer` abrem,
+    seleção de elementos mostra os ativos via bindings da versão corrente.
+
+> ⚠️ **Nota da revisão do Prompt 4:** o roteiro §17 foi escrito para a
+> estratégia anterior (Reference em pset). Usa o **§18** — as fixtures do
+> §17.0 já NÃO passam no preflight novo (equipamentos sem Tag EQP-).
+
+## 18. Revisão do Prompt 4 — Tag EQP-, proxies e model_requirements_preflight
+
+> ⚠️ Reinicia **backend E Flask** (extração nova de Tag/ObjectType).
+> Base limpa recomendada (reset §16.7/18 — só com a tua autorização).
+> Perfil: **IFC4**. `failure_reason` agora usa o prefixo
+> `model_requirements_preflight: <REQUIREMENT-ID>` (as versões falhadas
+> antigas mantêm o prefixo `spatial_preflight:` — histórico não reescrito).
+
+### 18.0 Fixtures (localização: back/python; ficam na pasta atual)
+
+Sintaxe dos elementos: `"ESPACO|TAG:Nome[:GUID][:SERIAL][:OBJECTTYPE]"`
+(TAG vazia = sem Tag; OBJECTTYPE omitido = "Equipamento Gerido"; literal
+`NONE` = sem ObjectType).
+
+```bash
+cd back/python
+# 1. IFC4 válido: espaço + equipamentos EQP- (um com serial)
+./venv/Scripts/python.exe make_space_fixture.py fx18_valido_v1.ifc \
+  --space "R-301:Sala 301" --space "R-302:Sala 302" \
+  --element "R-301|EQP-000123:Betoneira:GBETO1:SN-111" \
+  --element "R-301|EQP-000124:Serra:GSERRA1"
+
+# 2-5. inválidos de equipamento (cada um deve falhar com 422)
+./venv/Scripts/python.exe make_space_fixture.py fx18_sem_tag.ifc \
+  --space "R-303:Sala 303" --element "R-303|:SemTag"
+./venv/Scripts/python.exe make_space_fixture.py fx18_prefixo.ifc \
+  --space "R-304:Sala 304" --element "R-304|ABC-1:PrefixoErrado"
+./venv/Scripts/python.exe make_space_fixture.py fx18_eqp_vazio.ifc \
+  --space "R-305:Sala 305" --element "R-305|EQP-:SufixoVazio"
+./venv/Scripts/python.exe make_space_fixture.py fx18_dup.ifc \
+  --space "R-306:Sala 306" \
+  --element "R-306|EQP-DUP:Mesa A" --element "R-306|EQP-DUP:Mesa B"
+
+# 9-13. proxies
+./venv/Scripts/python.exe make_space_fixture.py fx18_px_sem_ot.ifc \
+  --space "R-307:Sala 307" --element "R-307|EQP-P1:ProxySemOT:::NONE"
+./venv/Scripts/python.exe make_space_fixture.py fx18_px_ot_vazio.ifc \
+  --space "R-308:Sala 308" --element "R-308|EQP-P2:ProxyOTVazio::: "
+./venv/Scripts/python.exe make_space_fixture.py fx18_px_sem_tag.ifc \
+  --space "R-309:Sala 309" --element "R-309|:ProxySemTag:::Betoneira Diesel"
+./venv/Scripts/python.exe make_space_fixture.py fx18_px_tag_ruim.ifc \
+  --space "R-310:Sala 310" --element "R-310|XPTO:ProxyTagRuim:::Betoneira Diesel"
+./venv/Scripts/python.exe make_space_fixture.py fx18_px_valido.ifc \
+  --space "R-311:Sala 311" --element "R-311|EQP-P9:ProxyValido:::Betoneira Diesel"
+
+# 16-20. continuidade/reconciliação (v2 do fx18_valido)
+./venv/Scripts/python.exe make_space_fixture.py fx18_valido_v2.ifc \
+  --space "R-301:Sala 301" --space "R-302:Sala 302" \
+  --element "R-301|EQP-000123:Betoneira Renomeada:GNOVO1:SN-111" \
+  --element "R-302|EQP-000125:Equip Novo:GNOVO2"
+./venv/Scripts/python.exe make_space_fixture.py fx18_valido_v3_serial.ifc \
+  --space "R-301:Sala 301" --space "R-302:Sala 302" \
+  --element "R-301|EQP-000123:Betoneira:GNOVO3:SN-999" \
+  --element "R-302|EQP-000125:Equip Novo:GNOVO2"
+./venv/Scripts/python.exe make_space_fixture.py fx18_renum.ifc \
+  --space "R-301:Sala 301" --space "R-302:Sala 302" \
+  --element "R-301|EQP-888888:Betoneira Renumerada:GNOVO4:SN-111" \
+  --element "R-302|EQP-000125:Equip Novo:GNOVO2"
+```
+
+Upload: `curl -X POST http://localhost:3001/api/model/upload -F "file=@<fx>" -F "name=<Nome>"`
+(revisões: `-F "modelId=<id>"`).
+
+### 18.1 Válido IFC4 (item 1 do roteiro)
+
+1. Upload `fx18_valido_v1.ifc` (novo modelo `RevTag`). **Esperado:** `201`.
+2. `SELECT id, asset_code, serial_number, asset_type FROM assets WHERE asset_type='equipment' ORDER BY id DESC LIMIT 2;`
+   → EQP-000123 com `serial_number='SN-111'` e EQP-000124 com serial NULL —
+   **serial separado; asset_code = Tag**.
+3. `SELECT asset_code_snapshot, serial_snapshot, object_type_snapshot FROM asset_bindings ORDER BY id DESC LIMIT 3;`
+
+### 18.2 Equipamentos inválidos (itens 2–5)
+
+4. Upload de `fx18_sem_tag/fx18_prefixo/fx18_eqp_vazio/fx18_dup` (modelos
+   novos). **Esperado:** `422` com mensagem citando o elemento;
+   `SELECT status, failure_reason FROM model_versions ORDER BY id DESC LIMIT 1;`
+   → `failed`, `model_requirements_preflight: EQUIPMENT-001|002|002|003 …`.
+5. Zero linhas novas em entities/assets/asset_bindings/asset_reconciliation_cases;
+   diretório da versão não existe; `models/temp` vazio.
+
+### 18.3 Modelos sem equipamentos e elementos arq/estruturais (itens 6–8)
+
+6. Upload de um IFC só com espaços (ex.: `fx_valido_v1.ifc` do §16) →
+   **passa** sem Tags.
+7/8. Elementos arquitetónicos/estruturais não são cobrados por Tag — coberto
+   por testes automatizados (as fixtures geradas não criam IfcWall); num IFC
+   real com paredes contidas em espaços, o upload passa e
+   `SELECT COUNT(*) FROM assets WHERE asset_type='equipment'` não cresce por
+   causa delas (ficam só como entities).
+
+### 18.4 Proxies (itens 9–15)
+
+9–12. Upload de `fx18_px_sem_ot/fx18_px_ot_vazio/fx18_px_sem_tag/fx18_px_tag_ruim`
+   → `422` `PROXY-001/PROXY-001/PROXY-002/PROXY-002`, mensagens
+   "IfcBuildingElementProxy without a valid ObjectType" / "...without a
+   valid equipment Tag starting with EQP-".
+13/14. Upload `fx18_px_valido.ifc` → `201`; o proxy vira equipamento:
+   `SELECT asset_code, name FROM assets ORDER BY id DESC LIMIT 1;` → EQP-P9.
+15. `SELECT asset_code, object_type_snapshot FROM assets a JOIN asset_bindings ab ON ab.asset_id=a.id ORDER BY ab.id DESC LIMIT 1;`
+   → `asset_code='EQP-P9'` e `object_type_snapshot='Betoneira Diesel'` —
+   **ObjectType nunca vira asset_code**.
+
+### 18.5 Continuidade e reconciliação (itens 16–23)
+
+16/17. Reserva a Betoneira (asset A). Upload `fx18_valido_v2.ifc` com
+   `modelId=<RevTag>` (GUID e nome mudaram; mesma Tag). → mesma linha:
+   `SELECT id FROM assets WHERE asset_code='EQP-000123';` continua = A;
+   reserva intacta; pedido sobreposto (com a reserva approved via SQL) →
+   `Asset already reserved for this period`.
+18. Serial igual (SN-111 em ambas) → binding `tag_and_serial`:
+   `SELECT reconciliation_method FROM asset_bindings ORDER BY id DESC LIMIT 2;`
+19. Upload `fx18_valido_v3_serial.ifc` (mesma Tag, serial SN-999 ≠ SN-111) →
+   `200` e caso: `GET http://localhost:3001/api/asset/reconciliation/cases`
+   → 1 caso `open` (serial_conflict); SEM ativo novo; Betoneira `absent`
+   (sem binding na corrente) e EQP-000125 `active`.
+20. Resolve o caso (Bruno) e upload `fx18_renum.ifc` (Tag EQP-888888 com o
+   serial SN-111 já conhecido) → novo caso (serial_renumbering), sem merge.
+21. Manufacturer: qualquer pset de fabricante é ignorado na identidade
+   (guarda automatizada; sem fixture própria).
+22/23. = invariante confirmada em 16–20.
+
+### 18.6 Backfill, reset, viewer, sensores, APIs (itens 24–28)
+
+24. `npx tsx scripts/backfillAssets.ts` (SEM --apply) → relatório com
+   categorias `legacy_match_by_ifc_guid`/`missing_equipment_tag`/
+   `unrecoverable`; nada escrito.
+25. Nenhum reset ocorreu: `SELECT COUNT(*) FROM channels;` continua igual;
+   os teus dados/uploads anteriores continuam na BD.
+26. Viewer `/student`/`/viewer`: seleção mostra os ativos via bindings.
+27. Sensores: página/API de sensores continuam a funcionar (desacoplado).
+28. Bruno: pastas Models/Spaces/Reservation/Assets todas funcionais.
+

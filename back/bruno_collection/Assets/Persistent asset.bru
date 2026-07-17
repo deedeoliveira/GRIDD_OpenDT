@@ -1,0 +1,20 @@
+meta {
+  name: Persistent asset
+  type: http
+  seq: 1
+}
+
+get {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/asset/persistent/:assetId
+  body: none
+  auth: inherit
+}
+
+params:path {
+  assetId: 1
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

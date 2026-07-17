@@ -1,0 +1,20 @@
+meta {
+  name: Reconciliation cases
+  type: http
+  seq: 4
+}
+
+get {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/asset/reconciliation/cases?status=open
+  body: none
+  auth: inherit
+}
+
+params:query {
+  status: open
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
