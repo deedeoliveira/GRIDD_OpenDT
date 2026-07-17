@@ -77,10 +77,59 @@ def extract_inventory_by_space():
             if not el.is_a("IfcElement"):
                 continue
 
-            inventory[space_guid]["elements"].append({
-                "guid": el.GlobalId,
-                "type": el.is_a(),
-                "name": getattr(el, "Name", None)
-            })
+            inventory[space_guid]["elements"].append(_element_entry(el))
 
     return inventory
+
+
+def _element_entry(el):
+    """
+    Extração bruta de um IfcElement. A extração NÃO decide nada: a
+    classificação (equipamento gerido vs outros) e a validação de requisitos
+    (Tag EQP-, ObjectType dos proxies) são responsabilidade do Node.js.
+    """
+    try:
+        el_psets = ifcopenshell.util.element.get_psets(el)
+    except Exception:
+        el_psets = {}
+
+    predefined = getattr(el, "PredefinedType", None)
+    return {
+        "guid": el.GlobalId,
+        "type": el.is_a(),
+        "name": getattr(el, "Name", None),
+        "tag": getattr(el, "Tag", None),
+        "objectType": getattr(el, "ObjectType", None),
+        "predefinedType": str(predefined) if predefined is not None else None,
+        "psets": el_psets
+    }
+
+
+def extract_model_context():
+    """
+    Contexto do modelo para o preflight de requisitos no Node.js:
+     - schema declarado no header (o perfil suportado/testado é IFC4);
+     - IfcBuildingElementProxy fora de qualquer IfcSpace (as regras PROXY-*
+       aplicam-se a QUALQUER proxy do modelo, contido ou não).
+    """
+    model = ifcopenshell.open("source_model.ifc")
+
+    try:
+        schema = model.header.file_schema.schema_identifiers[0]
+    except Exception:
+        schema = None
+
+    contained = set()
+    for rel in model.by_type("IfcRelContainedInSpatialStructure"):
+        structure = rel.RelatingStructure
+        if structure is not None and structure.is_a("IfcSpace"):
+            for el in rel.RelatedElements or []:
+                contained.add(el.GlobalId)
+
+    uncontained_proxies = [
+        _element_entry(proxy)
+        for proxy in model.by_type("IfcBuildingElementProxy")
+        if proxy.GlobalId not in contained
+    ]
+
+    return {"schema": schema, "uncontainedProxies": uncontained_proxies}

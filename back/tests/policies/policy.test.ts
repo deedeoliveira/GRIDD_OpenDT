@@ -27,8 +27,8 @@ installFakeMySQL();
 const { LegacyIfcReservabilityEvaluator } = await import("../../policies/legacyIfcReservabilityEvaluator.ts");
 const { LegacyReservationRequestValidator } = await import("../../policies/legacyReservationRequestValidator.ts");
 const providers = await import("../../policies/policyProvider.ts");
-const { default: inventoryDb } = await import("../../utils/inventoryDatabase.ts");
 const { default: reservationDb } = await import("../../utils/reservationDatabase.ts");
+const { persistAssetsForVersion } = await import("../../services/assetInventoryService.ts");
 
 import type { PolicyEvaluationResult, PolicyDecision } from "../../policies/types.ts";
 
@@ -46,23 +46,37 @@ function mockResult(decision: PolicyDecision, reasons: string[] = []): PolicyEva
     };
 }
 
-const SAMPLE_INVENTORY = {
-    "space-guid-1": {
-        spaceGuid: "space-guid-1",
-        spaceName: "Sala 101",
-        elements: [
-            { guid: "elem-guid-1", type: "IfcFurniture", name: "Mesa" },
-            { guid: "sensor-guid-1", type: "IfcSensor", name: "Sensor T" },
-        ],
+// (Prompt 4) A criação de ativos passou do snapshot para o assetInventoryService,
+// que continua a decidir reservabilidade EXCLUSIVAMENTE pelo provider de política.
+const ASSET_INPUT = {
+    linkedModelId: 10,
+    modelId: 20,
+    modelVersionId: 9,
+    inventoryData: {
+        "space-guid-1": {
+            spaceGuid: "space-guid-1",
+            spaceName: "Sala 101",
+            elements: [
+                // (Revisão P4) identidade por IfcElement.Tag (EQP-) — o preflight
+                // garante a Tag; a POLÍTICA continua a decidir a reservabilidade
+                { guid: "elem-guid-1", type: "IfcFurniture", name: "Mesa", tag: "EQP-MESA-1", psets: {} },
+                { guid: "sensor-guid-1", type: "IfcSensor", name: "Sensor T", tag: "EQP-SEN-1", psets: {} },
+            ],
+        },
     },
+    spaceEntityIdsByGuid: { "space-guid-1": 100 },
+    elementEntityIdsByGuid: { "elem-guid-1": 101, "sensor-guid-1": 102 },
+    spaceInfoByGuid: { "space-guid-1": { spaceId: 7, code: "R-101" } },
 };
 
-function snapshotRoutes(): [RegExp, any][] {
-    let nextEntityId = 100;
+function assetRoutes(): [RegExp, any][] {
     return [
-        [/SELECT COUNT\(\*\) as count[\s\S]*FROM entities/i, [[{ count: 0 }]]],
-        [/INSERT INTO entities/i, () => [{ insertId: nextEntityId++ }]],
-        [/INSERT INTO assets/i, [{ insertId: 500 }]],
+        [/SELECT \* FROM assets WHERE space_id/i, [[]]],
+        [/FROM assets[\s\S]*asset_code = :tag/i, [[]]],
+        [/FROM assets[\s\S]*serial_number = :serial/i, [[]]],
+        [/INSERT INTO assets/i, (() => { let id = 300; return () => [{ insertId: id++ }]; })()],
+        [/INSERT INTO asset_bindings/i, [{ insertId: 400 }]],
+        [/UPDATE assets/i, [{}]],
     ];
 }
 
@@ -110,20 +124,21 @@ test("legacy evaluator: IfcDistributionControlElement (sensor IFC2X3) → allow,
    2) MESMOS ASSETS CRIADOS (provider default = legacy)
 ------------------------------------- */
 
-test("snapshot com provider default: mesmos assets da baseline (espaço + não-sensor; sensor excluído)", async () => {
-    respond(snapshotRoutes());
+// (Prompt 4) O mesmo comportamento da baseline, agora no fluxo persistente:
+// com o provider default (legacy) o espaço e o não-sensor viram ativos e o
+// IfcSensor continua excluído.
+test("fluxo de ativos com provider default: mesmos assets da baseline (espaço + não-sensor; sensor excluído)", async () => {
+    respond(assetRoutes());
 
-    await inventoryDb.saveInventorySnapshot(9, SAMPLE_INVENTORY);
+    const outcome = await persistAssetsForVersion(ASSET_INPUT as any);
 
     const assetInserts = fakeConnection.callsMatching(/INSERT INTO assets/i);
     assert.equal(assetInserts.length, 2, "1 asset de espaço + 1 de equipamento");
+    assert.deepEqual(outcome.diagnostics.policy_denied_new, ["sensor-guid-1"], "sensor excluído pela política");
 
-    const entityInserts = fakeConnection.callsMatching(/INSERT INTO entities/i);
-    assert.equal(entityInserts.length, 3, "entities continuam a ser criadas para todos, incluindo o sensor");
-
-    // reservable continua hardcoded true no SQL quando a decisão é allow
+    // reservable decidido pelo provider (allow → true)
     for (const insert of assetInserts) {
-        assert.match(insert.sql, /true/);
+        assert.equal(insert.params.reservable, true);
     }
 });
 
@@ -131,39 +146,39 @@ test("snapshot com provider default: mesmos assets da baseline (espaço + não-s
    3–7) SUBSTITUIÇÃO POR MOCK E CONTRATO
 ------------------------------------- */
 
-test("mock allow-all substitui o legacy: sensor também vira asset", async () => {
+test("mock allow-all substitui o legacy: sensor também vira asset (no fluxo persistente)", async () => {
     providers.setReservabilityEvaluator({
         evaluate: async () => mockResult("allow", ["mock: allow everything"]),
     });
-    respond(snapshotRoutes());
+    respond(assetRoutes());
 
-    await inventoryDb.saveInventorySnapshot(9, SAMPLE_INVENTORY);
+    await persistAssetsForVersion(ASSET_INPUT as any);
 
     const assetInserts = fakeConnection.callsMatching(/INSERT INTO assets/i);
     assert.equal(assetInserts.length, 3, "espaço + elemento + sensor");
 });
 
-test("mock deny-all: nenhum asset criado, entities preservadas", async () => {
+test("mock deny-all: nenhum asset novo criado", async () => {
     providers.setReservabilityEvaluator({
         evaluate: async () => mockResult("deny", ["mock: deny everything"]),
     });
-    respond(snapshotRoutes());
+    respond(assetRoutes());
 
-    await inventoryDb.saveInventorySnapshot(9, SAMPLE_INVENTORY);
+    await persistAssetsForVersion(ASSET_INPUT as any);
 
     assert.equal(fakeConnection.callsMatching(/INSERT INTO assets/i).length, 0);
-    assert.equal(fakeConnection.callsMatching(/INSERT INTO entities/i).length, 3);
 });
 
-test("contrato suporta 'undetermined': tratado como não-allow na criação de assets", async () => {
+test("contrato suporta 'undetermined': candidato novo não é exposto (sem asset)", async () => {
     providers.setReservabilityEvaluator({
         evaluate: async () => mockResult("undetermined", ["mock: cannot decide"]),
     });
-    respond(snapshotRoutes());
+    respond(assetRoutes());
 
-    await inventoryDb.saveInventorySnapshot(9, SAMPLE_INVENTORY);
+    const outcome = await persistAssetsForVersion(ASSET_INPUT as any);
 
     assert.equal(fakeConnection.callsMatching(/INSERT INTO assets/i).length, 0);
+    assert.ok(outcome.diagnostics.policy_denied_new.length >= 1);
 });
 
 test("contrato suporta 'error': pedido de reserva é rejeitado com a razão do avaliador", async () => {

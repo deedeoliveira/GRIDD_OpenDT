@@ -4,8 +4,11 @@ import versionDb from "../utils/modelVersionDatabase.ts";
 import inventoryDb from "../utils/inventoryDatabase.ts";
 import spaceDb from "../utils/spaceDatabase.ts";
 import { fetchInventory } from "./preprocessService.ts";
-import { runSpatialPreflight } from "./spatialPreflightService.ts";
+import { getModelRequirementsValidator } from "../requirements/modelRequirementsProvider.ts";
+import { ModelRequirementsError } from "../requirements/modelRequirementsTypes.ts";
 import { persistSpaceIdentities, reconcileSpaceStatusesAfterActivation, type SpaceCandidateInput } from "./spaceIdentityService.ts";
+import { persistAssetsForVersion, reconcileAssetLifecycleAfterActivation } from "./assetInventoryService.ts";
+import persistentAssetDb from "../utils/persistentAssetDatabase.ts";
 import { hashFile, promoteFile, removeTempFile, removeVersionDir, versionStorageKey } from "../utils/storage.ts";
 
 /**
@@ -24,8 +27,9 @@ import { hashFile, promoteFile, removeTempFile, removeVersionDir, versionStorage
  *  4. processamento Python/IfcOpenShell sobre O FICHEIRO DA VERSÃO (o Python
  *     descarrega via /api/model/versions/:id/download — por isso a promoção
  *     acontece antes do processamento; ver ADR-0002);
- *  5. snapshot de inventário (entities/assets; transacional; decisão de
- *     reservabilidade via provider de política);
+ *  5. model_requirements_preflight (SPACE-, PROXY- e EQUIPMENT-) e depois
+ *     snapshot de inventário (entities; transacional); ativos via
+ *     identidade persistente + política de reservabilidade;
  *  6. ativação (transação): versão → active, anterior → archived,
  *     models.current_version_id → nova versão.
  *
@@ -79,6 +83,7 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
     let promoted = false;
     let isNewModel = false;
     let createdSpaceIds: number[] = [];
+    let createdAssetIds: number[] = [];
 
     try {
         /* -------- modelo lógico: reutilizar ou criar -------- */
@@ -123,26 +128,54 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
         /* -------- 4. processamento Python (extração, sem persistência) -------- */
         stage = "processing";
         const versionFileUrl = `${selfApiBase()}/api/model/versions/${versionId}/download`;
-        const inventoryData = await fetchInventory(modelId, versionFileUrl);
+        const extracted = await fetchInventory(modelId, versionFileUrl);
+        const inventoryData = extracted.inventoryData;
 
-        /* -------- 5. spatial_preflight: requisitos de informação espacial,
-                       ANTES de criar entities/assets/spaces/bindings.
-                       Falha de requisitos ≠ decisão de política. -------- */
-        stage = "spatial_preflight";
-        await runSpatialPreflight({
+        /* -------- 5. model_requirements_preflight: requisitos de informação
+                       (espaciais SPACE-*, proxies PROXY-*, equipamentos
+                       EQUIPMENT-*) via provider configurável — ANTES de criar
+                       entities/assets/spaces/bindings/casos. Falha de
+                       requisitos ≠ decisão de política. -------- */
+        stage = "model_requirements_preflight";
+        const requirements = await getModelRequirementsValidator().validate(extracted, {
             linkedModelId: linkedParentId,
             modelId,
             modelVersionId: versionId,
-            inventoryData,
         });
 
-        /* -------- 6. inventário (entities + assets legados via política) -------- */
+        if (requirements.status !== "conforms") {
+            const errors = requirements.findings.filter((f) => f.severity === "error");
+            const requirementIds = [...new Set(errors.map((f) => f.requirementId))];
+            const detail = errors.map((f) => {
+                const parts = [f.message];
+                const ctx: string[] = [];
+                if (f.ifcClass) ctx.push(`class=${f.ifcClass}`);
+                if (f.entityGuid) ctx.push(`guid=${f.entityGuid}`);
+                if (f.name) ctx.push(`name=${f.name}`);
+                if (f.objectType) ctx.push(`objectType=${f.objectType}`);
+                if (f.tag !== null && f.tag !== undefined) ctx.push(`tag=${f.tag}`);
+                if ((f.details as any)?.motivo) ctx.push(`motivo=${(f.details as any).motivo}`);
+                if (ctx.length) parts.push(`[${ctx.join(", ")}]`);
+                return parts.join(" ");
+            }).join(" | ");
+
+            throw new ModelRequirementsError(
+                detail,
+                `${requirementIds.join(", ")} — ${errors.length} information requirement violation(s)`,
+                errors,
+                requirements.profileId
+            );
+        }
+
+        /* -------- 6. inventário de entities (snapshot da versão) -------- */
         stage = "inventory";
-        const { spaceEntityIdsByGuid } = await inventoryDb.saveInventorySnapshot(versionId, inventoryData);
+        const { spaceEntityIdsByGuid, elementEntityIdsByGuid } =
+            await inventoryDb.saveInventorySnapshot(versionId, inventoryData);
 
         /* -------- 7. identidade persistente dos espaços (Prompt 3) -------- */
         stage = "spatial_identity";
         let presentNormalizedCodes: string[] = [];
+        let spaceInfoByGuid: Record<string, { spaceId: number; code: string }> = {};
 
         if (linkedParentId !== null) {
             const candidates: SpaceCandidateInput[] = Object.entries(inventoryData as Record<string, any>)
@@ -164,14 +197,31 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
 
             createdSpaceIds = spatial.createdSpaceIds;
             presentNormalizedCodes = spatial.presentNormalizedCodes;
+            spaceInfoByGuid = spatial.spaceInfoByGuid;
         }
 
-        /* -------- 8. ativação e troca da versão corrente -------- */
+        /* -------- 8. ativos persistentes: reconciliação de identidade,
+                       política de reservabilidade e bindings (Prompt 4) -------- */
+        stage = "asset_reconciliation";
+        if (linkedParentId !== null) {
+            const assetOutcome = await persistAssetsForVersion({
+                linkedModelId: linkedParentId,
+                modelId,
+                modelVersionId: versionId,
+                inventoryData,
+                spaceEntityIdsByGuid,
+                elementEntityIdsByGuid,
+                spaceInfoByGuid,
+            });
+            createdAssetIds = assetOutcome.createdAssetIds;
+        }
+
+        /* -------- 9. ativação e troca da versão corrente -------- */
         stage = "activation";
         await versionDb.activateVersion(modelId, versionId);
 
-        /* -------- 9. reconciliação de estados espaciais (pós-ativação,
-                       só no modelo espacial autoritativo; nunca apaga) -------- */
+        /* -------- 10. reconciliação pós-ativação: estados dos espaços e
+                        ciclo de vida dos ativos (nunca apaga) -------- */
         if (linkedParentId !== null) {
             await reconcileSpaceStatusesAfterActivation({
                 linkedModelId: linkedParentId,
@@ -179,6 +229,11 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
                 presentNormalizedCodes,
             });
         }
+        await reconcileAssetLifecycleAfterActivation({
+            linkedModelId: linkedParentId,
+            modelId,
+            currentVersionId: versionId,
+        });
 
         return {
             modelId,
@@ -195,6 +250,18 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
 
         /* -------- compensações: a versão anterior continua corrente -------- */
         if (versionId) {
+            // ativos: bindings e casos da versão falhada primeiro (FK para
+            // entities); ativos criados EXCLUSIVAMENTE por esta operação só
+            // são removidos se não tiverem bindings de outras versões,
+            // reservas nem referências
+            try {
+                await persistentAssetDb.deleteBindingsForVersion(versionId);
+                await persistentAssetDb.deleteCasesForVersion(versionId);
+                const assetsToRemove = [...createdAssetIds, ...(error?.createdAssetIds ?? [])];
+                await persistentAssetDb.deleteAssetsWithoutReferences(assetsToRemove);
+            } catch (e) {
+                logUploadFailure("compensation_assets", e, { modelId, versionId });
+            }
             // bindings primeiro (FK para entities); depois espaços criados
             // EXCLUSIVAMENTE por esta operação e sem outros bindings —
             // espaços preexistentes nunca são apagados
@@ -209,8 +276,9 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
                 logUploadFailure("compensation_inventory", e, { modelId, versionId });
             }
             try {
+                const failedStage = error?.uploadStage ?? stage;
                 const reason = error?.failureReason ?? error?.message ?? String(error);
-                await versionDb.markFailed(versionId, `${stage}: ${reason}`);
+                await versionDb.markFailed(versionId, `${failedStage}: ${reason}`);
             } catch (e) {
                 logUploadFailure("compensation_mark_failed", e, { modelId, versionId });
             }

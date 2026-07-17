@@ -18,40 +18,28 @@ beforeEach(() => fakeConnection.reset());
    ÚLTIMA VERSÃO
 ------------------------------------- */
 
-// (Prompt 2) Comportamento explicitamente alterado: a "versão corrente" deixou
-// de ser o maior id (ORDER BY id DESC) e passou a ser a referência explícita
-// models.current_version_id — uma versão 'failed'/'processing' nunca é corrente.
-test("getAssetByGuidLatest: a versão corrente vem de models.current_version_id (não do maior id)", async () => {
+// (Prompt 4) Comportamento explicitamente alterado: o viewer resolve agora o
+// ATIVO PERSISTENTE via asset_bindings da versão corrente explícita
+// (models.current_version_id) — nunca por maior id, nunca por linha por versão.
+test("getAssetByGuidLatest: entity da versão corrente → asset_binding → ativo persistente", async () => {
     respond([
-        [/SELECT current_version_id AS id[\s\S]*FROM models/i, [[{ id: 12 }]]],
-        [/FROM assets a[\s\S]*INNER JOIN entities/i, [[{ id: 77, model_version_id: 12, reservable: 1 }]]],
+        [/FROM models m[\s\S]*INNER JOIN asset_bindings/i,
+            [[{ id: 77, asset_uuid: "uuid-77", reservable: 1, lifecycle_status: "active", binding_id: 5 }]]],
     ]);
 
     const asset = await assetDb.getAssetByGuidLatest(3, "guid-abc");
     assert.equal(asset.id, 77);
 
-    const versionQuery = fakeConnection.callsMatching(/FROM models/i)[0]!;
-    assert.match(versionQuery.sql, /current_version_id/);
-    assert.doesNotMatch(versionQuery.sql, /ORDER BY id DESC/);
-
-    // O asset é procurado na versão corrente (12), com o guid via JOIN a entities
-    const assetQuery = fakeConnection.callsMatching(/INNER JOIN entities/i)[0]!;
-    assert.equal(assetQuery.params.versionId, 12);
-    assert.equal(assetQuery.params.guid, "guid-abc");
+    const query = fakeConnection.calls[0]!;
+    assert.match(query.sql, /m\.current_version_id/);
+    assert.match(query.sql, /asset_bindings/);
+    assert.doesNotMatch(query.sql, /ORDER BY id DESC/i);
+    assert.equal(query.params.guid, "guid-abc");
+    assert.equal(query.params.modelId, 3);
 });
 
-test("getAssetByGuidLatest: modelo sem versão corrente (current_version_id NULL) → null", async () => {
-    respond([[/SELECT current_version_id AS id[\s\S]*FROM models/i, [[{ id: null }]]]]);
-
-    const asset = await assetDb.getAssetByGuidLatest(3, "guid-abc");
-    assert.equal(asset, null);
-});
-
-test("getAssetByGuidLatest: elemento não inventariado (sem asset) → null — é assim que o viewer detecta 'não pertence ao inventário'", async () => {
-    respond([
-        [/SELECT current_version_id AS id[\s\S]*FROM models/i, [[{ id: 12 }]]],
-        [/INNER JOIN entities/i, [[]]],
-    ]);
+test("getAssetByGuidLatest: elemento não inventariado (sem binding) → null — é assim que o viewer detecta 'não pertence ao inventário'", async () => {
+    respond([[/FROM models m[\s\S]*INNER JOIN asset_bindings/i, [[]]]]);
 
     const asset = await assetDb.getAssetByGuidLatest(3, "guid-nao-modelado");
     assert.equal(asset, null);
@@ -61,25 +49,25 @@ test("getAssetByGuidLatest: elemento não inventariado (sem asset) → null — 
    CONSULTAS POR VERSÃO
 ------------------------------------- */
 
-test("getAssetsBySpace: filtra por current_space_entity_id E model_version_id (isolamento de versão)", async () => {
-    respond([[/FROM assets/i, [[{ id: 1 }, { id: 2 }]]]]);
+test("getAssetsBySpace: resolve por asset_bindings (space_entity_id snapshot) e versão explícita", async () => {
+    respond([[/FROM asset_bindings ab/i, [[{ id: 1 }, { id: 2 }]]]]);
 
     const assets = await assetDb.getAssetsBySpace(100, 12);
     assert.equal(assets.length, 2);
 
-    const q = fakeConnection.callsMatching(/FROM assets/i)[0]!;
-    assert.match(q.sql, /current_space_entity_id = :spaceEntityId/);
+    const q = fakeConnection.callsMatching(/FROM asset_bindings/i)[0]!;
+    assert.match(q.sql, /space_entity_id = :spaceEntityId/);
     assert.match(q.sql, /model_version_id = :versionId/);
 });
 
-test("getAssetById: exige versão explícita; sem linha → null", async () => {
-    respond([[/FROM assets/i, [[]]]]);
+test("getAssetById: ativo persistente com binding opcional da versão; sem linha → null", async () => {
+    respond([[/FROM assets a/i, [[]]]]);
 
     const asset = await assetDb.getAssetById(5, 12);
     assert.equal(asset, null);
 
-    const q = fakeConnection.callsMatching(/FROM assets/i)[0]!;
-    assert.match(q.sql, /model_version_id = :versionId/);
+    const q = fakeConnection.callsMatching(/FROM assets a/i)[0]!;
+    assert.match(q.sql, /LEFT JOIN asset_bindings/);
 });
 
 /* -------------------------------------

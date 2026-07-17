@@ -50,6 +50,8 @@ export interface SpaceIdentityOutcome {
     };
     /** Códigos normalizados presentes (para reconciliação pós-ativação). */
     presentNormalizedCodes: string[];
+    /** guid do IfcSpace → identidade persistente (para o inventário de ativos). */
+    spaceInfoByGuid: Record<string, { spaceId: number; code: string }>;
 }
 
 function logSpaceIdentity(event: string, payload: Record<string, unknown>) {
@@ -85,6 +87,7 @@ export async function persistSpaceIdentities(input: {
             authorityModelId,
         },
         presentNormalizedCodes: [],
+        spaceInfoByGuid: {},
     };
 
     /* -------- 1. resolver todos os candidatos primeiro -------- */
@@ -182,6 +185,7 @@ export async function persistSpaceIdentities(input: {
         });
         outcome.bindingsCreated++;
         outcome.presentNormalizedCodes.push(code);
+        outcome.spaceInfoByGuid[candidate.guid] = { spaceId: space.id, code };
     }
     } catch (error: any) {
         // Falha a meio da persistência: anexar os espaços já criados por esta

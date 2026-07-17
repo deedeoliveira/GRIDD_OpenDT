@@ -73,57 +73,32 @@ test("saveInventorySnapshot: inventário já existente para a versão → erro",
     );
 });
 
-test("saveInventorySnapshot: espaço cria entity 'space' e asset 'space' reservável", async () => {
+// (Prompt 4) Comportamento explicitamente alterado: o snapshot deixou de criar
+// ativos — cria apenas ENTITIES e devolve os mapas guid->entity_id. A criação
+// de ativos (identidade persistente + política) vive no assetInventoryService
+// e está caracterizada em tests/assets/.
+test("saveInventorySnapshot: cria entities de espaço e elementos e devolve os mapas guid->entity_id (SEM assets)", async () => {
     respond(snapshotRoutes());
 
-    await inventoryDb.saveInventorySnapshot(9, SAMPLE_INVENTORY);
+    const result = await inventoryDb.saveInventorySnapshot(9, SAMPLE_INVENTORY);
 
     const entityInserts = fakeConnection.callsMatching(/INSERT INTO entities/i);
     const spaceEntity = entityInserts.find((c) => c.params.guid === "space-guid-1")!;
-    assert.ok(spaceEntity, "espaço inserido como entity");
     assert.match(spaceEntity.sql, /'IfcSpace', 'space'/);
     assert.equal(spaceEntity.params.versionId, 9);
 
-    const assetInserts = fakeConnection.callsMatching(/INSERT INTO assets/i);
-    const spaceAsset = assetInserts.find((c) => /'space'/.test(c.sql))!;
-    assert.ok(spaceAsset, "espaço inserido como asset");
-    // Caracterização: reservable é SEMPRE true no código atual (hardcoded no SQL)
-    assert.match(spaceAsset.sql, /true/);
-    // Espaços não têm current_space_entity_id (NULL no SQL)
-    assert.match(spaceAsset.sql, /NULL/);
-});
-
-test("saveInventorySnapshot: elemento não-sensor cria entity 'element' + asset 'equipment' reservável, ligado ao espaço", async () => {
-    respond(snapshotRoutes());
-
-    await inventoryDb.saveInventorySnapshot(9, SAMPLE_INVENTORY);
-
-    const entityInserts = fakeConnection.callsMatching(/INSERT INTO entities/i);
     const elemEntity = entityInserts.find((c) => c.params.guid === "elem-guid-1")!;
-    assert.ok(elemEntity, "elemento inserido como entity");
     assert.match(elemEntity.sql, /'element'/);
-    // parent_id = id da entity do espaço (100 = primeiro insertId gerado)
-    assert.equal(elemEntity.params.parentId, 100);
+    assert.equal(elemEntity.params.parentId, 100, "parent_id = entity do espaço");
 
-    const assetInserts = fakeConnection.callsMatching(/INSERT INTO assets/i);
-    const equipAsset = assetInserts.find((c) => /'equipment'/.test(c.sql))!;
-    assert.ok(equipAsset, "elemento inserido como asset equipment");
-    assert.equal(equipAsset.params.spaceId, 100);
-    assert.match(equipAsset.sql, /true/); // reservable sempre true
-});
-
-test("saveInventorySnapshot: IfcSensor cria entity mas NÃO cria asset", async () => {
-    respond(snapshotRoutes());
-
-    await inventoryDb.saveInventorySnapshot(9, SAMPLE_INVENTORY);
-
-    const entityInserts = fakeConnection.callsMatching(/INSERT INTO entities/i);
     const sensorEntity = entityInserts.find((c) => c.params.guid === "sensor-guid-1");
-    assert.ok(sensorEntity, "sensor inserido como entity");
+    assert.ok(sensorEntity, "sensor continua a ser entity");
 
-    // 3 asset inserts esperados: 1 espaço + 1 equipamento (sensor excluído, duplicado ignorado)
-    const assetInserts = fakeConnection.callsMatching(/INSERT INTO assets/i);
-    assert.equal(assetInserts.length, 2);
+    assert.equal(fakeConnection.callsMatching(/INSERT INTO assets/i).length, 0,
+        "o snapshot já não cria ativos (Prompt 4)");
+
+    assert.equal(result.spaceEntityIdsByGuid["space-guid-1"], 100);
+    assert.equal(typeof result.elementEntityIdsByGuid["elem-guid-1"], "number");
 });
 
 test("saveInventorySnapshot: GUID duplicado no payload é ignorado (primeira ocorrência vence)", async () => {
@@ -153,7 +128,6 @@ test("saveInventorySnapshot: erro a meio → rollback e propaga o erro", async (
             if (entityCount > 1) throw new Error("DB falhou");
             return [{ insertId: 100 }];
         }],
-        [/INSERT INTO assets/i, [{ insertId: 500 }]],
     ]);
 
     await assert.rejects(inventoryDb.saveInventorySnapshot(9, SAMPLE_INVENTORY), /DB falhou/);

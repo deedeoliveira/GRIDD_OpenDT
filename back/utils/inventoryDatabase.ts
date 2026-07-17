@@ -1,5 +1,4 @@
 import MySQLDatabase from "./mysqlDatabase.ts";
-import { getReservabilityEvaluator } from "../policies/policyProvider.ts";
 
 class InventoryDatabase {
   private db: MySQLDatabase;
@@ -14,10 +13,17 @@ class InventoryDatabase {
   ------------------------------------- */
 
   /**
-   * Grava o snapshot de inventário e devolve o mapa guid→entity_id dos
-   * ESPAÇOS criados (usado pela identidade espacial do Prompt 3).
+   * Grava o snapshot de ENTITIES do inventário e devolve os mapas
+   * guid→entity_id de espaços e elementos.
+   *
+   * (Prompt 4) A criação de ativos deixou de acontecer aqui — os ativos são
+   * identidades persistentes geridas pelo assetInventoryService, depois da
+   * resolução da identidade dos espaços.
    */
-  async saveInventorySnapshot(versionId: number, inventoryData: any): Promise<{ spaceEntityIdsByGuid: Record<string, number> }> {
+  async saveInventorySnapshot(versionId: number, inventoryData: any): Promise<{
+    spaceEntityIdsByGuid: Record<string, number>;
+    elementEntityIdsByGuid: Record<string, number>;
+  }> {
     await this.db.checkConnection();
     await this.db.connection.beginTransaction();
 
@@ -32,14 +38,11 @@ class InventoryDatabase {
     }
 
     const spaceEntityIdsByGuid: Record<string, number> = {};
+    const elementEntityIdsByGuid: Record<string, number> = {};
 
     try {
 
       const insertedGuids = new Set<string>();
-
-      // A decisão de reservabilidade é delegada na política configurada
-      // (default: legacy, que reproduz o comportamento da baseline).
-      const reservability = getReservabilityEvaluator();
 
       console.log("Inventory size:", Object.keys(inventoryData).length);
 
@@ -60,40 +63,6 @@ class InventoryDatabase {
 
         const spaceId = spaceResult.insertId;
         spaceEntityIdsByGuid[spaceGuid] = spaceId;
-
-        /* ------------------- SPACE ASSET ------------------- */
-
-        const spaceDecision = await reservability.evaluate({
-          guid: spaceGuid,
-          name: space.spaceName,
-          ifcType: "IfcSpace",
-          entityType: "space"
-        }, { modelVersionId: versionId });
-
-        if (spaceDecision.decision === "allow") {
-          await this.db.connection.execute(`
-            INSERT INTO assets (
-              name,
-              asset_type,
-              model_entity_id,
-              current_space_entity_id,
-              model_version_id,
-              reservable
-            )
-            VALUES (
-              :name,
-              'space',
-              :entityId,
-              NULL,
-              :versionId,
-              true
-            )
-          `, {
-            name: space.spaceName,
-            entityId: spaceId,
-            versionId
-          });
-        }
 
         /* ------------------- ELEMENTS ------------------- */
 
@@ -131,45 +100,12 @@ class InventoryDatabase {
             parentId: spaceId
           });
 
-          const elementId = elementResult.insertId;
-
-          const elementDecision = await reservability.evaluate({
-            guid: element.guid,
-            name: element.name,
-            ifcType: element.type,
-            entityType: "element"
-          }, { modelVersionId: versionId });
-
-          if (elementDecision.decision === "allow") {
-            await this.db.connection.execute(`
-              INSERT INTO assets (
-                name,
-                asset_type,
-                model_entity_id,
-                current_space_entity_id,
-                model_version_id,
-                reservable
-              )
-              VALUES (
-                :name,
-                'equipment',
-                :entityId,
-                :spaceId,
-                :versionId,
-                true
-              )
-            `, {
-              name: element.name,
-              entityId: elementId,
-              spaceId: spaceId,
-              versionId
-            });
-          }
+          elementEntityIdsByGuid[element.guid] = elementResult.insertId;
         }
       }
 
       await this.db.connection.commit();
-      return { spaceEntityIdsByGuid };
+      return { spaceEntityIdsByGuid, elementEntityIdsByGuid };
 
     } catch (error) {
       await this.db.connection.rollback();

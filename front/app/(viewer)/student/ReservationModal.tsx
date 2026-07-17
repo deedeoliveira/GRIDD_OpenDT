@@ -122,8 +122,15 @@ export default function ReservationModal({
     setCreatingReservation(false);
 
     if (!res.ok) {
+      // Mostra o diagnóstico devolvido pelo backend (ex.: conflito de período,
+      // ciclo de vida do ativo) em vez do JSON bruto
       const text = await res.text();
-      alert(text);
+      let diagnostic = text;
+      try {
+        const json = JSON.parse(text);
+        diagnostic = json?.message ?? json?.error ?? text;
+      } catch { /* resposta não-JSON: mostra tal e qual */ }
+      alert(diagnostic);
       return;
     }
 

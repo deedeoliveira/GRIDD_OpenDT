@@ -22,10 +22,12 @@ const { STORAGE_ROOT, resolveStorageKey } = await import("../../utils/storage.ts
 const MODEL_ID = 999101;
 const VERSION_ID = 999201;
 
+// (Revisão P4) equipamentos com IfcElement.Tag EQP- (exigida pelo
+// model_requirements_preflight em qualquer modelo com candidatos geridos)
 const INVENTORY = {
     "space-g": { spaceGuid: "space-g", spaceName: "Sala", elements: [
-        { guid: "elem-g", type: "IfcFurniture", name: "Mesa" },
-        { guid: "sensor-g", type: "IfcSensor", name: "Sensor" },
+        { guid: "elem-g", type: "IfcFurniture", name: "Mesa", tag: "EQP-MESA-1" },
+        { guid: "sensor-g", type: "IfcSensor", name: "Sensor", tag: "EQP-SEN-1" },
     ]},
 };
 
@@ -63,6 +65,13 @@ function successRoutes(overrides: Partial<Record<string, any>> = {}): [RegExp, a
         [/UPDATE model_versions SET storage_key/i, [{}]],
         [/SELECT COUNT\(\*\) as count[\s\S]*FROM entities/i, [[{ count: 0 }]]],
         [/INSERT INTO entities/i, overrides.insertEntities ?? (() => [{ insertId: entityId++ }])],
+        // (Prompt 4) fluxo de ativos persistentes
+        [/SELECT \* FROM assets WHERE space_id/i, [[]]],
+        [/FROM assets[\s\S]*asset_code = :tag/i, [[]]],
+        [/FROM assets[\s\S]*serial_number = :serial/i, [[]]],
+        [/spatial_authority_model_id/i, [[{ spatial_authority_model_id: null, model_count: 2, single_model_id: 1 }]]],
+        [/INSERT INTO asset_bindings/i, [{ insertId: 700 }]],
+        [/UPDATE assets/i, [{}]],
         [/INSERT INTO assets/i, overrides.insertAssets ?? [{ insertId: 500 }]],
         [/SELECT id, status FROM model_versions WHERE id = :versionId AND model_id = :modelId FOR UPDATE/i,
             [[{ id: VERSION_ID, status: "processing" }]]],
@@ -163,6 +172,7 @@ test("política preservada: o upload usa o provider configurado (mock deny-all �
 
     assert.equal(fakeConnection.callsMatching(/INSERT INTO assets/i).length, 0, "decisão veio do provider, não de regra inline");
     assert.equal(fakeConnection.callsMatching(/INSERT INTO entities/i).length, 3, "entities continuam a ser criadas");
+    assert.equal(fakeConnection.callsMatching(/INSERT INTO asset_bindings/i).length, 0, "sem binding quando não há ativo");
 });
 
 /* -------------------------------------

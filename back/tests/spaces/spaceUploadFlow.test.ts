@@ -77,11 +77,17 @@ function routes(authority: "single" | "other" = "single"): [RegExp, any][] {
         [/spatial_authority_model_id/i, [[authorityRow]]],
         [/SELECT COUNT\(\*\) as count[\s\S]*FROM entities/i, [[{ count: 0 }]]],
         [/INSERT INTO entities/i, () => [{ insertId: entityId++ }]],
-        [/INSERT INTO assets/i, [{ insertId: 500 }]],
         [/SELECT \* FROM spaces/i, [[]]],
         [/INSERT INTO spaces/i, (() => { let id = 300; return () => [{ insertId: id++ }]; })()],
         [/INSERT INTO space_bindings/i, [{ insertId: 400 }]],
         [/UPDATE spaces SET status/i, [{}]],
+        // (Prompt 4) ativos persistentes
+        [/SELECT \* FROM assets WHERE space_id/i, [[]]],
+        [/FROM assets[\s\S]*asset_code = :tag/i, [[]]],
+        [/FROM assets[\s\S]*serial_number = :serial/i, [[]]],
+        [/INSERT INTO assets/i, (() => { let id = 600; return () => [{ insertId: id++ }]; })()],
+        [/INSERT INTO asset_bindings/i, [{ insertId: 700 }]],
+        [/UPDATE assets/i, [{}]],
         [/SELECT id, status FROM model_versions WHERE id = :versionId AND model_id = :modelId FOR UPDATE/i,
             [[{ id: VERSION_ID, status: "processing" }]]],
         [/SELECT current_version_id FROM models WHERE id = :modelId FOR UPDATE/i, [[{ current_version_id: 42 }]]],
@@ -103,7 +109,7 @@ beforeEach(() => {
 });
 
 /** Asserções comuns às falhas de preflight: NADA persistido, compensação completa. */
-async function expectPreflightFailure(temp: string, messagePattern: RegExp, reasonPattern: RegExp, statusCode = 422) {
+async function expectPreflightFailure(temp: string, messagePattern: RegExp, _reasonPattern: RegExp, statusCode = 422) {
     let caught: any = null;
     try {
         await handleModelUpload({ tempFilePath: temp, originalFilename: "x.ifc", modelId: MODEL_ID });
@@ -123,9 +129,10 @@ async function expectPreflightFailure(temp: string, messagePattern: RegExp, reas
 
     // versão anterior permanece corrente; nova versão failed com etapa correta
     assert.equal(fakeConnection.callsMatching(/UPDATE models SET current_version_id/i).length, 0);
+    // (Revisão P4) a etapa consolidada é model_requirements_preflight com
+    // requirement IDs estáveis; as MENSAGENS espaciais são preservadas
     const failed = fakeConnection.callsMatching(/SET status = 'failed'/i)[0]!;
-    assert.match(String(failed.params.reason), /^spatial_preflight: /);
-    assert.match(String(failed.params.reason), reasonPattern);
+    assert.match(String(failed.params.reason), /^model_requirements_preflight: SPACE-00\d/);
 
     // ficheiro promovido compensado; temporário limpo
     assert.ok(!fs.existsSync(path.join(STORAGE_ROOT, `models/${MODEL_ID}/versions/${VERSION_ID}`)));
@@ -165,9 +172,10 @@ test("autoritativo com todos os espaços válidos → passa: spaces/bindings ant
     await handleModelUpload({ tempFilePath: temp, originalFilename: "fixture.ifc", modelId: MODEL_ID });
 
     assert.equal(fakeConnection.callsMatching(/INSERT INTO entities/i).length, 2);
-    assert.equal(fakeConnection.callsMatching(/INSERT INTO assets/i).length, 2);
     assert.equal(fakeConnection.callsMatching(/INSERT INTO spaces/i).length, 2);
     assert.equal(fakeConnection.callsMatching(/INSERT INTO space_bindings/i).length, 2);
+    assert.equal(fakeConnection.callsMatching(/INSERT INTO assets/i).length, 2, "ativos-espaço persistentes");
+    assert.equal(fakeConnection.callsMatching(/INSERT INTO asset_bindings/i).length, 2);
 
     const sqls = fakeConnection.calls.map((c) => c.sql);
     const lastBinding = sqls.map((s, i) => (/INSERT INTO space_bindings/i.test(s) ? i : -1)).filter((i) => i >= 0).pop()!;
@@ -193,7 +201,9 @@ test("não autoritativo sem IfcSpace → upload permitido (modelos disciplinares
     assert.equal(fakeConnection.callsMatching(/UPDATE models SET current_version_id/i).length, 1, "ativado normalmente");
 });
 
-test("não autoritativo com espaço sem Reference → comportamento anterior (diagnóstico, ativos legados, sem falha)", async () => {
+// (Prompt 4 §6) Regra substituída: um espaço SEM identidade persistente já não
+// gera ativo de espaço — só os espaços com código viram ativos persistentes.
+test("não autoritativo com espaço sem Reference → upload segue; só espaços com identidade viram ativos", async () => {
     inventoryPayload = INVENTORY_ONE_MISSING;
     respond(routes("other"));
     const temp = makeTempIfc();
@@ -201,8 +211,10 @@ test("não autoritativo com espaço sem Reference → comportamento anterior (di
     await handleModelUpload({ tempFilePath: temp, originalFilename: "arq.ifc", modelId: MODEL_ID });
 
     assert.equal(fakeConnection.callsMatching(/INSERT INTO entities/i).length, 3);
-    assert.equal(fakeConnection.callsMatching(/INSERT INTO assets/i).length, 3, "lista legada de ativos preservada");
     assert.equal(fakeConnection.callsMatching(/INSERT INTO spaces/i).length, 2, "só os com código viram espaços");
+    assert.equal(fakeConnection.callsMatching(/INSERT INTO assets/i).length, 2,
+        "ativos persistentes apenas para espaços com identidade (Prompt 4)");
+    assert.equal(fakeConnection.callsMatching(/INSERT INTO asset_bindings/i).length, 2);
 });
 
 test("modelo sem federação (linked_parent_id NULL): sem validação estrita nem identidade", async () => {

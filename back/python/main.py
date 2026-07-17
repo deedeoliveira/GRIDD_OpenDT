@@ -57,5 +57,15 @@ def inventory_model(modelId):
         modelFile.write(res.data)
 
     inventory = ifcopenshell_utils.extract_inventory_by_space()
+    context = ifcopenshell_utils.extract_model_context()
 
-    return {"status": "success", "data": inventory, "ok": True}, 200
+    # "data" mantém o formato anterior (dict de espaços) por compatibilidade;
+    # o contexto do modelo (schema, proxies não contidos) segue em campos
+    # irmãos para o model_requirements_preflight do Node.js.
+    return {
+        "status": "success",
+        "data": inventory,
+        "schema": context["schema"],
+        "uncontainedProxies": context["uncontainedProxies"],
+        "ok": True
+    }, 200

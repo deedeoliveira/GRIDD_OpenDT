@@ -1,5 +1,13 @@
 import MySQLDatabase from "./mysqlDatabase.ts";
 
+/**
+ * Consultas de ativos para as rotas públicas (Prompt 4).
+ *
+ * Os ativos são identidades PERSISTENTES; a presença numa versão vem de
+ * asset_bindings. A "versão corrente" é sempre models.current_version_id —
+ * nunca o maior id. As rotas por versão devolvem o ativo persistente com o
+ * binding dessa versão (compatibilidade de payload: campos legados incluídos).
+ */
 class AssetDatabase {
   private db: MySQLDatabase;
 
@@ -12,10 +20,13 @@ class AssetDatabase {
     await this.db.checkConnection();
 
     const [rows]: any = await this.db.connection.execute(`
-      SELECT *
-      FROM assets
-      WHERE current_space_entity_id = :spaceEntityId
-      AND model_version_id = :versionId
+      SELECT a.*, ab.id AS binding_id, ab.space_id AS binding_space_id,
+             ab.space_entity_id AS current_space_entity_id_snapshot,
+             ab.ifc_guid, ab.name_snapshot
+      FROM asset_bindings ab
+      INNER JOIN assets a ON a.id = ab.asset_id
+      WHERE ab.space_entity_id = :spaceEntityId
+        AND ab.model_version_id = :versionId
     `, { spaceEntityId, versionId });
 
     return rows;
@@ -25,10 +36,11 @@ class AssetDatabase {
     await this.db.checkConnection();
 
     const [rows]: any = await this.db.connection.execute(`
-      SELECT *
-      FROM assets
-      WHERE id = :assetId
-      AND model_version_id = :versionId
+      SELECT a.*, ab.id AS binding_id, ab.ifc_guid, ab.name_snapshot
+      FROM assets a
+      LEFT JOIN asset_bindings ab
+        ON ab.asset_id = a.id AND ab.model_version_id = :versionId
+      WHERE a.id = :assetId
       LIMIT 1
     `, { assetId, versionId });
 
@@ -39,10 +51,10 @@ class AssetDatabase {
     await this.db.checkConnection();
 
     const [rows]: any = await this.db.connection.execute(`
-        SELECT a.*
-        FROM assets a
-        INNER JOIN model_versions mv
-        ON a.model_version_id = mv.id
+        SELECT a.*, ab.id AS binding_id, ab.ifc_guid, ab.name_snapshot
+        FROM asset_bindings ab
+        INNER JOIN assets a ON a.id = ab.asset_id
+        INNER JOIN model_versions mv ON mv.id = ab.model_version_id
         WHERE mv.model_id = :modelId
         AND mv.id = :versionId
     `, { modelId, versionId });
@@ -75,9 +87,6 @@ class AssetDatabase {
     const startFormatted = formatDate(start);
     const endFormatted = formatDate(end);
 
-    console.log("REQUEST START:", startFormatted);
-    console.log("REQUEST END:", endFormatted);
-
     const [rows]: any = await this.db.connection.execute(
       `
       SELECT id
@@ -101,64 +110,41 @@ class AssetDatabase {
   }
 
 
-
   async getAssetByGuid(guid: string, versionId: number) {
     await this.db.checkConnection();
 
     const [rows]: any = await this.db.connection.execute(`
-      SELECT a.*
-      FROM assets a
-      INNER JOIN entities e
-        ON a.model_entity_id = e.id
-      WHERE e.guid = :guid
-        AND e.model_version_id = :versionId
-        AND a.model_version_id = :versionId
+      SELECT a.*, ab.id AS binding_id, ab.space_id AS binding_space_id
+      FROM asset_bindings ab
+      INNER JOIN assets a ON a.id = ab.asset_id
+      WHERE ab.ifc_guid = :guid
+        AND ab.model_version_id = :versionId
       LIMIT 1
     `, { guid, versionId });
 
     return rows[0] || null;
   }
 
+  /**
+   * Ativo persistente do elemento selecionado no viewer: entity da versão
+   * CORRENTE (models.current_version_id) → asset_binding → asset.
+   */
   async getAssetByGuidLatest(modelId: number, guid: string) {
     await this.db.checkConnection();
 
-    // Versão corrente = referência explícita models.current_version_id
-    // (Prompt 2 — substituiu o atalho "maior id" ORDER BY id DESC)
-    const [versionRows]: any = await this.db.connection.execute(`
-      SELECT current_version_id AS id
-      FROM models
-      WHERE id = :modelId
-      LIMIT 1
-    `, { modelId });
-
-    if (!versionRows.length || versionRows[0].id === null) return null;
-
-    const versionId = versionRows[0].id;
-
-    // Buscar asset na versão
     const [rows]: any = await this.db.connection.execute(`
-      SELECT a.*
-      FROM assets a
-      INNER JOIN entities e ON a.model_entity_id = e.id
-      WHERE e.guid = :guid
-      AND e.model_version_id = :versionId
-      AND a.model_version_id = :versionId
+      SELECT a.*, ab.id AS binding_id, ab.space_id AS binding_space_id,
+             ab.model_version_id AS binding_version_id
+      FROM models m
+      INNER JOIN asset_bindings ab ON ab.model_version_id = m.current_version_id
+      INNER JOIN entities e ON e.id = ab.model_entity_id AND e.guid = :guid
+      INNER JOIN assets a ON a.id = ab.asset_id
+      WHERE m.id = :modelId
       LIMIT 1
-    `, { guid, versionId });
-
-    console.log("modelId:", modelId);
-    console.log("versionRows:", versionRows);
-    console.log("versionId:", versionId);
-    console.log("guid:", guid);
-    console.log("rows:", rows);
-
+    `, { modelId, guid });
 
     return rows[0] || null;
   }
-
-
-
-
 }
 
 export default new AssetDatabase();

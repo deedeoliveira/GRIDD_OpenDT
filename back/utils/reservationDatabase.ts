@@ -82,6 +82,17 @@ class ReservationDatabase {
       throw new Error(validation.reasons[0] ?? "Reservation request rejected by policy");
     }
 
+    // (Prompt 4) Ciclo de vida do ativo persistente: ausente/pendente de
+    // reconciliacao/retirado nao aceita NOVAS reservas (as existentes ficam)
+    const [lifecycleRows]: any = await this.db.connection.execute(
+      "SELECT lifecycle_status FROM assets WHERE id = :assetId LIMIT 1",
+      { assetId }
+    );
+
+    if (lifecycleRows.length && lifecycleRows[0].lifecycle_status && lifecycleRows[0].lifecycle_status !== 'active') {
+      throw new Error(`Asset is not available for new reservations (lifecycle: ${lifecycleRows[0].lifecycle_status})`);
+    }
+
     // 1️⃣ Check approved conflict
     const approvedConflict = await this.hasApprovedConflict(assetId, start, end);
     if (approvedConflict) {
@@ -94,6 +105,23 @@ class ReservationDatabase {
       throw new Error("You already have a reservation overlapping this period");
     }
 
+    // (Prompt 4) Snapshots do contexto no momento da reserva: binding
+    // corrente = binding cuja versao e a corrente explicita do seu modelo
+    // (nunca o maior id). Nullable: ativos legados sem binding ficam NULL.
+    const [snapshotRows]: any = await this.db.connection.execute(`
+      SELECT ab.id AS binding_id, ab.model_version_id, ab.space_id,
+             a.name AS asset_name, s.inventory_code AS space_code
+      FROM asset_bindings ab
+      INNER JOIN model_versions v ON v.id = ab.model_version_id
+      INNER JOIN models m ON m.id = v.model_id AND m.current_version_id = v.id
+      INNER JOIN assets a ON a.id = ab.asset_id
+      LEFT JOIN spaces s ON s.id = ab.space_id
+      WHERE ab.asset_id = :assetId
+      LIMIT 1
+    `, { assetId });
+
+    const snap = snapshotRows[0] ?? null;
+
     // 3️⃣ Insert pending reservation
     const [result]: any = await this.db.connection.execute(`
       INSERT INTO res_reservations (
@@ -101,14 +129,25 @@ class ReservationDatabase {
         actor_id,
         start_time,
         end_time,
-        status
+        status,
+        asset_binding_id_at_booking,
+        model_version_id_at_booking,
+        asset_name_snapshot,
+        space_id_at_booking,
+        space_code_snapshot
       )
-      VALUES (:assetId, :actorId, :start, :end, 'pending')
+      VALUES (:assetId, :actorId, :start, :end, 'pending',
+              :bindingId, :versionId, :assetName, :spaceId, :spaceCode)
     `, {
       assetId,
       actorId,
       start,
-      end
+      end,
+      bindingId: snap?.binding_id ?? null,
+      versionId: snap?.model_version_id ?? null,
+      assetName: snap?.asset_name ?? null,
+      spaceId: snap?.space_id ?? null,
+      spaceCode: snap?.space_code ?? null
     });
 
     return result.insertId;

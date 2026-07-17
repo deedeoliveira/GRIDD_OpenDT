@@ -1,5 +1,7 @@
 import express from "express";
 import assetDb from "../utils/assetDatabase.ts";
+import persistentAssetDb from "../utils/persistentAssetDatabase.ts";
+import { getReservabilityEvaluator } from "../policies/policyProvider.ts";
 import { buildSuccessResponse, buildErrorResponse } from "../utils/responseHandler.ts";
 
 const app = express();
@@ -119,6 +121,164 @@ app.get("/by-guid-latest/:modelId/:guid", async (req, res) => {
 
     return buildSuccessResponse(res, 200, asset);
 
+  } catch (error: any) {
+    return buildErrorResponse(res, 500, error.message);
+  }
+});
+
+/* -------------------------------------
+   (Prompt 4) Ativo persistente, bindings e reconciliação
+------------------------------------- */
+
+/* Ativo persistente (identidade + ciclo de vida + projeção) */
+app.get("/persistent/:assetId", async (req, res) => {
+  const assetId = Number(req.params.assetId);
+
+  if (!Number.isInteger(assetId) || assetId <= 0) {
+    return buildErrorResponse(res, 400, "Valid asset ID is required");
+  }
+
+  try {
+    const asset = await persistentAssetDb.getPersistentAsset(assetId);
+
+    if (!asset) {
+      return buildErrorResponse(res, 404, `Asset ${assetId} not found`);
+    }
+
+    return buildSuccessResponse(res, 200, asset);
+  } catch (error: any) {
+    return buildErrorResponse(res, 500, error.message);
+  }
+});
+
+/* Histórico de representação de um ativo (bindings por versão) */
+app.get("/:assetId/bindings", async (req, res) => {
+  const assetId = Number(req.params.assetId);
+
+  if (!Number.isInteger(assetId) || assetId <= 0) {
+    return buildErrorResponse(res, 400, "Valid asset ID is required");
+  }
+
+  try {
+    const bindings = await persistentAssetDb.getBindingsByAsset(assetId);
+    return buildSuccessResponse(res, 200, bindings);
+  } catch (error: any) {
+    return buildErrorResponse(res, 500, error.message);
+  }
+});
+
+/* Bindings de uma versão explícita */
+app.get("/version/:versionId/bindings", async (req, res) => {
+  const versionId = Number(req.params.versionId);
+
+  if (!Number.isInteger(versionId) || versionId <= 0) {
+    return buildErrorResponse(res, 400, "Valid version ID is required");
+  }
+
+  try {
+    const bindings = await persistentAssetDb.getBindingsByVersion(versionId);
+    return buildSuccessResponse(res, 200, bindings);
+  } catch (error: any) {
+    return buildErrorResponse(res, 500, error.message);
+  }
+});
+
+/* Casos de reconciliação (?status=open por omissão; ?status=all para todos) */
+app.get("/reconciliation/cases", async (req, res) => {
+  try {
+    const status = (req.query.status as string) ?? "open";
+    const cases = await persistentAssetDb.listReconciliationCases(status === "all" ? undefined : status);
+    return buildSuccessResponse(res, 200, cases);
+  } catch (error: any) {
+    return buildErrorResponse(res, 500, error.message);
+  }
+});
+
+/* Resolução administrativa de um caso (mecanismo atual: a aplicação não tem
+   autenticação — ver documentação; uso via Bruno/curl) */
+app.post("/reconciliation/cases/:caseId/resolve", async (req, res) => {
+  const caseId = Number(req.params.caseId);
+  const { resolution, assetId, resolvedBy } = req.body ?? {};
+
+  if (!Number.isInteger(caseId) || caseId <= 0) {
+    return buildErrorResponse(res, 400, "Valid case ID is required");
+  }
+
+  const valid = ["link_to_existing_asset", "confirm_as_new_asset", "confirm_replacement", "ignore_non_asset"];
+  if (!valid.includes(resolution)) {
+    return buildErrorResponse(res, 400, `resolution must be one of: ${valid.join(", ")}`);
+  }
+
+  try {
+    const reconciliationCase = await persistentAssetDb.getReconciliationCase(caseId);
+
+    if (!reconciliationCase) {
+      return buildErrorResponse(res, 404, `Case ${caseId} not found`);
+    }
+    if (reconciliationCase.status !== "open") {
+      return buildErrorResponse(res, 409, `Case ${caseId} is already ${reconciliationCase.status}`);
+    }
+
+    let resolvedAssetId: number | null = null;
+    let caseStatus = "";
+
+    if (resolution === "ignore_non_asset") {
+      caseStatus = "ignored";
+
+    } else if (resolution === "link_to_existing_asset") {
+      if (!Number.isInteger(Number(assetId))) {
+        return buildErrorResponse(res, 400, "assetId is required for link_to_existing_asset");
+      }
+      resolvedAssetId = Number(assetId);
+      caseStatus = "resolved_link";
+
+    } else {
+      // confirm_as_new_asset / confirm_replacement: criar novo ativo,
+      // avaliando a reservabilidade pelo provider configurado
+      const decision = await getReservabilityEvaluator().evaluate(
+        { guid: reconciliationCase.ifc_guid, name: reconciliationCase.name_snapshot,
+          ifcType: reconciliationCase.type_snapshot, entityType: "element" },
+        { modelVersionId: reconciliationCase.model_version_id }
+      );
+
+      const created = await persistentAssetDb.createAsset({
+        name: reconciliationCase.name_snapshot ?? reconciliationCase.ifc_guid,
+        assetType: "equipment",
+        linkedModelId: null,
+        reservable: decision.decision === "allow",
+      });
+      resolvedAssetId = created.assetId;
+      caseStatus = resolution === "confirm_replacement" ? "resolved_replacement" : "resolved_new";
+
+      if (resolution === "confirm_replacement") {
+        // decisão HUMANA explícita: o ativo substituído é retirado
+        if (!Number.isInteger(Number(assetId))) {
+          return buildErrorResponse(res, 400, "assetId (ativo substituído) is required for confirm_replacement");
+        }
+        await persistentAssetDb.retireAsset(Number(assetId));
+      }
+    }
+
+    if (resolvedAssetId !== null) {
+      await persistentAssetDb.createBinding({
+        assetId: resolvedAssetId,
+        modelVersionId: reconciliationCase.model_version_id,
+        modelEntityId: reconciliationCase.model_entity_id,
+        spaceId: reconciliationCase.space_id ?? null,
+        ifcGuid: reconciliationCase.ifc_guid,
+        nameSnapshot: reconciliationCase.name_snapshot ?? null,
+        typeSnapshot: reconciliationCase.type_snapshot ?? null,
+        reconciliationMethod: resolution,
+        reconciliationConfidence: "manual",
+      });
+    }
+
+    await persistentAssetDb.markCaseResolved(caseId, caseStatus, resolvedAssetId, resolvedBy ?? null);
+
+    return buildSuccessResponse(res, 200, {
+      caseId, status: caseStatus, resolvedAssetId,
+      message: `Reconciliation case resolved as ${resolution}`,
+    });
   } catch (error: any) {
     return buildErrorResponse(res, 500, error.message);
   }
