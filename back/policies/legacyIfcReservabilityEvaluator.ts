@@ -34,6 +34,18 @@ export class LegacyIfcReservabilityEvaluator implements ReservabilityEvaluator {
             evaluatedAt: new Date().toISOString(),
         };
 
+        // (Prompt 5B — extensão explícita, NÃO altera a regra IFC da baseline)
+        // Não existe comportamento estabelecido para ativos não modelados:
+        // resultado DEFENSIVO undetermined até haver decisão de política
+        // documentada. O registo projeta o ativo como não reservável.
+        if (candidate.candidateKind === "non_modelled_asset") {
+            return {
+                ...base,
+                decision: "undetermined",
+                reasons: ["No established reservability policy for non-modelled assets — policy decision pending; asset is preserved but not reservable"],
+            };
+        }
+
         if (candidate.entityType === "space") {
             return {
                 ...base,

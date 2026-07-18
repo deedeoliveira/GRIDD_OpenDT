@@ -110,4 +110,14 @@ export function assertGraphDeletable(graphUri: string, env: NodeJS.ProcessEnv = 
             { operation: "deleteGraph" }
         );
     }
+    // Prompt 5B: o grafo operacional é autoridade de dados — nunca é apagado
+    // por inteiro em NENHUM ambiente; alterações usam sempre a URI específica
+    // do recurso/atribuição.
+    if (/\/graph\/operational$/.test(graphUri.trim())) {
+        throw new GraphError(
+            "graph_update_failed",
+            "the operational graph is a data authority and must never be deleted wholesale — target specific resource URIs instead",
+            { operation: "deleteGraph" }
+        );
+    }
 }

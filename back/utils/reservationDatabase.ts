@@ -85,12 +85,49 @@ class ReservationDatabase {
     // (Prompt 4) Ciclo de vida do ativo persistente: ausente/pendente de
     // reconciliacao/retirado nao aceita NOVAS reservas (as existentes ficam)
     const [lifecycleRows]: any = await this.db.connection.execute(
-      "SELECT lifecycle_status FROM assets WHERE id = :assetId LIMIT 1",
+      "SELECT lifecycle_status, source, reservable, asset_uuid FROM assets WHERE id = :assetId LIMIT 1",
       { assetId }
     );
 
     if (lifecycleRows.length && lifecycleRows[0].lifecycle_status && lifecycleRows[0].lifecycle_status !== 'active') {
       throw new Error(`Asset is not available for new reservations (lifecycle: ${lifecycleRows[0].lifecycle_status})`);
+    }
+
+    // (Prompt 5B) Ativo NÃO modelado (projeção do grafo, source='graph'):
+    // reservável APENAS quando a projeção SQL está completa — decisão de
+    // política allow (reservable=1), localização corrente válida num espaço
+    // ATIVO e nenhuma operação de sincronização incompleta. Tudo verificado
+    // em SQL — o Fuseki NUNCA é consultado ao criar reservas, e uma falha
+    // posterior do grafo não invalida projeções já concluídas.
+    if (lifecycleRows.length && lifecycleRows[0].source === 'graph') {
+      if (!lifecycleRows[0].reservable) {
+        throw new Error("Asset is not reservable (reservability policy has not allowed it)");
+      }
+
+      const [locationRows]: any = await this.db.connection.execute(`
+        SELECT ala.id
+        FROM asset_location_assignments ala
+        INNER JOIN spaces s ON s.id = ala.space_id
+        WHERE ala.asset_id = :assetId
+          AND ala.valid_to IS NULL
+          AND s.status = 'active'
+        LIMIT 1
+      `, { assetId });
+
+      if (!locationRows.length) {
+        throw new Error("Asset has no valid current location — new reservations are blocked until the location is available");
+      }
+
+      const [pendingSyncRows]: any = await this.db.connection.execute(`
+        SELECT COUNT(*) AS n
+        FROM semantic_sync_operations
+        WHERE asset_uuid = :assetUuid
+          AND status NOT IN ('completed', 'failed_terminal')
+      `, { assetUuid: lifecycleRows[0].asset_uuid });
+
+      if (Number(pendingSyncRows[0]?.n ?? 0) > 0) {
+        throw new Error("Asset has a pending graph synchronization — new reservations are blocked until it completes");
+      }
     }
 
     // 1️⃣ Check approved conflict
@@ -120,7 +157,25 @@ class ReservationDatabase {
       LIMIT 1
     `, { assetId });
 
-    const snap = snapshotRows[0] ?? null;
+    let snap = snapshotRows[0] ?? null;
+
+    // (Prompt 5B) Ativos não modelados não têm binding: o snapshot vem da
+    // projeção de localização corrente (nome + espaço), preservando o mesmo
+    // contrato nullable das colunas de booking.
+    if (!snap && lifecycleRows.length && lifecycleRows[0].source === 'graph') {
+      const [graphSnapRows]: any = await this.db.connection.execute(`
+        SELECT a.name AS asset_name, ala.space_id, s.inventory_code AS space_code
+        FROM assets a
+        LEFT JOIN asset_location_assignments ala ON ala.asset_id = a.id AND ala.valid_to IS NULL
+        LEFT JOIN spaces s ON s.id = ala.space_id
+        WHERE a.id = :assetId
+        LIMIT 1
+      `, { assetId });
+      const g = graphSnapRows[0];
+      if (g) {
+        snap = { binding_id: null, model_version_id: null, asset_name: g.asset_name, space_id: g.space_id, space_code: g.space_code };
+      }
+    }
 
     // 3️⃣ Insert pending reservation
     const [result]: any = await this.db.connection.execute(`

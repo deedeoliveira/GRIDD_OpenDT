@@ -34,13 +34,35 @@ export interface PolicyContext {
     [extra: string]: unknown;
 }
 
-/** Candidato a ativo reservável (um elemento ou espaço vindo do inventário IFC). */
+/**
+ * Origem do candidato (Prompt 5B). Extensão ADITIVA: ausente ⇒ "ifc_entity"
+ * (comportamento pré-5B inalterado para todos os providers existentes).
+ */
+export type ReservabilityCandidateKind = "ifc_entity" | "non_modelled_asset" | "space";
+
+/**
+ * Candidato a ativo reservável. Historicamente um elemento/espaço do
+ * inventário IFC; desde o Prompt 5B também um ativo NÃO modelado
+ * (candidateKind="non_modelled_asset", sem guid/ifcType — esses campos são
+ * específicos de IFC e ficam ausentes).
+ */
 export interface ReservabilityCandidate {
-    guid: string;
+    /** GUID IFC — apenas para candidatos vindos de um modelo (opcional desde o 5B). */
+    guid?: string | null;
     name?: string | null;
     /** Classe IFC tal como extraída pelo serviço Python (ex.: IfcSpace, IfcFurniture, IfcSensor). */
     ifcType?: string | null;
     entityType: "space" | "element";
+    /** Ausente ⇒ ifc_entity (compatibilidade com providers pré-5B). */
+    candidateKind?: ReservabilityCandidateKind;
+    /** Campos do candidato não modelado (nunca payload semântico interno, nunca credenciais). */
+    assetType?: string | null;
+    resourceKind?: string | null;
+    source?: string | null;
+    managerCode?: string | null;
+    serialNumber?: string | null;
+    /** Há localização corrente conhecida? (condição operacional, não identidade) */
+    hasCurrentLocation?: boolean;
 }
 
 /** Pedido de reserva a validar antes de entrar no fluxo existente. */

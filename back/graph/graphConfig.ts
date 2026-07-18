@@ -77,6 +77,40 @@ export function validateBaseUri(raw: string, sourceName = "GRAPH_BASE_URI"): str
  * - NODE_ENV=test → endpoints obrigatoriamente locais (localhost/127.0.0.1):
  *   testes nunca podem apontar para um serviço de grafo remoto/produção.
  */
+/**
+ * Guarda de ESCRITA operacional (Prompt 5B, §17.3): antes de escrever dados
+ * operacionais no grafo em produção, a configuração tem de ser explícita e
+ * segura. Em NODE_ENV=production recusa: base URI de desenvolvimento
+ * (*.local), ausência de credenciais e credenciais default de dev. Falha
+ * ANTES de qualquer escrita.
+ */
+export function assertOperationalGraphWriteSafety(
+    config: GraphConfig,
+    env: NodeJS.ProcessEnv = process.env
+): void {
+    if (env.NODE_ENV !== "production") return;
+
+    const host = new URL(config.baseUri).hostname;
+    if (host.endsWith(".local") || host === "localhost" || host === "127.0.0.1") {
+        throw new GraphError(
+            "graph_configuration_error",
+            `GRAPH_BASE_URI '${config.baseUri}' is a development base and cannot be used for operational writes in production — configure an approved production base URI`
+        );
+    }
+    if (config.username === null || config.password === null) {
+        throw new GraphError(
+            "graph_configuration_error",
+            "operational graph writes in production require GRAPH_USERNAME and GRAPH_PASSWORD"
+        );
+    }
+    if (config.password === "oswadt-dev-graph") {
+        throw new GraphError(
+            "graph_configuration_error",
+            "operational graph writes in production must not use the documented development credentials"
+        );
+    }
+}
+
 export function loadGraphConfig(env: NodeJS.ProcessEnv = process.env): GraphConfigResult {
     const relevant = [...ENDPOINT_VARS, "GRAPH_BASE_URI"] as const;
     const present = relevant.filter((name) => (env[name] ?? "").trim() !== "");

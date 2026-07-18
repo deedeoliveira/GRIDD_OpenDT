@@ -23,6 +23,23 @@ const { GraphError } = await import("../../graph/graphTypes.ts");
 
 const backDir = path.join(import.meta.dirname, "../..");
 
+/**
+ * (Prompt 5B) Exceção EXPLÍCITA e fechada: os serviços de ativos NÃO
+ * modelados são os únicos módulos operacionais autorizados a usar o grafo —
+ * é essa a sua função (grafo = autoridade desses ativos). Upload, preflight,
+ * reservas, viewer, sensores e políticas continuam proibidos (testes abaixo
+ * e tests/nonmodelled/isolation5b.test.ts).
+ */
+const GRAPH_AWARE_5B_FILES = new Set([
+    "services/nonModelledAssetRegistrationService.ts",
+    "services/nonModelledAssetLocationService.ts",
+    "services/nonModelledSyncSupport.ts",
+    "services/graphSqlReconciliationService.ts",
+    "routes/semantic.ts",
+    "routes/asset.ts", // importa os serviços 5B (não o grafo diretamente)
+    "utils/nonModelledAssetDatabase.ts", // projeção SQL 5B (conserva semantic_uri/asset_uuid)
+]);
+
 /** Diretórios que PODEM conhecer o grafo: o próprio módulo, scripts de diagnóstico e testes. */
 const ALLOWED_DIRS = new Set(["graph", "scripts", "tests"]);
 const SKIPPED_DIRS = new Set(["node_modules", "cdn_resources", "python", "bruno_collection", "dist", ".git", ...ALLOWED_DIRS]);
@@ -39,7 +56,9 @@ function operationalSources(): { file: string; source: string }[] {
                 continue;
             }
             if (!entry.name.endsWith(".ts")) continue;
-            results.push({ file: path.relative(backDir, full), source: fs.readFileSync(full, "utf-8") });
+            const relative = path.relative(backDir, full).replace(/\\/g, "/");
+            if (GRAPH_AWARE_5B_FILES.has(relative)) continue;
+            results.push({ file: relative, source: fs.readFileSync(full, "utf-8") });
         }
     };
     scan(backDir);
@@ -60,18 +79,22 @@ test("nenhum módulo operacional fala SPARQL nem lê variáveis GRAPH_* diretame
     assert.deepEqual(offenders, []);
 });
 
-test("nenhum código escreve semantic_uri (colunas permanecem NULL; sem backfill nesta etapa)", () => {
+test("semantic_uri: só a projeção 5B (source='graph') a escreve — ativos MODELADOS nunca (sem backfill)", () => {
     const offenders: string[] = [];
     for (const { file, source } of operationalSources()) {
         if (/semantic_uri/i.test(source)) offenders.push(file);
     }
-    // scripts/ pode conhecer o grafo, mas também não pode escrever semantic_uri
+    // scripts/ pode LER (relatório legado read-only), mas nunca escrever
     for (const entry of fs.readdirSync(path.join(backDir, "scripts"))) {
         if (!entry.endsWith(".ts")) continue;
         const source = fs.readFileSync(path.join(backDir, "scripts", entry), "utf-8");
-        if (/semantic_uri/i.test(source)) offenders.push(`scripts/${entry}`);
+        if (/(INSERT|UPDATE)[\s\S]{0,400}semantic_uri/i.test(source)) offenders.push(`scripts/${entry}`);
     }
     assert.deepEqual(offenders, []);
+
+    // e o caminho dos ativos modelados continua sem escrever URI alguma
+    const modelledSource = fs.readFileSync(path.join(backDir, "utils/persistentAssetDatabase.ts"), "utf-8");
+    assert.doesNotMatch(modelledSource, /semantic_uri\s*[,=)]/i);
 });
 
 test("a camada de políticas não conhece o cliente de grafo (o GraphClient NÃO é provider de política)", () => {

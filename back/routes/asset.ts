@@ -1,8 +1,20 @@
 import express from "express";
 import assetDb from "../utils/assetDatabase.ts";
 import persistentAssetDb from "../utils/persistentAssetDatabase.ts";
+import nonModelledDb from "../utils/nonModelledAssetDatabase.ts";
+import registrationService from "../services/nonModelledAssetRegistrationService.ts";
+import locationService from "../services/nonModelledAssetLocationService.ts";
+import { NonModelledAssetError } from "../services/nonModelledAssetTypes.ts";
 import { getReservabilityEvaluator } from "../policies/policyProvider.ts";
 import { buildSuccessResponse, buildErrorResponse } from "../utils/responseHandler.ts";
+
+/** Erros tipados 5B → HTTP; restantes → 500 sem stack trace. */
+function nonModelledErrorResponse(res: any, error: any) {
+  if (error instanceof NonModelledAssetError) {
+    return buildErrorResponse(res, error.statusCode, error.message);
+  }
+  return buildErrorResponse(res, 500, error?.message ?? "Unexpected error");
+}
 
 const app = express();
 app.use(express.json());
@@ -281,6 +293,114 @@ app.post("/reconciliation/cases/:caseId/resolve", async (req, res) => {
     });
   } catch (error: any) {
     return buildErrorResponse(res, 500, error.message);
+  }
+});
+
+/* -------------------------------------
+   (Prompt 5B) Ativos NÃO modelados — grafo como autoridade, SQL como projeção.
+   Endpoints ADMINISTRATIVOS: a aplicação não tem autenticação (limitação
+   documentada — uso via Bruno/curl, como os endpoints de reconciliação do P4).
+------------------------------------- */
+
+/* Registo (idempotente via registrationKey no payload) */
+app.post("/non-modelled", async (req, res) => {
+  try {
+    const result = await registrationService.register(req.body ?? {});
+    return buildSuccessResponse(res, 201, result);
+  } catch (error: any) {
+    return nonModelledErrorResponse(res, error);
+  }
+});
+
+/* Consulta da projeção (asset + localização corrente + estado) */
+app.get("/non-modelled/:assetId", async (req, res) => {
+  const assetId = Number(req.params.assetId);
+  if (!Number.isInteger(assetId) || assetId <= 0) {
+    return buildErrorResponse(res, 400, "Valid asset ID is required");
+  }
+
+  try {
+    const asset = await nonModelledDb.findAssetById(assetId);
+    if (!asset || asset.source !== "graph") {
+      return buildErrorResponse(res, 404, `Non-modelled asset ${assetId} not found`);
+    }
+    const current = await nonModelledDb.getCurrentAssignment(assetId);
+    return buildSuccessResponse(res, 200, {
+      ...asset,
+      locationStatus: current ? (current.space_status === "active" ? "located" : "location_unavailable") : "pending_location",
+      currentLocation: current,
+    });
+  } catch (error: any) {
+    return nonModelledErrorResponse(res, error);
+  }
+});
+
+/* Estado da projeção/sincronização */
+app.get("/non-modelled/:assetId/projection-status", async (req, res) => {
+  const assetId = Number(req.params.assetId);
+  if (!Number.isInteger(assetId) || assetId <= 0) {
+    return buildErrorResponse(res, 400, "Valid asset ID is required");
+  }
+
+  try {
+    const asset = await nonModelledDb.findAssetById(assetId);
+    if (!asset || asset.source !== "graph") {
+      return buildErrorResponse(res, 404, `Non-modelled asset ${assetId} not found`);
+    }
+    const current = await nonModelledDb.getCurrentAssignment(assetId);
+    const pendingOps = await nonModelledDb.countIncompleteOperationsForAsset(asset.asset_uuid);
+    return buildSuccessResponse(res, 200, {
+      assetId,
+      assetUuid: asset.asset_uuid,
+      semanticUri: asset.semantic_uri,
+      lifecycleStatus: asset.lifecycle_status,
+      reservable: Boolean(asset.reservable),
+      locationStatus: current ? (current.space_status === "active" ? "located" : "location_unavailable") : "pending_location",
+      incompleteSyncOperations: pendingOps,
+      reservableNow: Boolean(asset.reservable) && asset.lifecycle_status === "active"
+        && current !== null && current.space_status === "active" && pendingOps === 0,
+    });
+  } catch (error: any) {
+    return nonModelledErrorResponse(res, error);
+  }
+});
+
+/* Movimento (idempotente via movementKey; só source manual nesta etapa) */
+app.post("/non-modelled/:assetId/location", async (req, res) => {
+  const assetId = Number(req.params.assetId);
+  if (!Number.isInteger(assetId) || assetId <= 0) {
+    return buildErrorResponse(res, 400, "Valid asset ID is required");
+  }
+
+  try {
+    const result = await locationService.move({
+      movementKey: req.body?.movementKey,
+      assetId,
+      newSpaceId: req.body?.newSpaceId,
+      source: req.body?.source,
+    });
+    return buildSuccessResponse(res, 200, result);
+  } catch (error: any) {
+    return nonModelledErrorResponse(res, error);
+  }
+});
+
+/* Histórico de localização (projeção SQL; nunca sobrescrito) */
+app.get("/non-modelled/:assetId/location-history", async (req, res) => {
+  const assetId = Number(req.params.assetId);
+  if (!Number.isInteger(assetId) || assetId <= 0) {
+    return buildErrorResponse(res, 400, "Valid asset ID is required");
+  }
+
+  try {
+    const asset = await nonModelledDb.findAssetById(assetId);
+    if (!asset || asset.source !== "graph") {
+      return buildErrorResponse(res, 404, `Non-modelled asset ${assetId} not found`);
+    }
+    const history = await nonModelledDb.getLocationHistory(assetId);
+    return buildSuccessResponse(res, 200, history);
+  } catch (error: any) {
+    return nonModelledErrorResponse(res, error);
   }
 });
 

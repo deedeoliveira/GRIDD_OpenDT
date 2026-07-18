@@ -26,7 +26,7 @@ const FUTURE_END = () => new Date(Date.now() + 7_200_000);
 function routes(overrides: [RegExp, any][] = []): [RegExp, any][] {
     return [
         ...overrides,
-        [/SELECT lifecycle_status FROM assets/i, [[{ lifecycle_status: "active" }]]],
+        [/SELECT lifecycle_status\b[^\n]*FROM assets/i, [[{ lifecycle_status: "active" }]]],
         [/SELECT COUNT\(\*\) as count/i, [[{ count: 0 }]]],
         [/SELECT ab\.id AS binding_id/i, [[]]],
         [/INSERT INTO res_reservations/i, [{ insertId: 42 }]],
@@ -38,7 +38,7 @@ function routes(overrides: [RegExp, any][] = []): [RegExp, any][] {
 ------------------------------------- */
 
 test("ativo 'absent' (fora da versão corrente): NOVA reserva é rejeitada com mensagem clara", async () => {
-    respond(routes([[/SELECT lifecycle_status FROM assets/i, [[{ lifecycle_status: "absent" }]]]]));
+    respond(routes([[/SELECT lifecycle_status\b[^\n]*FROM assets/i, [[{ lifecycle_status: "absent" }]]]]));
 
     await assert.rejects(
         reservationDb.createReservation(7, "actor1", FUTURE_START(), FUTURE_END()),
@@ -51,7 +51,7 @@ test("ativo 'absent' (fora da versão corrente): NOVA reserva é rejeitada com m
 test("ativo 'retired' e 'pending_reconciliation' também bloqueiam novas reservas", async () => {
     for (const lifecycle of ["retired", "pending_reconciliation"]) {
         fakeConnection.reset();
-        respond(routes([[/SELECT lifecycle_status FROM assets/i, [[{ lifecycle_status: lifecycle }]]]]));
+        respond(routes([[/SELECT lifecycle_status\b[^\n]*FROM assets/i, [[{ lifecycle_status: lifecycle }]]]]));
 
         await assert.rejects(
             reservationDb.createReservation(7, "actor1", FUTURE_START(), FUTURE_END()),
@@ -61,7 +61,7 @@ test("ativo 'retired' e 'pending_reconciliation' também bloqueiam novas reserva
 });
 
 test("bloqueio por ciclo de vida NÃO altera reservas existentes (nenhum UPDATE além dos sweeps no_show/overdue)", async () => {
-    respond(routes([[/SELECT lifecycle_status FROM assets/i, [[{ lifecycle_status: "absent" }]]]]));
+    respond(routes([[/SELECT lifecycle_status\b[^\n]*FROM assets/i, [[{ lifecycle_status: "absent" }]]]]));
 
     await assert.rejects(reservationDb.createReservation(7, "actor1", FUTURE_START(), FUTURE_END()));
 
@@ -72,7 +72,7 @@ test("bloqueio por ciclo de vida NÃO altera reservas existentes (nenhum UPDATE 
 });
 
 test("ativo legado sem linha (ou lifecycle NULL): reserva prossegue (compatibilidade expand-and-contract)", async () => {
-    respond(routes([[/SELECT lifecycle_status FROM assets/i, [[]]]]));
+    respond(routes([[/SELECT lifecycle_status\b[^\n]*FROM assets/i, [[]]]]));
 
     const id = await reservationDb.createReservation(7, "actor1", FUTURE_START(), FUTURE_END());
     assert.equal(id, 42);
