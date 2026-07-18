@@ -650,3 +650,77 @@ Upload: `curl -X POST http://localhost:3001/api/model/upload -F "file=@<fx>" -F 
 27. Sensores: página/API de sensores continuam a funcionar (desacoplado).
 28. Bruno: pastas Models/Spaces/Reservation/Assets todas funcionais.
 
+
+---
+
+## 19. Prompt 5A — Fundação do grafo semântico (Fuseki, cliente, URIs)
+
+Roteiro vivo (2026-07-17). Pré-requisitos: Java 17+ (`java -version`),
+backend/BD como habitualmente. O grafo é OPCIONAL: os itens 11–19 provam
+exatamente isso.
+
+### 19.1 Suíte e triplestore (itens 1–4)
+
+1. `cd back && npm test` → **306/306** (total anterior: 253).
+2. Preparar o Fuseki (uma vez, ~80 MB):
+   `powershell -ExecutionPolicy Bypass -File infrastructure\graph\setup-fuseki.ps1`
+   → "Fuseki 5.6.0 pronto".
+3. Arrancar: `powershell -ExecutionPolicy Bypass -File infrastructure\graph\start-fuseki.ps1`
+   → "A arrancar Fuseki 5.6.0 em http://localhost:3030".
+4. Health: abrir `http://localhost:3030/$/ping` → data/hora (HTTP 200).
+
+### 19.2 Configuração e smoke (itens 5–9)
+
+5. Em `back/.env` acrescentar (ver `.env.example`; recomendado apontar ao
+   dataset de TESTE para o smoke):
+   `GRAPH_QUERY_ENDPOINT=http://localhost:3030/oswadt-test/query`,
+   `GRAPH_UPDATE_ENDPOINT=http://localhost:3030/oswadt-test/update`,
+   `GRAPH_DATA_ENDPOINT=http://localhost:3030/oswadt-test/data`,
+   `GRAPH_BASE_URI=http://oswadt.local/id`, `GRAPH_USERNAME=admin`,
+   `GRAPH_PASSWORD=oswadt-dev-graph` (credencial LOCAL de dev).
+6. `cd back && npx tsx scripts/graphSmoke.ts` → ✓ health, ✓ putGraph
+   (2 triplos), ✓ query, ✓ update (3 triplos), ✓ deleteGraph; termina com
+   "nenhum dado de produção foi tocado".
+7. Query manual (auth pedida pelo browser ou via Bruno):
+   `http://localhost:3030/oswadt-test/query?query=SELECT (COUNT(*) AS ?n) WHERE { GRAPH ?g { ?s ?p ?o } }`
+   → n=0 (o smoke limpou o seu próprio grafo).
+8. Isolamento entre grafos: correr o smoke DUAS vezes e confirmar que cada
+   execução mostra uma URI `…/graph/test/<uuid>` DIFERENTE.
+9. Sem credenciais: pedir a query do item 7 sem auth → HTTP 401.
+
+### 19.3 Aplicação SEM grafo (itens 10–19) — isolamento de falhas
+
+10. Parar o Fuseki (Ctrl+C na janela do item 3).
+11. Arrancar backend (`cd back && npm run dev`), Flask e front normalmente —
+    nenhum erro de arranque relacionado com grafo.
+12. Upload de um IFC válido (ex.: `back/python/fx18_valido_v1.ifc`) → upload
+    e preflight funcionam exatamente como no §18.
+13. Consultar modelo, espaços (`/api/spaces`) e ativos (`/api/assets`) → OK.
+14. Criar uma reserva (fluxo do §18) → OK; conflitos continuam por asset_id.
+15. Viewer `/student` e `/viewer` → OK.
+16. Políticas: logs `policy_evaluation` continuam; decisões inalteradas.
+17. `npx tsx scripts/graphSmoke.ts` com o Fuseki parado → falha CONTROLADA
+    (`graph_unavailable`), sem afetar o backend em execução.
+18. Reiniciar o Fuseki (item 3) e repetir o smoke → volta a passar.
+19. Logs do backend: nenhuma linha `graph_operation` durante upload/reservas
+    (nenhum fluxo operacional toca o grafo).
+
+### 19.4 Nenhum dado de produção no grafo / nenhuma URI em SQL (itens 20–23)
+
+20. `SELECT COUNT(*) FROM spaces WHERE semantic_uri IS NOT NULL;` → 0;
+    `SELECT COUNT(*) FROM assets WHERE semantic_uri IS NOT NULL;` → 0.
+21. Query do item 7 no dataset `/oswadt-dev` → 0 triplos (nenhum named
+    graph de produção foi criado).
+22. Confirmar no Fuseki UI (`http://localhost:3030`, auth dev) que apenas
+    existem os datasets `oswadt-dev` e `oswadt-test`, ambos vazios.
+23. Preservação da identidade na mudança de espaço (prova por teste):
+    `npx tsx --test tests/graph/locationContracts.test.ts` → o teste
+    "mudar o espaço … NÃO muda a assetUri" passa.
+
+### 19.5 Limpeza
+
+- Parar o Fuseki (Ctrl+C); os dados de dev ficam em
+  `infrastructure/graph/run/` (gitignored). Para recomeçar do zero, apagar
+  `infrastructure/graph/run/databases/oswadt-dev` COM O SERVIÇO PARADO.
+- Remover/comentar as variáveis GRAPH_* do `.env` se não quiseres o grafo
+  configurado no dia-a-dia (a aplicação não precisa delas).

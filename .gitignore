@@ -63,3 +63,7 @@ backup_*.sql
 
 #bruno_collections
 bruno_collection_backup
+
+# Grafo semântico (Fuseki) — distribuição descarregada e dados locais, nunca commitar
+/infrastructure/graph/dist/
+/infrastructure/graph/run/

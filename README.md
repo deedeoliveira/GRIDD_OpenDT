@@ -109,6 +109,21 @@ npm install
 npm run dev
 ```
 
+### Semantic graph *(optional)*
+
+The application runs fully without the graph. To start the local triplestore
+(Apache Jena Fuseki 5.6.0, port 3030 — requires Java 17+):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File infrastructure\graph\setup-fuseki.ps1   # once
+powershell -ExecutionPolicy Bypass -File infrastructure\graph\start-fuseki.ps1
+```
+
+Then set the `GRAPH_*` variables in `back/.env` (see `back/.env.example`) and
+check the connection with `npx tsx scripts/graphSmoke.ts` (from `back/`).
+See `documentation/audit/PROMPT5A_GRAPH.md` for the URI strategy, named-graph
+conventions and the data-authority matrix.
+
 ## Documentation
 
 The documentation is available in the [documentation directory](./documentation/Documentation.md)].
