@@ -15,10 +15,14 @@
  *  - backup JSON automático antes do --apply (diretório gitignored);
  *  - contagens antes e depois; nenhum dado fictício é inserido.
  *
- * Tabelas LIMPAS (operacionais): asset_bindings, asset_reconciliation_cases,
+ * Tabelas LIMPAS (operacionais): asset_location_assignments,
+ *   semantic_sync_operations, asset_bindings, asset_reconciliation_cases,
  *   legacy_asset_mapping, space_bindings, res_reservations, assets, spaces,
  *   entities, model_versions, sensors_channels, sensors_data, sensors,
  *   models, linked_models.
+ * (5B) Depois do SQL, limpa também os recursos de ativos não modelados do
+ *   grafo operacional (remoção direcionada; nunca CLEAR/DROP) — se o grafo
+ *   estiver desligado, avisa e indica cleanupNonModelledGraphData.ts.
  * Tabelas PRESERVADAS: channels (dados de referência dos sensores).
  *   (Não existem tabelas de utilizadores/papéis — a aplicação não tem
  *   autenticação; nada a preservar nesse campo.)
@@ -33,9 +37,12 @@ import mysql from "mysql2/promise";
 import fs from "fs";
 import path from "path";
 import { STORAGE_ROOT, REAL_DEV_STORAGE_ROOT } from "../utils/storage.ts";
+import { cleanupNonModelledGraphResources } from "./cleanupNonModelledGraphData.ts";
 
 /** Ordem segura de FKs: filhos antes de pais. */
 export const OPERATIONAL_TABLES = [
+    "asset_location_assignments",   // (5B) referencia assets e spaces
+    "semantic_sync_operations",     // (5B) workflow grafo→SQL
     "asset_bindings",
     "asset_reconciliation_cases",
     "legacy_asset_mapping",
@@ -187,6 +194,29 @@ export async function runOperationalReset(apply: boolean, options: ResetOptions 
         "| spaces:", spacesCheck.length === 1);
 
     await conn.end();
+
+    /* ---- (5B) limpeza correspondente no GRAFO operacional: sem isto o
+            Fuseki ficaria com ativos não modelados/atribuições/proveniência
+            órfãos. Remoção DIRECIONADA (nunca CLEAR/DROP), reutilizando o
+            mesmo serviço de scripts/cleanupNonModelledGraphData.ts. Uma
+            falha aqui NÃO desfaz o reset SQL — fica instrução para repetir. ---- */
+    try {
+        const graphCleanup = await cleanupNonModelledGraphResources();
+        if (graphCleanup.skipped) {
+            console.warn(
+                "AVISO: grafo NÃO limpo (" + (graphCleanup.reason ?? "não configurado") + "). " +
+                "Se usas o grafo, liga o Fuseki e corre: npx tsx scripts/cleanupNonModelledGraphData.ts"
+            );
+        } else {
+            console.log(`Grafo operacional limpo: ${graphCleanup.resourcesDeleted} recurso(s) removido(s).`);
+        }
+    } catch (error: any) {
+        console.warn(
+            "AVISO: a limpeza do grafo falhou (" + (error?.code ?? "erro") + ": " + (error?.message ?? error) + "). " +
+            "O reset SQL foi concluído; corre depois: npx tsx scripts/cleanupNonModelledGraphData.ts"
+        );
+    }
+
     console.log("Reset concluído. Nenhum dado fictício foi criado.");
 }
 

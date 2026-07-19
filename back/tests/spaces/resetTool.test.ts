@@ -74,7 +74,10 @@ test("reset --apply limpa as tabelas operacionais por ordem segura de FKs, prese
     const deletes = fakeConnection.calls.filter((c) => /^DELETE FROM/i.test(c.sql));
     // +1: entities tem um DELETE extra (filhas com parent_id antes das raízes)
     assert.equal(deletes.length, OPERATIONAL_TABLES.length + 1);
-    assert.match(deletes[0]!.sql, /asset_bindings/, "filhos antes dos pais");
+    // (5B) as tabelas de localização/sincronização entram primeiro na ordem FK
+    assert.match(deletes[0]!.sql, /asset_location_assignments/, "filhos antes dos pais");
+    assert.ok(deletes.findIndex((d) => /`assets`/.test(d.sql)) >
+        deletes.findIndex((d) => /asset_location_assignments/.test(d.sql)), "assignments antes de assets");
     assert.match(deletes[deletes.length - 1]!.sql, /linked_models/);
 
     // channels preservada (sensors_channels é operacional e É limpa); nenhum
