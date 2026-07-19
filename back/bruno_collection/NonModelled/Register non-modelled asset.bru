@@ -1,0 +1,28 @@
+meta {
+  name: Register non-modelled asset
+  type: http
+  seq: 1
+}
+
+post {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/asset/non-modelled
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "registrationKey": "reg-0001-trocar-por-uuid",
+    "name": "Equipamento portátil de teste",
+    "assetType": "PortableEquipment",
+    "resourceKind": "equipment",
+    "managerCode": "PORT-001",
+    "serialNumber": null,
+    "initialSpaceId": 1
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

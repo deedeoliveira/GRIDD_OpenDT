@@ -124,6 +124,12 @@ check the connection with `npx tsx scripts/graphSmoke.ts` (from `back/`).
 See `documentation/audit/PROMPT5A_GRAPH.md` for the URI strategy, named-graph
 conventions and the data-authority matrix.
 
+Non-modelled assets (no IFC representation) are registered through
+`POST /api/asset/non-modelled` and live in the operational graph as the data
+authority, with a SQL projection used for reservations — the graph service
+must be running for those specific operations only (everything else works
+without it). See `documentation/audit/PROMPT5B_NON_MODELLED.md`.
+
 ## Documentation
 
 The documentation is available in the [documentation directory](./documentation/Documentation.md)].

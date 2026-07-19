@@ -1,0 +1,16 @@
+meta {
+  name: Reconciliation report
+  type: http
+  seq: 7
+}
+
+get {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/semantic/reconciliation/report
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

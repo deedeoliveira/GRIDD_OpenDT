@@ -724,3 +724,135 @@ exatamente isso.
   `infrastructure/graph/run/databases/oswadt-dev` COM O SERVIÇO PARADO.
 - Remover/comentar as variáveis GRAPH_* do `.env` se não quiseres o grafo
   configurado no dia-a-dia (a aplicação não precisa delas).
+
+---
+
+## 20. Prompt 5B — Ativos não modelados (grafo autoridade, SQL projeção)
+
+Roteiro vivo (2026-07-18). Pré-requisitos: migration
+`2026-07-17_non_modelled_assets.sql` aplicada (já aplicada à BD de dev);
+Fuseki preparado (§19). Usa SEMPRE chaves novas (UUIDs) nos comandos.
+⚠️ Os endpoints são administrativos e sem autenticação — só uso local.
+
+### 20.1 Arranque (itens 1–6)
+
+1. MySQL a correr; `cd back && npm run dev` (porta 3001).
+2. Flask: `cd back/python && flask --app main run -p 3002`.
+3. Front: `cd front && npm run dev` (porta 3000).
+4. Fuseki: `powershell -ExecutionPolicy Bypass -File infrastructure\graph\start-fuseki.ps1`.
+5. Health: `http://localhost:3030/$/ping` → 200.
+6. `.env` do back com GRAPH_* apontando ao dataset **oswadt-dev**
+   (`http://localhost:3030/oswadt-dev/query|update|data`), base
+   `http://oswadt.local/id`, admin/oswadt-dev-graph.
+
+### 20.2 Espaço persistente ativo (item 7)
+
+7. Precisas de um espaço ativo: carrega um IFC com espaços (§18, ex.
+   `fx18_valido_v1.ifc`) e confirma `SELECT id, inventory_code, status FROM
+   spaces;` → anota dois IDs ativos (ex.: 1 e 2).
+
+### 20.3 Registo (itens 8–14)
+
+8. Bruno → NonModelled → *Register non-modelled asset* (ou curl) com
+   `registrationKey` NOVO (uuid), `initialSpaceId` = espaço ativo:
+   → 201 com assetId, assetUuid, `assetUri = http://oswadt.local/id/asset/<uuid>`,
+   `policyDecision: "undetermined"` (provider legado — defensivo),
+   `reservable: false`, `locationStatus: "located"`, operação `completed`.
+9. GET `/api/asset/non-modelled/:assetId` → projeção com source=graph.
+10. SPARQL (browser/Bruno, auth dev), dataset oswadt-dev:
+    `SELECT ?p ?o WHERE { GRAPH <http://oswadt.local/id/graph/operational> { <ASSET_URI> ?p ?o } }`
+    → tipo NonModelledAsset, assetUuid, displayName, hasLocationAssignment.
+11. SQL: `SELECT id, asset_uuid, asset_code, asset_type, asset_subtype,
+    semantic_uri, source, reservable FROM assets WHERE source='graph';`
+12. Ausência de entity: `SELECT COUNT(*) FROM entities e JOIN assets a ON
+    a.model_entity_id = e.id WHERE a.source='graph';` → 0.
+13. Ausência de binding: `SELECT COUNT(*) FROM asset_bindings ab JOIN assets
+    a ON a.id = ab.asset_id WHERE a.source='graph';` → 0.
+14. Localização: `SELECT * FROM asset_location_assignments;` → 1 linha,
+    valid_to NULL, is_current=1.
+
+### 20.4 Idempotência (itens 15–18)
+
+15. Repete o MESMO pedido (mesma registrationKey e payload) → 201 com o
+    MESMO assetUuid/assetUri; `SELECT COUNT(*) FROM assets WHERE
+    source='graph';` inalterado.
+16. Mesmo registrationKey com `name` alterado → **409** idempotency_conflict.
+17. Regista SEM `initialSpaceId` (chave nova) → `locationStatus:
+    "pending_location"`; tentativa de reserva desse asset → erro "no valid
+    current location".
+18. Regista com `initialSpaceId` inexistente (ex. 999, chave nova) → 422; e
+    com espaço absent → 422; confirma no Fuseki que NADA foi escrito para
+    essas chaves.
+
+### 20.5 Movimento e histórico (itens 19–22)
+
+19. *Move non-modelled asset* com `movementKey` novo e `newSpaceId` = o 2.º
+    espaço ativo → 200; `assetUuid`/`assetUri` INALTERADOS.
+20. GET `/:id/location-history` → 2 linhas: antiga com valid_to preenchido,
+    nova corrente; SPARQL do item 10 mostra as DUAS atribuições (antiga com
+    validTo).
+21. Repete o mesmo movimento (mesma movementKey) → mesmo resultado, sem
+    duplicação; movementKey igual com espaço diferente → 409.
+22. `source: "sensor_inference"` no movimento → **422** source_not_implemented.
+
+### 20.6 Política em ambiente controlado (item 23)
+
+23. (Opcional, prova de allow) `RESERVABILITY_POLICY_PROVIDER` não tem
+    provider allow para não modelados — a prova de allow/deny/error é feita
+    por teste automatizado com provider injetado:
+    `npx tsx --test tests/nonmodelled/projectionPolicy.test.ts` → passa.
+    Para o roteiro manual de reserva, torna o asset reservável à mão
+    (aceite como passo de TESTE local): `UPDATE assets SET reservable=1
+    WHERE id=<assetId> AND source='graph';`
+
+### 20.7 Reservas (itens 24–27)
+
+24. Front /student (ou POST /api/reservation/request) para o asset não
+    modelado com datas futuras → reserva `pending` criada;
+    `SELECT asset_id, space_code_snapshot FROM res_reservations ORDER BY id
+    DESC LIMIT 1;` → snapshot com o código do espaço ATUAL.
+25. Move o equipamento para outro espaço (chave nova) → OK.
+26. A reserva continua no MESMO asset_id e o snapshot antigo NÃO mudou
+    (repete o SELECT do item 24).
+27. Segunda reserva sobreposta do mesmo asset (depois de aprovares a
+    primeira via SQL `UPDATE res_reservations SET status='approved' WHERE
+    id=<id>;`) → "Asset already reserved for this period" — o movimento não
+    contornou o conflito.
+
+### 20.8 Falhas e retry (itens 28–33)
+
+28. Pára o Fuseki (Ctrl+C) e confirma: a reserva existente continua
+    consultável e o checkout/cancelamento funcionam (nada toca o grafo).
+29. Tentativa de NOVO registo/movimento com Fuseki parado → **503**
+    controlado (`graph_unavailable`/`graph_not_configured`), sem stack trace.
+30. Reinicia o Fuseki; repete o comando com a MESMA chave → conclui e não
+    duplica nada.
+31. Falha SQL segura: para simular, usa o teste automatizado
+    `npx tsx --test tests/nonmodelled/distributedFailures.test.ts` (injeta a
+    falha sem tocar na tua BD) → passa.
+32. `SELECT * FROM semantic_sync_operations;` → operações com status
+    completed; attempt_count > 1 nas que repetiste.
+33. Retry manual: POST `/api/semantic/sync/<id>/retry` numa operação
+    completed → devolve o resultado existente (idempotente).
+
+### 20.9 Reconciliação (itens 34–35)
+
+34. GET `/api/semantic/reconciliation/report` → findings: [] (estado
+    consistente).
+35. POST `/api/semantic/reconciliation/apply-safe` → applied: [],
+    skipped: [] (idempotente; nada a corrigir).
+
+### 20.10 Regressão e limpeza (itens 36–40)
+
+36. Bruno: pastas Models/Spaces/Reservation/Assets/NonModelled funcionais.
+37. Ativos MODELADOS: upload/§18 continua igual; viewer OK; sensores OK.
+38. `npx tsx scripts/reportNonModelledLegacy.ts` → relatório read-only.
+39. Confirma que NENHUM ativo modelado foi escrito no grafo:
+    a query do item 10 sobre o grafo operacional só devolve os ativos que
+    registaste neste roteiro.
+40. LIMPEZA (apenas dados de ativos não modelados — SQL + Fuseki, direcionada
+    e idempotente; executar o comando significa querer apagar):
+    `cd back && npx tsx scripts/cleanupNonModelledGraphData.ts`
+    (com o Fuseki LIGADO e as GRAPH_* no .env; remove reservas/localizações/
+    operações/assets source='graph' e os recursos RDF correspondentes; nunca
+    usa CLEAR/DROP; preserva modelos, espaços, bindings, sensores e channels.)

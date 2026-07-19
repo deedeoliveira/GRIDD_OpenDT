@@ -1,0 +1,20 @@
+meta {
+  name: Retry sync operation
+  type: http
+  seq: 6
+}
+
+post {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/semantic/sync/:operationId/retry
+  body: none
+  auth: inherit
+}
+
+params:path {
+  operationId: 1
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

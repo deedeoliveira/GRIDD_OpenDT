@@ -1,0 +1,16 @@
+meta {
+  name: Reconciliation apply-safe
+  type: http
+  seq: 8
+}
+
+post {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/semantic/reconciliation/apply-safe
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

@@ -1,0 +1,28 @@
+meta {
+  name: Move non-modelled asset
+  type: http
+  seq: 4
+}
+
+post {
+  url: http://{{url}}:{{port}}/{{baseRoute}}/asset/non-modelled/:assetId/location
+  body: json
+  auth: inherit
+}
+
+params:path {
+  assetId: 1
+}
+
+body:json {
+  {
+    "movementKey": "move-0001-trocar-por-uuid",
+    "newSpaceId": 2,
+    "source": "manual"
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
