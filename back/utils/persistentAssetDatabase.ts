@@ -326,6 +326,118 @@ class PersistentAssetDatabase implements AssetIdentityLookup {
         `, { status, resolvedAssetId, resolvedBy, caseId });
     }
 
+    /**
+     * Resolução de um caso de reconciliação numa TRANSAÇÃO ÚNICA com lock na
+     * linha do caso (Prompt 6, §7 — CONCURRENCY_AUDIT §4.3).
+     *
+     * Antes: a rota verificava status='open', criava asset/binding, retirava
+     * o substituído e SÓ DEPOIS marcava o caso — duas resoluções simultâneas
+     * passavam ambas a verificação e produziam dois assets/duas retiradas.
+     *
+     * Agora: SELECT ... FOR UPDATE na linha do caso; a segunda resolução
+     * concorrente espera pelo lock, encontra o caso já resolvido e recebe um
+     * conflito (a rota traduz para 409). Casos já resolvidos NUNCA são
+     * alterados. Todas as escritas partilham a mesma transação — ou tudo, ou
+     * nada (o backstop uq_ab_entity mantém-se como última defesa).
+     *
+     * `resolution.decision` vem avaliada de fora (o provider de política não
+     * corre dentro da transação para não prolongar a posse do lock).
+     */
+    async resolveCaseTransactionally(input: {
+        caseId: number;
+        caseStatus: string;             // resolved_link | resolved_new | resolved_replacement | ignored
+        resolvedBy: string | null;
+        /** Para link_to_existing_asset: usa este asset; para confirm_*: null (cria). */
+        linkAssetId: number | null;
+        /** Para confirm_as_new_asset / confirm_replacement: dados do novo ativo. */
+        newAsset: { name: string; reservable: boolean } | null;
+        /** Para confirm_replacement: ativo substituído a retirar. */
+        retireAssetId: number | null;
+        /** Quando true (ignored), não cria binding. */
+        skipBinding: boolean;
+    }): Promise<{ resolvedAssetId: number | null; alreadyResolvedAs?: string }> {
+        return this.db.withTransaction(async (conn) => {
+            const [caseRows]: any = await conn.execute(
+                "SELECT * FROM asset_reconciliation_cases WHERE id = :caseId LIMIT 1 FOR UPDATE",
+                { caseId: input.caseId }
+            );
+            if (!caseRows.length) {
+                throw new Error(`Case ${input.caseId} not found`);
+            }
+            const reconciliationCase = caseRows[0];
+            if (reconciliationCase.status !== "open") {
+                // resolução concorrente perdeu a corrida — devolve o estado
+                // atual para a rota responder 409 sem repetir efeitos
+                return { resolvedAssetId: reconciliationCase.resolved_asset_id ?? null, alreadyResolvedAs: reconciliationCase.status };
+            }
+
+            let resolvedAssetId: number | null = input.linkAssetId;
+
+            if (input.newAsset) {
+                const assetUuid = crypto.randomUUID();
+                const [created]: any = await conn.execute(`
+                    INSERT INTO assets
+                        (asset_uuid, name, asset_type, asset_code, serial_number, space_id, linked_model_id,
+                         source, lifecycle_status, reservable, model_version_id)
+                    VALUES
+                        (:assetUuid, :name, 'equipment', NULL, NULL, NULL, NULL,
+                         'ifc', 'active', :reservable, NULL)
+                `, { assetUuid, name: input.newAsset.name, reservable: input.newAsset.reservable });
+                resolvedAssetId = created.insertId;
+            }
+
+            if (input.retireAssetId !== null) {
+                // decisão HUMANA explícita: o ativo substituído é retirado
+                await conn.execute(`
+                    UPDATE assets SET lifecycle_status = 'retired', retired_at = NOW()
+                    WHERE id = :assetId
+                `, { assetId: input.retireAssetId });
+            }
+
+            if (resolvedAssetId !== null && !input.skipBinding) {
+                await conn.execute(`
+                    INSERT INTO asset_bindings
+                        (asset_id, model_version_id, model_entity_id, space_id, space_entity_id,
+                         ifc_guid, asset_code_snapshot, serial_snapshot, name_snapshot, type_snapshot,
+                         object_type_snapshot,
+                         binding_status, reconciliation_status, reconciliation_method, reconciliation_confidence)
+                    VALUES
+                        (:assetId, :modelVersionId, :modelEntityId, :spaceId, NULL,
+                         :ifcGuid, NULL, NULL, :nameSnapshot, :typeSnapshot,
+                         NULL,
+                         'active', 'resolved', :reconciliationMethod, 'manual')
+                `, {
+                    assetId: resolvedAssetId,
+                    modelVersionId: reconciliationCase.model_version_id,
+                    modelEntityId: reconciliationCase.model_entity_id,
+                    spaceId: reconciliationCase.space_id ?? null,
+                    ifcGuid: reconciliationCase.ifc_guid,
+                    nameSnapshot: reconciliationCase.name_snapshot ?? null,
+                    typeSnapshot: reconciliationCase.type_snapshot ?? null,
+                    reconciliationMethod: input.caseStatus,
+                });
+            }
+
+            const [marked]: any = await conn.execute(`
+                UPDATE asset_reconciliation_cases
+                SET status = :status, resolved_asset_id = :resolvedAssetId,
+                    resolved_by = :resolvedBy, resolved_at = NOW()
+                WHERE id = :caseId AND status = 'open'
+            `, {
+                status: input.caseStatus,
+                resolvedAssetId,
+                resolvedBy: input.resolvedBy,
+                caseId: input.caseId,
+            });
+            if (marked.affectedRows === 0) {
+                // impossível sob o FOR UPDATE, mas nunca deixar passar em silêncio
+                throw new Error(`Case ${input.caseId} could not be marked resolved (state changed concurrently)`);
+            }
+
+            return { resolvedAssetId };
+        });
+    }
+
     async retireAsset(assetId: number): Promise<void> {
         await this.db.checkConnection();
         await this.db.connection.execute(`

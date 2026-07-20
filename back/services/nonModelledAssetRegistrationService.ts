@@ -18,6 +18,7 @@
  */
 import crypto from "node:crypto";
 import nonModelledDb from "../utils/nonModelledAssetDatabase.ts";
+import { isDuplicateKeyError, logConcurrencyEvent } from "../utils/concurrencyControl.ts";
 import type { SyncOperationRow } from "../utils/nonModelledAssetDatabase.ts";
 import { getReservabilityEvaluator, logPolicyDecision } from "../policies/policyProvider.ts";
 import {
@@ -147,36 +148,77 @@ class NonModelledAssetRegistrationService {
         const assetUri = ctx.uris.assetUri(assetUuid);
         const assignmentUri = assignmentUuid ? ctx.uris.locationAssignmentUri(assignmentUuid) : null;
 
-        await nonModelledDb.createOperation({
-            operationUuid,
-            idempotencyKey: registrationKey,
-            operationType: "register_asset",
-            payloadHash,
-            payloadJson: JSON.stringify(normalized),
-            assetUuid,
-            assetUri,
-            locationAssignmentUuid: assignmentUuid,
-            locationAssignmentUri: assignmentUri,
-        });
+        try {
+            await nonModelledDb.createOperation({
+                operationUuid,
+                idempotencyKey: registrationKey,
+                operationType: "register_asset",
+                payloadHash,
+                payloadJson: JSON.stringify(normalized),
+                assetUuid,
+                assetUri,
+                locationAssignmentUuid: assignmentUuid,
+                locationAssignmentUri: assignmentUri,
+            });
+        } catch (error: any) {
+            // (Prompt 6, §8.1) corrida na MESMA registrationKey: o UNIQUE
+            // (operation_type, idempotency_key) fez o outro pedido vencer —
+            // CONVERGIR para a operação dele em vez de devolver 500
+            if (isDuplicateKeyError(error)) {
+                logConcurrencyEvent("semantic_sync_concurrency", { operationType: "register_asset", detail: "idempotency_key_collision_converged" });
+                const winner = await nonModelledDb.findOperationByKey("register_asset", registrationKey);
+                if (winner) {
+                    if (winner.payload_hash !== payloadHash) {
+                        throw new NonModelledAssetError(
+                            "idempotency_conflict", 409,
+                            "registrationKey was already used with a different payload — use a new key for a new command"
+                        );
+                    }
+                    return this.resumeOperation(winner);
+                }
+            }
+            throw error;
+        }
 
+        // execução sob o lock da operação: um segundo pedido com a mesma chave
+        // que convirja via resumeOperation espera aqui e, ao entrar, encontra
+        // a operação 'completed' — devolve o resultado sem reexecutar nada
         const operation = await nonModelledDb.findOperationByKey("register_asset", registrationKey);
-        return this.executeRegistration(operation!, normalized, ctx);
+        return nonModelledDb.withOperationLock(operation!.operation_uuid, () =>
+            this.executeRegistration(operation!, normalized, ctx));
     }
 
-    /** Retoma uma operação de registo existente (mesma chave ou retry explícito). */
+    /**
+     * Retoma uma operação de registo existente (mesma chave ou retry explícito).
+     * (Prompt 6, §8.4) Serializada por lock de operação: dois retries
+     * simultâneos produzem NO MÁXIMO uma retomada efetiva — o segundo espera,
+     * relê o estado e, se a operação entretanto concluiu, devolve o resultado
+     * existente SEM incrementar attempt_count nem tocar no grafo/SQL.
+     */
     async resumeOperation(operation: SyncOperationRow): Promise<NonModelledAssetResult> {
         if (operation.status === "completed") {
             // já concluída: devolve o resultado existente SEM nova tentativa
             return this.buildResult(operation);
         }
-        // tentativa REAL de reexecução → incrementa o contador (ponto único;
-        // a rota de retry e a reconciliação não incrementam por fora)
-        await nonModelledDb.incrementOperationAttempt(operation.operation_uuid);
-        operation.attempt_count += 1;
 
-        const normalized: NormalizedRegistration = JSON.parse(operation.payload_json ?? "{}");
-        const ctx = getOperationalGraphContext();
-        return this.executeRegistration(operation, normalized, ctx);
+        return nonModelledDb.withOperationLock(operation.operation_uuid, async () => {
+            // re-leitura DENTRO do lock: o estado pode ter mudado enquanto esperávamos
+            const fresh = await nonModelledDb.findOperationByKey(operation.operation_type, operation.idempotency_key)
+                ?? operation;
+            if (fresh.status === "completed") {
+                logConcurrencyEvent("semantic_sync_concurrency", { operationUuid: fresh.operation_uuid, detail: "resume_skipped_already_completed" });
+                return this.buildResult(fresh);
+            }
+
+            // tentativa REAL de reexecução → incrementa o contador (ponto único;
+            // a rota de retry e a reconciliação não incrementam por fora)
+            await nonModelledDb.incrementOperationAttempt(fresh.operation_uuid);
+            fresh.attempt_count += 1;
+
+            const normalized: NormalizedRegistration = JSON.parse(fresh.payload_json ?? "{}");
+            const ctx = getOperationalGraphContext();
+            return this.executeRegistration(fresh, normalized, ctx);
+        });
     }
 
     /* ------------------------------------------------------------------ */
@@ -288,7 +330,22 @@ class NonModelledAssetRegistrationService {
                 });
                 await nonModelledDb.setOperationStatus(operation.operation_uuid, "completed", null);
                 operation.status = "completed";
-            } catch (error) {
+            } catch (error: any) {
+                // (Prompt 6, §8.2) corrida de managerCode com chaves DIFERENTES:
+                // o UNIQUE funcional uq_assets_graph_manager_code fez o outro
+                // registo vencer — retry nunca vai conseguir projetar, logo a
+                // operação é TERMINAL com conflito claro (nunca 500 opaco).
+                // O recurso já escrito no grafo fica para a reconciliação
+                // reportar (decisão humana — nunca apagado automaticamente).
+                if (isDuplicateKeyError(error) && /uq_assets_graph_manager_code/i.test(error?.message ?? "")) {
+                    logConcurrencyEvent("semantic_sync_concurrency", { operationUuid: operation.operation_uuid, detail: "manager_code_unique_conflict" });
+                    await nonModelledDb.setOperationStatus(operation.operation_uuid, "failed_terminal",
+                        { code: "duplicate_manager_code", message: "managerCode already used by another non-modelled asset (database constraint)" });
+                    throw new NonModelledAssetError(
+                        "duplicate_manager_code", 409,
+                        `managerCode '${normalized.managerCode}' is already used by another non-modelled asset — the concurrent registration won; the graph resource of this operation will surface in the reconciliation report`
+                    );
+                }
                 // o grafo continua autoridade; a projeção fica pendente e o retry
                 // reutiliza os mesmos UUIDs — o ativo NÃO fica reservável
                 await nonModelledDb.setOperationStatus(operation.operation_uuid, "pending_sql_projection", sanitizeSyncError(error));

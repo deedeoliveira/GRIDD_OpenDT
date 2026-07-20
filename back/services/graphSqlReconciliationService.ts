@@ -181,8 +181,20 @@ class GraphSqlReconciliationService {
         };
     }
 
-    /** Aplica APENAS correções seguras; idempotente (2.ª execução → nada a fazer). */
+    /**
+     * Aplica APENAS correções seguras; idempotente (2.ª execução → nada a fazer).
+     * (Prompt 6, §8.5) Execuções simultâneas são SERIALIZADAS por lock nomeado:
+     * uma correção nunca desfaz a outra. Além disso cada correção REVALIDA o
+     * estado antes de escrever (projectGraphLocation re-consulta o grafo e
+     * aborta se a corrente deixou de ser inequívoca; resumeOperation relê o
+     * estado da operação dentro do lock) — um caso que deixe de ser seguro
+     * entre o report e o apply não é aplicado.
+     */
     async applySafe(): Promise<{ applied: ReconciliationFinding[]; skipped: ReconciliationFinding[]; report: ReconciliationReport }> {
+        return nonModelledDb.withReconciliationLock(() => this.applySafeLocked());
+    }
+
+    private async applySafeLocked(): Promise<{ applied: ReconciliationFinding[]; skipped: ReconciliationFinding[]; report: ReconciliationReport }> {
         const before = await this.report();
         const ctx = getOperationalGraphContext();
         const applied: ReconciliationFinding[] = [];

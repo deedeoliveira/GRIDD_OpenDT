@@ -80,13 +80,9 @@ class SensorDatabase implements ISensorDatabase {
      * @throws Error if the operation fails
      */
     async createSensor(data: Partial<Sensor>): Promise<Sensor | Error> {
-        await this.db.checkConnection();
-
-        /* Start a transatction in case one of the queries fail */
-        await this.db.connection.beginTransaction();
-
-        try {
-            const [result]: any = await this.db.connection.execute(`
+        /* Transação DEDICADA (Prompt 6): rollback automático em falha */
+        const id = await this.db.withTransaction(async (conn) => {
+            const [result]: any = await conn.execute(`
                 INSERT INTO sensors (guid, name, x, y, z, status, room_id, model_id)
                 VALUES (:guid, :name, :x, :y, :z, :status, :room_id, :model_id)
             `, {
@@ -102,31 +98,22 @@ class SensorDatabase implements ISensorDatabase {
 
             if (!result || result.insertId === 0) throw new Error('Failed to create sensor');
 
-            const id = (result as any).insertId;
-            
+            const insertId = (result as any).insertId;
+
             if (data.channels && data.channels.length > 0) {
                 const channel_insert_command = `
                     INSERT INTO sensors_channels (sensor_id, channel_id)
-                    VALUES ${data.channels.map((channelId) => `('${id}', '${channelId}')`).join(', ')}
+                    VALUES ${data.channels.map((channelId) => `('${insertId}', '${channelId}')`).join(', ')}
                 `;
-
-                try {
-                    await this.db.connection.execute(channel_insert_command);
-                } catch (error) {
-                    await this.db.connection.rollback();
-                    throw error;
-                }
+                await conn.execute(channel_insert_command);
             }
 
-            await this.db.connection.commit();
-        
-            SensorDatabase.cachedSensors.set(id as string, {id, ...data} as Sensor);
+            return insertId;
+        });
 
-            return {id, ...data} as Sensor;
-        } catch (error) {
-            await this.db.connection.rollback();
-            throw error;
-        }
+        SensorDatabase.cachedSensors.set(id as string, {id, ...data} as Sensor);
+
+        return {id, ...data} as Sensor;
     }
 
     /**
@@ -146,11 +133,10 @@ class SensorDatabase implements ISensorDatabase {
         }
 
         const updatedSensor = { ...existingSensor, ...data };
-        
-        await this.db.connection.beginTransaction();
 
-        try {
-            await this.db.connection.execute(`
+        /* Transação DEDICADA (Prompt 6): rollback automático em falha */
+        await this.db.withTransaction(async (conn) => {
+            await conn.execute(`
                 UPDATE sensors
                 SET guid = :guid,
                     name = :name,
@@ -175,29 +161,19 @@ class SensorDatabase implements ISensorDatabase {
             });
 
             if (existingSensor.channels.sort().toString() !== (data.channels ?? existingSensor.channels ?? []).sort().toString()) {
-                try {
-                    await this.db.connection.execute(`
-                        DELETE FROM sensors_channels
-                        WHERE sensor_id = :sensor_id
-                    `, {
-                        sensor_id: id
-                    });
+                await conn.execute(`
+                    DELETE FROM sensors_channels
+                    WHERE sensor_id = :sensor_id
+                `, {
+                    sensor_id: id
+                });
 
-                    await this.db.connection.execute(`
-                        INSERT INTO sensors_channels (sensor_id, channel_id)
-                        VALUES ${ (data.channels ?? []).map((channelId) => `(${id}, ${channelId})`).join(', ') }
-                    `);
-                } catch (error) {
-                    await this.db.connection.rollback();
-                    throw error;
-                }
+                await conn.execute(`
+                    INSERT INTO sensors_channels (sensor_id, channel_id)
+                    VALUES ${ (data.channels ?? []).map((channelId) => `(${id}, ${channelId})`).join(', ') }
+                `);
             }
-        } catch (error) {
-            await this.db.connection.rollback();
-            throw error;
-        }
-
-        await this.db.connection.commit();
+        });
 
         SensorDatabase.cachedSensors.set(id as string, updatedSensor as Sensor);
 

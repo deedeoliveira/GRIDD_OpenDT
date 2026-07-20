@@ -7,6 +7,7 @@ import locationService from "../services/nonModelledAssetLocationService.ts";
 import { NonModelledAssetError } from "../services/nonModelledAssetTypes.ts";
 import { getReservabilityEvaluator } from "../policies/policyProvider.ts";
 import { buildSuccessResponse, buildErrorResponse } from "../utils/responseHandler.ts";
+import { logConcurrencyEvent } from "../utils/concurrencyControl.ts";
 
 /** Erros tipados 5B → HTTP; restantes → 500 sem stack trace. */
 function nonModelledErrorResponse(res: any, error: any) {
@@ -231,8 +232,16 @@ app.post("/reconciliation/cases/:caseId/resolve", async (req, res) => {
       return buildErrorResponse(res, 409, `Case ${caseId} is already ${reconciliationCase.status}`);
     }
 
-    let resolvedAssetId: number | null = null;
+    // (Prompt 6, §7) Preparação FORA da transação (validações de input e
+    // avaliação do provider de política — não prolongam a posse do lock);
+    // efeitos e marcação acontecem numa transação única com FOR UPDATE na
+    // linha do caso, em resolveCaseTransactionally. Uma resolução simultânea
+    // do MESMO caso perde a corrida e recebe 409 — casos resolvidos nunca
+    // são alterados.
     let caseStatus = "";
+    let linkAssetId: number | null = null;
+    let newAsset: { name: string; reservable: boolean } | null = null;
+    let retireAssetId: number | null = null;
 
     if (resolution === "ignore_non_asset") {
       caseStatus = "ignored";
@@ -241,54 +250,49 @@ app.post("/reconciliation/cases/:caseId/resolve", async (req, res) => {
       if (!Number.isInteger(Number(assetId))) {
         return buildErrorResponse(res, 400, "assetId is required for link_to_existing_asset");
       }
-      resolvedAssetId = Number(assetId);
+      linkAssetId = Number(assetId);
       caseStatus = "resolved_link";
 
     } else {
       // confirm_as_new_asset / confirm_replacement: criar novo ativo,
       // avaliando a reservabilidade pelo provider configurado
+      if (resolution === "confirm_replacement" && !Number.isInteger(Number(assetId))) {
+        return buildErrorResponse(res, 400, "assetId (ativo substituído) is required for confirm_replacement");
+      }
+
       const decision = await getReservabilityEvaluator().evaluate(
         { guid: reconciliationCase.ifc_guid, name: reconciliationCase.name_snapshot,
           ifcType: reconciliationCase.type_snapshot, entityType: "element" },
         { modelVersionId: reconciliationCase.model_version_id }
       );
 
-      const created = await persistentAssetDb.createAsset({
+      newAsset = {
         name: reconciliationCase.name_snapshot ?? reconciliationCase.ifc_guid,
-        assetType: "equipment",
-        linkedModelId: null,
         reservable: decision.decision === "allow",
-      });
-      resolvedAssetId = created.assetId;
+      };
       caseStatus = resolution === "confirm_replacement" ? "resolved_replacement" : "resolved_new";
-
       if (resolution === "confirm_replacement") {
-        // decisão HUMANA explícita: o ativo substituído é retirado
-        if (!Number.isInteger(Number(assetId))) {
-          return buildErrorResponse(res, 400, "assetId (ativo substituído) is required for confirm_replacement");
-        }
-        await persistentAssetDb.retireAsset(Number(assetId));
+        retireAssetId = Number(assetId);
       }
     }
 
-    if (resolvedAssetId !== null) {
-      await persistentAssetDb.createBinding({
-        assetId: resolvedAssetId,
-        modelVersionId: reconciliationCase.model_version_id,
-        modelEntityId: reconciliationCase.model_entity_id,
-        spaceId: reconciliationCase.space_id ?? null,
-        ifcGuid: reconciliationCase.ifc_guid,
-        nameSnapshot: reconciliationCase.name_snapshot ?? null,
-        typeSnapshot: reconciliationCase.type_snapshot ?? null,
-        reconciliationMethod: resolution,
-        reconciliationConfidence: "manual",
-      });
+    const outcome = await persistentAssetDb.resolveCaseTransactionally({
+      caseId,
+      caseStatus,
+      resolvedBy: resolvedBy ?? null,
+      linkAssetId,
+      newAsset,
+      retireAssetId,
+      skipBinding: resolution === "ignore_non_asset",
+    });
+
+    if (outcome.alreadyResolvedAs) {
+      logConcurrencyEvent("reconciliation_conflict", { caseId, alreadyResolvedAs: outcome.alreadyResolvedAs });
+      return buildErrorResponse(res, 409, `Case ${caseId} is already ${outcome.alreadyResolvedAs}`);
     }
 
-    await persistentAssetDb.markCaseResolved(caseId, caseStatus, resolvedAssetId, resolvedBy ?? null);
-
     return buildSuccessResponse(res, 200, {
-      caseId, status: caseStatus, resolvedAssetId,
+      caseId, status: caseStatus, resolvedAssetId: outcome.resolvedAssetId,
       message: `Reconciliation case resolved as ${resolution}`,
     });
   } catch (error: any) {

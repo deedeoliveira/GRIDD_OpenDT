@@ -12,6 +12,7 @@
  */
 import crypto from "node:crypto";
 import nonModelledDb from "../utils/nonModelledAssetDatabase.ts";
+import { isDuplicateKeyError, logConcurrencyEvent } from "../utils/concurrencyControl.ts";
 import type { SyncOperationRow } from "../utils/nonModelledAssetDatabase.ts";
 import {
     buildCurrentAssignmentsSelect,
@@ -100,45 +101,113 @@ class NonModelledAssetLocationService {
             return this.resumeOperation(existing);
         }
 
-        const asset = await this.assertMovableAsset(normalized.assetId);
-        const space = await this.assertTargetSpace(normalized.newSpaceId);
-        const ctx = getOperationalGraphContext();
+        // (Prompt 6, §8.3) LOCK POR ATIVO durante TODO o movimento (leitura da
+        // corrente no grafo → escrita no grafo → projeção SQL): dois movimentos
+        // simultâneos do mesmo ativo são SERIALIZADOS — o segundo só lê a
+        // corrente depois de o primeiro concluir, pelo que fecha a atribuição
+        // certa e o grafo nunca fica com duas correntes. Movimentos de ativos
+        // DIFERENTES não se bloqueiam (lock por assetId). O comportamento de
+        // dois movimentos consecutivos A→B é explícito e documentado: ambos
+        // vencem por ordem de chegada (histórico regista os dois; nenhum
+        // last-write-wins silencioso).
+        return nonModelledDb.withAssetLock(normalized.assetId, async () => {
+            // corrida na MESMA movementKey: o vencedor pode ter criado a
+            // operação enquanto esperávamos o lock — re-verificar
+            const raced = await nonModelledDb.findOperationByKey("move_asset", movementKey);
+            if (raced) {
+                if (raced.payload_hash !== payloadHash) {
+                    throw new NonModelledAssetError(
+                        "idempotency_conflict", 409,
+                        "movementKey was already used with a different payload — use a new key for a new command"
+                    );
+                }
+                return this.resumeWithinAssetLock(raced);
+            }
 
-        // atribuição corrente segundo a AUTORIDADE (grafo)
-        const currentUri = await this.queryCurrentAssignmentUri(ctx, asset.semantic_uri);
+            const asset = await this.assertMovableAsset(normalized.assetId);
+            const space = await this.assertTargetSpace(normalized.newSpaceId);
+            const ctx = getOperationalGraphContext();
 
-        const operationUuid = crypto.randomUUID();
-        const assignmentUuid = crypto.randomUUID();
+            // atribuição corrente segundo a AUTORIDADE (grafo) — lida DENTRO
+            // do lock, já com qualquer movimento anterior concluído
+            const currentUri = await this.queryCurrentAssignmentUri(ctx, asset.semantic_uri);
 
-        await nonModelledDb.createOperation({
-            operationUuid,
-            idempotencyKey: movementKey,
-            operationType: "move_asset",
-            payloadJson: JSON.stringify(normalized),
-            payloadHash,
-            assetUuid: asset.asset_uuid,
-            assetUri: asset.semantic_uri,
-            locationAssignmentUuid: assignmentUuid,
-            locationAssignmentUri: ctx.uris.locationAssignmentUri(assignmentUuid),
-            closedAssignmentUuid: this.uuidFromAssignmentUri(currentUri),
+            const operationUuid = crypto.randomUUID();
+            const assignmentUuid = crypto.randomUUID();
+
+            try {
+                await nonModelledDb.createOperation({
+                    operationUuid,
+                    idempotencyKey: movementKey,
+                    operationType: "move_asset",
+                    payloadJson: JSON.stringify(normalized),
+                    payloadHash,
+                    assetUuid: asset.asset_uuid,
+                    assetUri: asset.semantic_uri,
+                    locationAssignmentUuid: assignmentUuid,
+                    locationAssignmentUri: ctx.uris.locationAssignmentUri(assignmentUuid),
+                    closedAssignmentUuid: this.uuidFromAssignmentUri(currentUri),
+                });
+            } catch (error: any) {
+                // backstop do UNIQUE(operation_type, idempotency_key)
+                if (isDuplicateKeyError(error)) {
+                    logConcurrencyEvent("location_movement_conflict", { assetId: normalized.assetId, detail: "movement_key_collision_converged" });
+                    const winner = await nonModelledDb.findOperationByKey("move_asset", movementKey);
+                    if (winner && winner.payload_hash === payloadHash) {
+                        return this.resumeWithinAssetLock(winner);
+                    }
+                    throw new NonModelledAssetError(
+                        "idempotency_conflict", 409,
+                        "movementKey was already used with a different payload — use a new key for a new command"
+                    );
+                }
+                throw error;
+            }
+
+            // execução sob o lock da operação (ordem global: nm_asset → sync_op)
+            const operation = await nonModelledDb.findOperationByKey("move_asset", movementKey);
+            return nonModelledDb.withOperationLock(operation!.operation_uuid, () =>
+                this.executeMovement(operation!, normalized, ctx));
         });
-
-        const operation = await nonModelledDb.findOperationByKey("move_asset", movementKey);
-        return this.executeMovement(operation!, normalized, ctx);
     }
 
+    /**
+     * Retoma uma operação de movimento (retry manual, re-POST ou reconciliação).
+     * ORDEM GLOBAL DE LOCKS (ADR-0031): nm_asset → sync_op. O lock do ativo
+     * serializa contra movimentos novos; o lock da operação serializa retries
+     * simultâneos da MESMA operação (no máximo UMA retomada efetiva).
+     */
     async resumeOperation(operation: SyncOperationRow): Promise<MovementResult> {
         if (operation.status === "completed") {
             // já concluída: devolve o resultado existente SEM nova tentativa
             return this.buildResult(operation);
         }
-        // tentativa REAL de reexecução → incrementa o contador (ponto único)
-        await nonModelledDb.incrementOperationAttempt(operation.operation_uuid);
-        operation.attempt_count += 1;
-
         const normalized: NormalizedMovement = JSON.parse(operation.payload_json ?? "{}");
-        const ctx = getOperationalGraphContext();
-        return this.executeMovement(operation, normalized, ctx);
+        return nonModelledDb.withAssetLock(normalized.assetId, () => this.resumeWithinAssetLock(operation));
+    }
+
+    /** Retoma já DENTRO do lock do ativo (evita reentrar no mesmo lock). */
+    private async resumeWithinAssetLock(operation: SyncOperationRow): Promise<MovementResult> {
+        if (operation.status === "completed") {
+            return this.buildResult(operation);
+        }
+        return nonModelledDb.withOperationLock(operation.operation_uuid, async () => {
+            // re-leitura DENTRO do lock: outro retry pode ter concluído entretanto
+            const fresh = await nonModelledDb.findOperationByKey(operation.operation_type, operation.idempotency_key)
+                ?? operation;
+            if (fresh.status === "completed") {
+                logConcurrencyEvent("semantic_sync_concurrency", { operationUuid: fresh.operation_uuid, detail: "resume_skipped_already_completed" });
+                return this.buildResult(fresh);
+            }
+
+            // tentativa REAL de reexecução → incrementa o contador (ponto único)
+            await nonModelledDb.incrementOperationAttempt(fresh.operation_uuid);
+            fresh.attempt_count += 1;
+
+            const normalized: NormalizedMovement = JSON.parse(fresh.payload_json ?? "{}");
+            const ctx = getOperationalGraphContext();
+            return this.executeMovement(fresh, normalized, ctx);
+        });
     }
 
     /* ------------------------------------------------------------------ */

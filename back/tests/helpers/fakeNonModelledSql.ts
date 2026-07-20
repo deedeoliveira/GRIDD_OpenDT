@@ -47,6 +47,13 @@ export function createNonModelledSqlState(spaces: any[] = []): FakeSqlState {
 
         /* ---------------- semantic_sync_operations ---------------- */
         if (/INSERT INTO semantic_sync_operations/.test(sql)) {
+            // emula UNIQUE(operation_type, idempotency_key) — Prompt 6 §8.1
+            if (state.ops.some((o) => o.operation_type === params.operationType
+                && o.idempotency_key === params.idempotencyKey)) {
+                const err: any = new Error(`Duplicate entry '${params.idempotencyKey}' for key 'uq_sso_idempotency'`);
+                err.errno = 1062; err.code = "ER_DUP_ENTRY";
+                throw err;
+            }
             const id = state.nextId++;
             state.ops.push({
                 id,
@@ -106,6 +113,14 @@ export function createNonModelledSqlState(spaces: any[] = []): FakeSqlState {
 
         /* ---------------- assets ---------------- */
         if (/INSERT INTO assets/.test(sql)) {
+            // emula o UNIQUE funcional uq_assets_graph_manager_code — Prompt 6 §8.2
+            const normalized = params.managerCode ? String(params.managerCode).trim().toUpperCase() : null;
+            if (normalized && state.assets.some((a) => a.source === "graph" && a.asset_code
+                && String(a.asset_code).trim().toUpperCase() === normalized)) {
+                const err: any = new Error(`Duplicate entry '${normalized}' for key 'uq_assets_graph_manager_code'`);
+                err.errno = 1062; err.code = "ER_DUP_ENTRY";
+                throw err;
+            }
             const id = state.nextId++;
             state.assets.push({
                 id,

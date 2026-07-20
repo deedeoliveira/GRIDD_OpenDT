@@ -24,24 +24,22 @@ class InventoryDatabase {
     spaceEntityIdsByGuid: Record<string, number>;
     elementEntityIdsByGuid: Record<string, number>;
   }> {
-    await this.db.checkConnection();
-    await this.db.connection.beginTransaction();
+    // Transação DEDICADA (Prompt 6): também corrige um defeito antigo — o
+    // throw de "Inventory already exists" acontecia com a transação aberta
+    // e sem rollback; withTransaction garante rollback em qualquer erro.
+    return this.db.withTransaction(async (conn) => {
+      const [existing]: any = await conn.execute(`
+        SELECT COUNT(*) as count
+        FROM entities
+        WHERE model_version_id = :versionId
+      `, { versionId });
 
-    const [existing]: any = await this.db.connection.execute(`
-      SELECT COUNT(*) as count
-      FROM entities
-      WHERE model_version_id = :versionId
-    `, { versionId });
+      if (existing[0].count > 0) {
+        throw new Error("Inventory already exists for this version");
+      }
 
-    if (existing[0].count > 0) {
-      throw new Error("Inventory already exists for this version");
-    }
-
-    const spaceEntityIdsByGuid: Record<string, number> = {};
-    const elementEntityIdsByGuid: Record<string, number> = {};
-
-    try {
-
+      const spaceEntityIdsByGuid: Record<string, number> = {};
+      const elementEntityIdsByGuid: Record<string, number> = {};
       const insertedGuids = new Set<string>();
 
       console.log("Inventory size:", Object.keys(inventoryData).length);
@@ -52,7 +50,7 @@ class InventoryDatabase {
 
         /* ------------------- SPACE ENTITY ------------------- */
 
-        const [spaceResult]: any = await this.db.connection.execute(`
+        const [spaceResult]: any = await conn.execute(`
           INSERT INTO entities (guid, name, ifc_type, entity_type, model_version_id)
           VALUES (:guid, :name, 'IfcSpace', 'space', :versionId)
         `, {
@@ -75,7 +73,7 @@ class InventoryDatabase {
 
           insertedGuids.add(element.guid);
 
-          const [elementResult]: any = await this.db.connection.execute(`
+          const [elementResult]: any = await conn.execute(`
             INSERT INTO entities (
               guid,
               name,
@@ -104,13 +102,8 @@ class InventoryDatabase {
         }
       }
 
-      await this.db.connection.commit();
       return { spaceEntityIdsByGuid, elementEntityIdsByGuid };
-
-    } catch (error) {
-      await this.db.connection.rollback();
-      throw error;
-    }
+    });
   }
 
 
@@ -122,22 +115,14 @@ class InventoryDatabase {
    * das FKs (assets→entities e entities.parent_id→entities).
    */
   async deleteInventoryForVersion(versionId: number) {
-    await this.db.checkConnection();
-    await this.db.connection.beginTransaction();
-
-    try {
-      await this.db.connection.execute(
+    await this.db.withTransaction(async (conn) => {
+      await conn.execute(
         "DELETE FROM assets WHERE model_version_id = :versionId", { versionId });
-      await this.db.connection.execute(
+      await conn.execute(
         "DELETE FROM entities WHERE model_version_id = :versionId AND parent_id IS NOT NULL", { versionId });
-      await this.db.connection.execute(
+      await conn.execute(
         "DELETE FROM entities WHERE model_version_id = :versionId", { versionId });
-
-      await this.db.connection.commit();
-    } catch (error) {
-      await this.db.connection.rollback();
-      throw error;
-    }
+    });
   }
 }
 

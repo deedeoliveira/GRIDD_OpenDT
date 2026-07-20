@@ -1,4 +1,5 @@
 import MySQLDatabase from "./mysqlDatabase.ts";
+import { logConcurrencyEvent } from "./concurrencyControl.ts";
 
 /**
  * Operações sobre model_versions e a versão corrente (Prompt 2).
@@ -30,57 +31,54 @@ class ModelVersionDatabase {
 
     /**
      * Reserva um número de versão de forma segura para concorrência:
-     * transação + SELECT ... FOR UPDATE na linha de models serializa uploads
-     * simultâneos do mesmo modelo; o UNIQUE(model_id, version_number) é a
-     * proteção de último recurso (uma tentativa de retry em conflito).
+     * transação DEDICADA + SELECT ... FOR UPDATE na linha de models serializa
+     * uploads simultâneos do mesmo modelo (entre pedidos E entre processos —
+     * Prompt 6: antes a conexão única anulava o FOR UPDATE intra-processo);
+     * o UNIQUE(model_id, version_number) é a proteção de último recurso
+     * (uma tentativa de retry em conflito).
      */
     async reserveVersion(input: ReserveVersionInput, retry = true): Promise<{ versionId: number; versionNumber: number }> {
-        await this.db.checkConnection();
-        await this.db.connection.beginTransaction();
-
         try {
-            const [modelRows]: any = await this.db.connection.execute(
-                "SELECT id FROM models WHERE id = :modelId FOR UPDATE",
-                { modelId: input.modelId }
-            );
+            return await this.db.withTransaction(async (conn) => {
+                const [modelRows]: any = await conn.execute(
+                    "SELECT id FROM models WHERE id = :modelId FOR UPDATE",
+                    { modelId: input.modelId }
+                );
 
-            if (!modelRows.length) {
-                throw new Error(`Model with id ${input.modelId} not found`);
-            }
+                if (!modelRows.length) {
+                    throw new Error(`Model with id ${input.modelId} not found`);
+                }
 
-            const [maxRows]: any = await this.db.connection.execute(
-                "SELECT COALESCE(MAX(version_number), 0) + 1 AS next FROM model_versions WHERE model_id = :modelId",
-                { modelId: input.modelId }
-            );
+                const [maxRows]: any = await conn.execute(
+                    "SELECT COALESCE(MAX(version_number), 0) + 1 AS next FROM model_versions WHERE model_id = :modelId",
+                    { modelId: input.modelId }
+                );
 
-            const versionNumber = Number(maxRows[0].next);
+                const versionNumber = Number(maxRows[0].next);
 
-            const [result]: any = await this.db.connection.execute(`
-                INSERT INTO model_versions
-                    (model_id, version_number, status, original_filename, file_hash, file_size, description, created_by)
-                VALUES
-                    (:modelId, :versionNumber, 'processing', :originalFilename, :fileHash, :fileSize, :description, :createdBy)
-            `, {
-                modelId: input.modelId,
-                versionNumber,
-                originalFilename: input.originalFilename,
-                fileHash: input.fileHash,
-                fileSize: input.fileSize,
-                description: input.description ?? null,
-                createdBy: input.createdBy ?? null,
+                const [result]: any = await conn.execute(`
+                    INSERT INTO model_versions
+                        (model_id, version_number, status, original_filename, file_hash, file_size, description, created_by)
+                    VALUES
+                        (:modelId, :versionNumber, 'processing', :originalFilename, :fileHash, :fileSize, :description, :createdBy)
+                `, {
+                    modelId: input.modelId,
+                    versionNumber,
+                    originalFilename: input.originalFilename,
+                    fileHash: input.fileHash,
+                    fileSize: input.fileSize,
+                    description: input.description ?? null,
+                    createdBy: input.createdBy ?? null,
+                });
+
+                return { versionId: result.insertId, versionNumber };
             });
-
-            await this.db.connection.commit();
-
-            return { versionId: result.insertId, versionNumber };
         } catch (error: any) {
-            await this.db.connection.rollback();
-
             // Backstop de concorrência: colisão no UNIQUE(model_id, version_number)
             if (retry && /ER_DUP_ENTRY|Duplicate entry/i.test(error.code ?? error.message ?? "")) {
+                logConcurrencyEvent("model_upload_concurrency", { modelId: input.modelId, detail: "version_number_collision_retry" });
                 return this.reserveVersion(input, false);
             }
-
             throw error;
         }
     }
@@ -101,11 +99,8 @@ class ModelVersionDatabase {
      * 'failed' nunca pode tornar-se corrente.
      */
     async activateVersion(modelId: number, versionId: number): Promise<void> {
-        await this.db.checkConnection();
-        await this.db.connection.beginTransaction();
-
-        try {
-            const [versionRows]: any = await this.db.connection.execute(
+        await this.db.withTransaction(async (conn) => {
+            const [versionRows]: any = await conn.execute(
                 "SELECT id, status FROM model_versions WHERE id = :versionId AND model_id = :modelId FOR UPDATE",
                 { versionId, modelId }
             );
@@ -118,35 +113,30 @@ class ModelVersionDatabase {
                 throw new Error(`Only a version in 'processing' state can be activated (found '${versionRows[0].status}')`);
             }
 
-            const [modelRows]: any = await this.db.connection.execute(
+            const [modelRows]: any = await conn.execute(
                 "SELECT current_version_id FROM models WHERE id = :modelId FOR UPDATE",
                 { modelId }
             );
 
             const previousCurrentId = modelRows[0]?.current_version_id ?? null;
 
-            await this.db.connection.execute(
+            await conn.execute(
                 "UPDATE model_versions SET status = 'active', activated_at = NOW() WHERE id = :versionId",
                 { versionId }
             );
 
             if (previousCurrentId && previousCurrentId !== versionId) {
-                await this.db.connection.execute(
+                await conn.execute(
                     "UPDATE model_versions SET status = 'archived' WHERE id = :previousId",
                     { previousId: previousCurrentId }
                 );
             }
 
-            await this.db.connection.execute(
+            await conn.execute(
                 "UPDATE models SET current_version_id = :versionId WHERE id = :modelId",
                 { versionId, modelId }
             );
-
-            await this.db.connection.commit();
-        } catch (error) {
-            await this.db.connection.rollback();
-            throw error;
-        }
+        });
     }
 
     /** Marca uma versão como falhada (nunca toca na versão corrente). */

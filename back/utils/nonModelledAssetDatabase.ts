@@ -46,6 +46,27 @@ class NonModelledAssetDatabase {
         this.db.connect();
     }
 
+    /* ================= LOCKS DE CONCORRÊNCIA (Prompt 6; ADR-0031) =================
+       Uma transação SQL não cobre a janela SQL→grafo→SQL das operações 5B —
+       por isso a serialização usa locks NOMEADOS do MySQL (GET_LOCK) em
+       conexões dedicadas do pool, válidos entre pedidos e entre processos.
+       ORDEM GLOBAL: nm_asset → sync_op → (transação SQL). */
+
+    /** Serializa movimentos (e retomas de movimento) do MESMO ativo. */
+    async withAssetLock<T>(assetId: number, fn: () => Promise<T>): Promise<T> {
+        return this.db.withNamedLock(`oswadt.nm_asset.${assetId}`, 10, fn);
+    }
+
+    /** Serializa retomadas da MESMA operação de sincronização. */
+    async withOperationLock<T>(operationUuid: string, fn: () => Promise<T>): Promise<T> {
+        return this.db.withNamedLock(`oswadt.sync_op.${operationUuid}`, 10, fn);
+    }
+
+    /** Serializa execuções de reconciliation apply-safe. */
+    async withReconciliationLock<T>(fn: () => Promise<T>): Promise<T> {
+        return this.db.withNamedLock("oswadt.reconciliation.apply", 30, fn);
+    }
+
     /* ================= OPERAÇÕES DE SINCRONIZAÇÃO ================= */
 
     async findOperationByKey(operationType: SyncOperationType, idempotencyKey: string): Promise<SyncOperationRow | null> {
@@ -215,13 +236,11 @@ class NonModelledAssetDatabase {
             provenanceActivityUri?: string | null;
         } | null;
     }): Promise<{ assetId: number }> {
-        await this.db.checkConnection();
-        const conn = this.db.connection;
-
-        await conn.beginTransaction();
-        try {
+        return this.db.withTransaction(async (conn) => {
             let assetId: number;
-            const existing = await this.findAssetByUuid(input.assetUuid);
+            const [existingRows]: any = await conn.execute(
+                "SELECT * FROM assets WHERE asset_uuid = :assetUuid LIMIT 1", { assetUuid: input.assetUuid });
+            const existing = existingRows[0] ?? null;
 
             if (existing) {
                 assetId = existing.id;
@@ -249,18 +268,14 @@ class NonModelledAssetDatabase {
             }
 
             if (input.assignment) {
-                await this.insertAssignmentIfMissing(assetId, input.assignment);
+                await this.insertAssignmentIfMissing(conn, assetId, input.assignment);
             }
 
-            await conn.commit();
             return { assetId };
-        } catch (error) {
-            await conn.rollback();
-            throw error;
-        }
+        });
     }
 
-    private async insertAssignmentIfMissing(assetId: number, assignment: {
+    private async insertAssignmentIfMissing(conn: any, assetId: number, assignment: {
         assignmentUuid: string;
         assertionUri: string;
         spaceId: number;
@@ -268,7 +283,6 @@ class NonModelledAssetDatabase {
         validFromIso: string;
         provenanceActivityUri?: string | null;
     }): Promise<void> {
-        const conn = this.db.connection;
         const [existingRows]: any = await conn.execute(
             "SELECT id FROM asset_location_assignments WHERE assignment_uuid = :assignmentUuid LIMIT 1",
             { assignmentUuid: assignment.assignmentUuid });
@@ -309,11 +323,7 @@ class NonModelledAssetDatabase {
             provenanceActivityUri?: string | null;
         };
     }): Promise<void> {
-        await this.db.checkConnection();
-        const conn = this.db.connection;
-
-        await conn.beginTransaction();
-        try {
+        await this.db.withTransaction(async (conn) => {
             // fecha a anterior APENAS se ainda estiver aberta (retry = no-op)
             await conn.execute(`
                 UPDATE asset_location_assignments
@@ -321,12 +331,8 @@ class NonModelledAssetDatabase {
                 WHERE assignment_uuid = :closedAssignmentUuid AND valid_to IS NULL
             `, { closedAt: new Date(input.closedAtIso), closedAssignmentUuid: input.closedAssignmentUuid });
 
-            await this.insertAssignmentIfMissing(input.assetId, input.newAssignment);
-            await conn.commit();
-        } catch (error) {
-            await conn.rollback();
-            throw error;
-        }
+            await this.insertAssignmentIfMissing(conn, input.assetId, input.newAssignment);
+        });
     }
 
     /**
