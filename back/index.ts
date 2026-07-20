@@ -14,6 +14,7 @@ import assetRoutes from "./routes/asset.ts";
 import spaceRoutes from "./routes/space.ts";
 // (Prompt 5B) sincronização/reconciliação semântica — rotas administrativas
 import semanticRoutes from "./routes/semantic.ts";
+import institutionalRoutes from "./routes/institutional.ts";
 
 app.use(cors());
 app.use(express.json());
@@ -26,6 +27,7 @@ app.use('/api/reservation', reservationRoutes);
 app.use("/api/asset", assetRoutes);
 app.use("/api/space", spaceRoutes);
 app.use("/api/semantic", semanticRoutes);
+app.use("/api/institutional", institutionalRoutes);
 
 app.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
