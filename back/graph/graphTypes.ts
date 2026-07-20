@@ -5,9 +5,10 @@
  * (graphClientProvider.ts). Nenhum detalhe específico do triplestore
  * (Fuseki ou outro) pode ser exposto fora de back/graph/.
  *
- * O grafo é OPCIONAL nesta etapa: nenhuma operação atual (upload, preflight,
- * reservas, viewer, políticas, sensores) pode depender dele. Erros do grafo
- * nunca podem alterar dados SQL nem o fluxo operacional.
+ * O grafo é opcional para os fluxos IFC, reservas, viewer, políticas e
+ * sensores. Os fluxos explicitamente semânticos (ativos não modelados e o
+ * registry de artefactos) dependem dele e degradam com erros controlados.
+ * Uma falha do grafo não pode alterar a autoridade SQL dos restantes fluxos.
  */
 
 /** Formatos RDF aceites nas escritas via Graph Store Protocol. */

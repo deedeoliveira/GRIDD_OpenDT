@@ -6,7 +6,13 @@
     "build": "npx tsc",
     "start": "node dist/index.js",
     "dev": "npx tsx index.ts",
-    "test": "tsx --test \"tests/characterization/*.test.ts\" \"tests/policies/*.test.ts\" \"tests/versioning/*.test.ts\" \"tests/spaces/*.test.ts\" \"tests/assets/*.test.ts\" \"tests/classification/*.test.ts\" \"tests/requirements/*.test.ts\" \"tests/graph/*.test.ts\" \"tests/nonmodelled/*.test.ts\" \"tests/concurrency/*.test.ts\" \"tests/integration/*.test.ts\""
+    "test": "tsx --test \"tests/characterization/*.test.ts\" \"tests/policies/*.test.ts\" \"tests/versioning/*.test.ts\" \"tests/spaces/*.test.ts\" \"tests/assets/*.test.ts\" \"tests/classification/*.test.ts\" \"tests/requirements/*.test.ts\" \"tests/graph/*.test.ts\" \"tests/nonmodelled/*.test.ts\" \"tests/concurrency/*.test.ts\" \"tests/integration/*.test.ts\" \"tests/semantic/*.test.ts\"",
+    "semantic:artifacts:validate": "tsx scripts/semanticArtifactsCli.ts validate",
+    "semantic:artifacts:load-public": "tsx scripts/semanticArtifactsCli.ts load-public",
+    "semantic:artifacts:load": "tsx scripts/semanticArtifactsCli.ts load",
+    "semantic:artifacts:retry": "tsx scripts/semanticArtifactsCli.ts retry",
+    "semantic:artifacts:rollback": "tsx scripts/semanticArtifactsCli.ts rollback",
+    "semantic:artifacts:status": "tsx scripts/semanticArtifactsCli.ts status"
   },
   "keywords": [],
   "author": "",

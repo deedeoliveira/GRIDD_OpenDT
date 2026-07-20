@@ -4,12 +4,14 @@
  * Convenção (relativa a GRAPH_BASE_URI):
  *   {base}/graph/model-version/{modelVersionStableId} — dados derivados de UMA
  *       versão IFC (nunca misturar versões; nunca usar apenas model_id);
- *   {base}/graph/operational   — futuro: ativos não modelados, localização
- *       operacional, afirmações e proveniência (Prompt 5B; vazio nesta etapa);
- *   {base}/graph/vocabularies  — futuro: ontologias/vocabulários (nenhuma
- *       ontologia é carregada nesta etapa);
- *   {base}/graph/validation    — futuro: resultados de validação (reservado;
- *       resultados atuais de policy/preflight NÃO são gravados em RDF);
+ *   {base}/graph/operational   — autoridade dos ativos não modelados e da sua
+ *       localização operacional (Prompt 5B);
+ *   {base}/graph/vocabularies/.../{artifactUuid} — ontologias e vocabulários
+ *       governados, um graph imutável por revisão (Prompt 7B1);
+ *   {base}/graph/validation/shapes/{artifactUuid} — shapes governadas como
+ *       RDF, sem execução SHACL nesta etapa;
+ *   {base}/graph/institutional-data/synthetic/{artifactUuid} — dados
+ *       institucionais estritamente sintéticos;
  *   {base}/graph/test/{testRunUuid} — grafos de teste, um por execução; a
  *       limpeza apaga APENAS o próprio grafo do teste.
  *
@@ -34,17 +36,17 @@ export function modelVersionGraphUri(baseUri: string, modelVersionStableId: stri
     return `${validateBaseUri(baseUri, "baseUri")}/graph/model-version/${segment("modelVersionStableId", modelVersionStableId)}`;
 }
 
-/** Grafo operacional (futuro — Prompt 5B). Nenhum dado é escrito nesta etapa. */
+/** Grafo operacional dos ativos não modelados (autoridade; nunca apagar inteiro). */
 export function operationalGraphUri(baseUri: string): string {
     return `${validateBaseUri(baseUri, "baseUri")}/graph/operational`;
 }
 
-/** Grafo de ontologias/vocabulários (futuro). */
+/** Raiz histórica/reservada de ontologias e vocabulários. */
 export function vocabulariesGraphUri(baseUri: string): string {
     return `${validateBaseUri(baseUri, "baseUri")}/graph/vocabularies`;
 }
 
-/** Grafo de resultados de validação (futuro — convenção apenas reservada). */
+/** Raiz de artefactos/resultados de validação governados. */
 export function validationGraphUri(baseUri: string): string {
     return `${validateBaseUri(baseUri, "baseUri")}/graph/validation`;
 }
@@ -57,6 +59,40 @@ export function testGraphUri(baseUri: string, testRunUuid: string): string {
 /** Grafo de teste novo e único (um por execução de teste/smoke). */
 export function newTestGraphUri(baseUri: string): string {
     return testGraphUri(baseUri, randomUUID());
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function artifactUuidSegment(artifactUuid: string): string {
+    if (typeof artifactUuid !== "string" || !UUID_PATTERN.test(artifactUuid.trim())) {
+        throw new GraphError("graph_configuration_error", `artifactUuid must be a UUID (got '${String(artifactUuid)}')`);
+    }
+    return artifactUuid.trim().toLowerCase();
+}
+
+/** Ontologia institucional — um graph imutável por revisão do registry. */
+export function institutionalOntologyGraphUri(baseUri: string, artifactUuid: string): string {
+    return `${validateBaseUri(baseUri, "baseUri")}/graph/vocabularies/institutional-ontology/${artifactUuidSegment(artifactUuid)}`;
+}
+
+/** Vocabulário de ponte project-specific — separado da TBox institucional. */
+export function projectInstitutionalBridgeGraphUri(baseUri: string, artifactUuid: string): string {
+    return `${validateBaseUri(baseUri, "baseUri")}/graph/vocabularies/project-institutional-bridge/${artifactUuidSegment(artifactUuid)}`;
+}
+
+/** Shape set governado como RDF; gerar a URI não executa SHACL. */
+export function structuralShapesGraphUri(baseUri: string, artifactUuid: string): string {
+    return `${validateBaseUri(baseUri, "baseUri")}/graph/validation/shapes/${artifactUuidSegment(artifactUuid)}`;
+}
+
+/** Dataset institucional sintético permitido no runtime de investigação. */
+export function institutionalSyntheticDataGraphUri(baseUri: string, artifactUuid: string): string {
+    return `${validateBaseUri(baseUri, "baseUri")}/graph/institutional-data/synthetic/${artifactUuidSegment(artifactUuid)}`;
+}
+
+/** Fixture negativa: exclusivamente sob o namespace único de uma execução de teste. */
+export function negativeFixtureGraphUri(baseUri: string, testRunUuid: string, artifactUuid: string): string {
+    return `${testGraphUri(baseUri, testRunUuid)}/negative/${artifactUuidSegment(artifactUuid)}`;
 }
 
 /** True quando a URI pertence ao namespace de grafos de teste. */

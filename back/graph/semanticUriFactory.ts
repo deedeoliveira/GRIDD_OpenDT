@@ -12,8 +12,9 @@
  *    (uma entity é um snapshot de uma versão concreta);
  *  - a fábrica não consulta a base de dados, não decide domínio e não
  *    escreve nada — só constrói cadeias de caracteres;
- *  - nesta etapa NENHUMA URI de produção é gravada (spaces.semantic_uri e
- *    assets.semantic_uri permanecem NULL; sem backfill).
+ *  - ativos modelados/espaços continuam sem backfill semântico automático;
+ *    ativos graph-originated e artefactos governados persistem URIs próprias
+ *    nos seus fluxos explícitos.
  *
  * Lacuna documentada: linked_models, models, model_versions e entities ainda
  * não têm UUID próprio. Até essa migration (etapa futura), as funções de
