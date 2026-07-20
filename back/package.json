@@ -12,7 +12,10 @@
     "semantic:artifacts:load": "tsx scripts/semanticArtifactsCli.ts load",
     "semantic:artifacts:retry": "tsx scripts/semanticArtifactsCli.ts retry",
     "semantic:artifacts:rollback": "tsx scripts/semanticArtifactsCli.ts rollback",
-    "semantic:artifacts:status": "tsx scripts/semanticArtifactsCli.ts status"
+    "semantic:artifacts:status": "tsx scripts/semanticArtifactsCli.ts status",
+    "semantic:institutional:seed-synthetic-links": "tsx scripts/seedSyntheticInstitutionalLinks.ts",
+    "semantic:institutional:demo": "tsx scripts/institutionalContextDemo.ts",
+    "semantic:institutional:demo-setup": "tsx scripts/institutionalDemoSetup.ts"
   },
   "keywords": [],
   "author": "",
