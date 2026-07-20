@@ -1,0 +1,49 @@
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix org: <http://www.w3.org/ns/org#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix test: <https://example.org/uminho-phd/test/institutional/> .
+@prefix uminho: <http://www.semanticweb.org/dekao/ontologies/2024/UMinho#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+test:NegativeDuplicateStudent001 a uminho:DoctoralStudent,
+        foaf:Person ;
+    uminho:studentNumber "TEST-DUPLICATE-001"^^xsd:string ;
+    foaf:name "NegativeDuplicateStudent001" .
+
+test:NegativeDuplicateStudent002 a uminho:DoctoralStudent,
+        foaf:Person ;
+    uminho:studentNumber "TEST-DUPLICATE-001"^^xsd:string ;
+    foaf:name "NegativeDuplicateStudent002" .
+
+test:NegativeMembershipMissingOrganization a uminho:InstitutionalMembership,
+        org:Membership ;
+    uminho:sourceClassification uminho:test_data ;
+    org:member test:NegativePerson001 ;
+    org:role uminho:ResearcherRole .
+
+test:NegativeMembershipWrongOrganizationType a org:Membership ;
+    org:member test:NegativePerson001 ;
+    org:organization test:NegativePerson001 ;
+    org:role uminho:ResearcherRole .
+
+test:NegativeOrganization001 a uminho:ResearchGroup,
+        org:Organization ;
+    uminho:sourceClassification uminho:test_data ;
+    skos:prefLabel "TEST Negative Organization 001"@pt .
+
+test:NegativePostUsedAsPerson a uminho:DoctoralStudent,
+        org:Post ;
+    uminho:studentNumber "TEST-POST-AS-PERSON"^^xsd:string .
+
+test:NegativeStudentClassSupervisor a uminho:DoctoralStudent,
+        foaf:Person ;
+    uminho:isSupervisedBy uminho:Professor ;
+    uminho:studentNumber "TEST-STUDENT-NEG-003"^^xsd:string .
+
+test:NegativeStudentMissingIdentifier a uminho:DoctoralStudent,
+        foaf:Person ;
+    foaf:name "TEST Student Missing Identifier" .
+
+test:NegativePerson001 a foaf:Person ;
+    foaf:name "TEST Negative Person 001" .
+

@@ -1,0 +1,81 @@
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix org: <http://www.w3.org/ns/org#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix uminho: <http://www.semanticweb.org/dekao/ontologies/2024/UMinho#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+uminho:InstitutionalStructuralShapeSet_v1_1 a prov:Entity ;
+    dcterms:coverage "Structural graph quality only: membership completeness, student identifier presence/uniqueness, supervision node typing, organization labels, and person/post separation."@en ;
+    dcterms:created "2026-07-20"^^xsd:date ;
+    dcterms:creator "researcher identity to be confirmed before publication" ;
+    dcterms:description "Versioned structural validation artifact for memberships, student identifiers, supervision targets, organization labels, and person/post separation."@en,
+        "Artefacto versionado de validação estrutural para memberships, identificadores de estudante, alvos de supervisão, labels organizacionais e separação entre pessoa e cargo."@pt ;
+    dcterms:isVersionOf uminho:InstitutionalStructuralShapeSet ;
+    dcterms:language "en",
+        "pt" ;
+    dcterms:modified "2026-07-20"^^xsd:date ;
+    dcterms:references <http://www.semanticweb.org/dekao/ontologies/2024/UMinho/1.1.0> ;
+    dcterms:title "UMinho institutional structural SHACL shapes"@en,
+        "Shapes SHACL estruturais institucionais UMinho"@pt ;
+    dcterms:type <https://deedeoliveira.github.io/GRIDD_OpenDT/status/draft-private-demonstrator> ;
+    rdfs:comment "These shapes do not decide eligibility, authorization, availability, approval, reservability, or transactional integrity."@en,
+        "Estas shapes não decidem elegibilidade, autorização, disponibilidade, aprovação, reservabilidade ou integridade transacional."@pt ;
+    owl:priorVersion uminho:InstitutionalStructuralShapeSet_v1_0 ;
+    owl:versionInfo "1.1.0" ;
+    prov:wasRevisionOf uminho:InstitutionalStructuralShapeSet_v1_0 .
+
+uminho:MembershipShape a sh:NodeShape ;
+    sh:message "Uma membership deve ter exatamente um membro, exatamente uma organização e pelo menos um papel."@pt ;
+    sh:property [ sh:class org:Organization ;
+            sh:maxCount 1 ;
+            sh:minCount 1 ;
+            sh:path org:organization ],
+        [ sh:class org:Role ;
+            sh:minCount 1 ;
+            sh:path org:role ],
+        [ sh:class foaf:Person ;
+            sh:maxCount 1 ;
+            sh:minCount 1 ;
+            sh:path org:member ] ;
+    sh:targetClass org:Membership .
+
+uminho:OrganizationShape a sh:NodeShape ;
+    sh:property [ sh:minCount 1 ;
+            sh:path skos:prefLabel ] ;
+    sh:targetClass org:Organization .
+
+uminho:PersonPostMixShape a sh:NodeShape ;
+    sh:sparql [ sh:message "Um org:Post não deve ser utilizado como foaf:Person ou Student neste perfil."@pt ;
+            sh:select "SELECT $this WHERE { { $this a <http://xmlns.com/foaf/0.1/Person> } UNION { $this a <http://www.semanticweb.org/dekao/ontologies/2024/UMinho#Student> } UNION { $this a <http://www.semanticweb.org/dekao/ontologies/2024/UMinho#DoctoralStudent> } }" ] ;
+    sh:targetClass org:Post .
+
+uminho:StudentShape a sh:NodeShape ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:minCount 1 ;
+            sh:minLength 1 ;
+            sh:path uminho:studentNumber ] ;
+    sh:sparql [ sh:message "O número de estudante deve ser único no grafo validado."@pt ;
+            sh:select "SELECT $this WHERE { $this <http://www.semanticweb.org/dekao/ontologies/2024/UMinho#studentNumber> ?n . ?other <http://www.semanticweb.org/dekao/ontologies/2024/UMinho#studentNumber> ?n . FILTER(?other != $this) }" ] ;
+    sh:targetClass uminho:DoctoralStudent,
+        uminho:Student .
+
+uminho:SupervisionObjectShape a sh:NodeShape ;
+    sh:class foaf:Person ;
+    sh:nodeKind sh:IRI ;
+    sh:sparql [ sh:message "Uma classe OWL não pode ser usada como pessoa orientadora."@pt ;
+            sh:select "SELECT $this WHERE { $this a <http://www.w3.org/2002/07/owl#Class> }" ] ;
+    sh:targetObjectsOf uminho:isSupervisedBy .
+
+uminho:SupervisionSubjectShape a sh:NodeShape ;
+    sh:class uminho:Student ;
+    sh:property [ sh:class foaf:Person ;
+            sh:nodeKind sh:IRI ;
+            sh:path uminho:isSupervisedBy ] ;
+    sh:targetSubjectsOf uminho:isSupervisedBy .
+

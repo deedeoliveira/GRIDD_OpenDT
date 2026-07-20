@@ -1,0 +1,556 @@
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix org: <http://www.w3.org/ns/org#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix uminho: <http://www.semanticweb.org/dekao/ontologies/2024/UMinho#> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+uminho:CentroDeInvestigação a owl:Class ;
+    dcterms:isReplacedBy uminho:ResearchCentre ;
+    owl:deprecated true ;
+    owl:equivalentClass uminho:ResearchCentre .
+
+uminho:Departamento a owl:Class ;
+    dcterms:isReplacedBy uminho:Department ;
+    owl:deprecated true ;
+    owl:equivalentClass uminho:Department .
+
+uminho:DoctoralStudentRole a uminho:InstitutionalRole,
+        skos:Concept,
+        org:Role ;
+    skos:broader uminho:StudentRole ;
+    skos:prefLabel "Doctoral student role"@en,
+        "Papel de estudante de doutoramento"@pt .
+
+uminho:Escola a owl:Class ;
+    dcterms:isReplacedBy uminho:School ;
+    owl:deprecated true ;
+    owl:equivalentClass uminho:School .
+
+uminho:Estudante a owl:Class ;
+    dcterms:isReplacedBy uminho:Student ;
+    owl:deprecated true ;
+    owl:equivalentClass uminho:Student .
+
+uminho:ExternalPerson a owl:Class ;
+    rdfs:label "External person"@en,
+        "Pessoa externa"@pt ;
+    rdfs:subClassOf foaf:Person .
+
+uminho:GrupoDeInvestigação a owl:Class ;
+    dcterms:isReplacedBy uminho:ResearchGroup ;
+    owl:deprecated true ;
+    owl:equivalentClass uminho:ResearchGroup .
+
+uminho:ISISECollaboratingMemberRole a uminho:InstitutionalRole,
+        skos:Concept,
+        org:Role ;
+    skos:prefLabel "ISISE collaborating member role"@en,
+        "Membro colaborador do ISISE"@pt .
+
+uminho:ISISEEffectiveMemberRole a uminho:InstitutionalRole,
+        skos:Concept,
+        org:Role ;
+    skos:prefLabel "ISISE effective member role"@en,
+        "Membro efetivo do ISISE"@pt .
+
+uminho:InstitutionalMembership a owl:Class ;
+    rdfs:label "Institutional membership"@en,
+        "Membership institucional"@pt ;
+    dcterms:source <https://www.w3.org/TR/vocab-org/> ;
+    rdfs:comment "Relação qualificada entre um agente, uma organização e um ou mais papéis. A integridade é validada por SHACL, não por cardinalidades OWL."@pt ;
+    rdfs:subClassOf org:Membership .
+
+uminho:InstitutionalPost a owl:Class ;
+    rdfs:label "Institutional post"@en,
+        "Cargo ou posição institucional"@pt ;
+    dcterms:source <https://www.w3.org/TR/vocab-org/> ;
+    rdfs:comment "Posição que existe independentemente do seu ocupante; deve ser distinguida da pessoa e do papel abstrato."@pt ;
+    rdfs:subClassOf org:Post .
+
+uminho:Instituto a owl:Class ;
+    dcterms:isReplacedBy uminho:UniversityInstitute ;
+    owl:deprecated true ;
+    owl:equivalentClass uminho:UniversityInstitute .
+
+uminho:Investigador a owl:Class ;
+    dcterms:isReplacedBy uminho:Researcher ;
+    owl:deprecated true ;
+    owl:equivalentClass uminho:Researcher .
+
+uminho:InvestigadorDoutorado a owl:Class ;
+    dcterms:isReplacedBy uminho:DoctoralResearcher ;
+    owl:deprecated true ;
+    owl:equivalentClass uminho:DoctoralResearcher .
+
+uminho:JointResearchInstitute a owl:Class ;
+    rdfs:label "Joint research institute"@en,
+        "Instituto de investigação interinstitucional"@pt ;
+    dcterms:source <urn:local-document:Regulamento-ISISE-2022> ;
+    rdfs:comment "Organização de investigação associada a mais de uma instituição de acolhimento; usada para o ISISE sem o classificar como unidade orgânica da UMinho."@pt ;
+    rdfs:subClassOf uminho:InstitutionalOrganization .
+
+uminho:LESTDirectorRole a uminho:InstitutionalRole,
+        skos:Concept,
+        org:Role ;
+    skos:broader uminho:DirectorRole ;
+    skos:prefLabel "LEST director role"@en,
+        "Diretor do LEST"@pt .
+
+uminho:LESTTechnicianRole a uminho:InstitutionalRole,
+        skos:Concept,
+        org:Role ;
+    skos:prefLabel "LEST technician role"@en,
+        "Técnico do LEST"@pt .
+
+uminho:LESTUserRole a uminho:InstitutionalRole,
+        skos:Concept,
+        org:Role ;
+    skos:prefLabel "LEST user role"@en,
+        "Utilizador do LEST"@pt .
+
+uminho:Laboratory a owl:Class ;
+    rdfs:label "Laboratory"@en,
+        "Laboratório"@pt ;
+    dcterms:source <urn:local-document:Regulation-LEST-2013> ;
+    rdfs:comment "Unidade funcional para trabalho laboratorial. A classificação não implica estatuto de unidade orgânica."@pt ;
+    rdfs:subClassOf uminho:FunctionalUnit .
+
+uminho:NonAcademicStaff a owl:Class ;
+    rdfs:label "Non-academic staff"@en,
+        "Pessoal não docente e não investigador"@pt ;
+    dcterms:source <https://www.uminho.pt/PT/uminho/Informacao-Institucional/Documents/Despacho%20Normativo%2015-2021%20Estatutos%20UMinho.pdf> ;
+    rdfs:subClassOf foaf:Person .
+
+uminho:OrgãoConsultivo a owl:Class ;
+    dcterms:isReplacedBy uminho:AdvisoryBody ;
+    owl:deprecated true ;
+    owl:equivalentClass uminho:AdvisoryBody .
+
+uminho:OrgãoDeGoverno a owl:Class ;
+    dcterms:isReplacedBy uminho:GoverningBody ;
+    owl:deprecated true ;
+    owl:equivalentClass uminho:GoverningBody .
+
+uminho:PresidentRole a uminho:InstitutionalRole,
+        skos:Concept,
+        org:Role ;
+    skos:prefLabel "President role"@en,
+        "Papel de presidente"@pt .
+
+uminho:Professor a owl:Class ;
+    rdfs:label "Professor"@en,
+        "Professor"@pt ;
+    dcterms:source <https://www.uminho.pt/PT/uminho/Informacao-Institucional/Documents/Despacho%20Normativo%2015-2021%20Estatutos%20UMinho.pdf>,
+        <urn:local-document:RAUM-RT-125-2025> ;
+    rdfs:comment "Categoria académica contextual. Não representa um cargo uninominal nem impede que a mesma pessoa seja também Investigador ou Supervisor."@pt ;
+    rdfs:subClassOf foaf:Person .
+
+uminho:ProfessorRole a uminho:InstitutionalRole,
+        skos:Concept,
+        org:Role ;
+    skos:prefLabel "Professor role"@en,
+        "Papel de professor"@pt .
+
+uminho:RectorRole a uminho:InstitutionalRole,
+        skos:Concept,
+        org:Role ;
+    skos:prefLabel "Rector role"@en,
+        "Papel de reitor"@pt .
+
+uminho:ResearchCluster a owl:Class ;
+    rdfs:label "Research cluster"@en,
+        "Cluster de investigação"@pt ;
+    rdfs:comment "Estrutura de demonstração abaixo de um grupo de investigação; o seu estatuto institucional deve ser confirmado."@pt ;
+    rdfs:subClassOf uminho:OrganizationalUnit .
+
+uminho:ResearchClusterMemberRole a uminho:InstitutionalRole,
+        skos:Concept,
+        org:Role ;
+    skos:prefLabel "Research cluster member role"@en,
+        "Membro de cluster de investigação"@pt .
+
+uminho:ResearchGroupMemberRole a uminho:InstitutionalRole,
+        skos:Concept,
+        org:Role ;
+    skos:prefLabel "Research group member role"@en,
+        "Membro de grupo de investigação"@pt .
+
+uminho:ResearcherRole a uminho:InstitutionalRole,
+        skos:Concept,
+        org:Role ;
+    skos:prefLabel "Researcher role"@en,
+        "Papel de investigador"@pt .
+
+uminho:StudentGraduation a owl:Class ;
+    dcterms:isReplacedBy uminho:UndergraduateStudent ;
+    owl:deprecated true ;
+    owl:equivalentClass uminho:UndergraduateStudent .
+
+uminho:StudentMaster a owl:Class ;
+    dcterms:isReplacedBy uminho:MastersStudent ;
+    owl:deprecated true ;
+    owl:equivalentClass uminho:MastersStudent .
+
+uminho:StudentPhD a owl:Class ;
+    dcterms:isReplacedBy uminho:DoctoralStudent ;
+    owl:deprecated true ;
+    owl:equivalentClass uminho:DoctoralStudent .
+
+uminho:SubunidadeOrgânica a owl:Class ;
+    dcterms:isReplacedBy uminho:OrganicSubunit ;
+    owl:deprecated true ;
+    owl:equivalentClass uminho:OrganicSubunit .
+
+uminho:SupervisorRole a uminho:InstitutionalRole,
+        skos:Concept,
+        org:Role ;
+    skos:prefLabel "Supervisor role"@en,
+        "Papel de orientador"@pt .
+
+uminho:Unidade a owl:Class ;
+    dcterms:isReplacedBy uminho:OrganizationalUnit ;
+    owl:deprecated true ;
+    owl:equivalentClass uminho:OrganizationalUnit .
+
+uminho:UnidadeOrgânicaDeEnsinoEInvestigação a owl:Class ;
+    dcterms:isReplacedBy uminho:TeachingResearchOrganicUnit ;
+    owl:deprecated true ;
+    owl:equivalentClass uminho:TeachingResearchOrganicUnit .
+
+uminho:UnidadeOrgânicaDeInvestigação a owl:Class ;
+    dcterms:isReplacedBy uminho:ResearchOrganicUnit ;
+    owl:deprecated true ;
+    owl:equivalentClass uminho:ResearchOrganicUnit .
+
+uminho:Universidade a owl:Class ;
+    dcterms:isReplacedBy uminho:University ;
+    owl:deprecated true ;
+    owl:equivalentClass uminho:University .
+
+uminho:advises a owl:ObjectProperty ;
+    rdfs:label "advises"@en,
+        "aconselha"@pt ;
+    rdfs:domain uminho:AdvisoryBody ;
+    rdfs:range foaf:Agent .
+
+uminho:demo_data a skos:Concept ;
+    skos:inScheme uminho:SourceClassificationScheme ;
+    skos:prefLabel "private real demo data"@en,
+        "dado real de demonstração privada"@pt .
+
+uminho:governsOrganization a owl:ObjectProperty ;
+    rdfs:label "governs organization"@en,
+        "governa organização"@pt ;
+    rdfs:domain uminho:GoverningBody ;
+    rdfs:range org:Organization ;
+    owl:inverseOf uminho:hasGoverningBody .
+
+uminho:hasAdvisoryBody a owl:ObjectProperty ;
+    rdfs:label "has advisory body"@en,
+        "tem órgão consultivo"@pt ;
+    rdfs:domain org:Organization ;
+    rdfs:range uminho:AdvisoryBody .
+
+uminho:hasSupervisionRecord a owl:ObjectProperty ;
+    rdfs:label "has supervision record"@en,
+        "tem registo de orientação"@pt ;
+    rdfs:domain foaf:Person ;
+    rdfs:range uminho:Supervision .
+
+uminho:institutional_source a skos:Concept ;
+    skos:inScheme uminho:SourceClassificationScheme ;
+    skos:prefLabel "institutional source"@en,
+        "fonte institucional"@pt .
+
+uminho:ontologyStatus a owl:AnnotationProperty ;
+    rdfs:label "ontology status"@en,
+        "estado da ontologia"@pt .
+
+uminho:organizationCode a owl:DatatypeProperty ;
+    rdfs:label "organization code"@en,
+        "código da organização"@pt ;
+    rdfs:domain org:Organization ;
+    rdfs:range xsd:string ;
+    rdfs:subPropertyOf dcterms:identifier .
+
+uminho:project_convention a skos:Concept ;
+    skos:inScheme uminho:SourceClassificationScheme ;
+    skos:prefLabel "project convention"@en,
+        "convenção do projeto"@pt .
+
+uminho:requires_confirmation a skos:Concept ;
+    skos:inScheme uminho:SourceClassificationScheme ;
+    skos:prefLabel "requires confirmation"@en,
+        "requer confirmação"@pt .
+
+uminho:researcher_interpretation a skos:Concept ;
+    skos:inScheme uminho:SourceClassificationScheme ;
+    skos:prefLabel "researcher interpretation"@en,
+        "interpretação do investigador"@pt .
+
+uminho:sourceClassification a owl:ObjectProperty ;
+    rdfs:label "source classification"@en,
+        "classificação da fonte"@pt ;
+    rdfs:comment "Classifica um recurso como fonte institucional, interpretação, convenção, dado de demonstração, dado de teste ou afirmação a confirmar."@pt ;
+    rdfs:range skos:Concept .
+
+uminho:studentNumber a owl:DatatypeProperty ;
+    rdfs:label "student number"@en,
+        "número de estudante"@pt ;
+    rdfs:comment "Identificador textual; requisitos de cardinalidade e unicidade pertencem ao perfil SHACL."@pt ;
+    rdfs:domain uminho:Student ;
+    rdfs:range xsd:string ;
+    rdfs:subPropertyOf dcterms:identifier .
+
+uminho:supervisee a owl:ObjectProperty ;
+    rdfs:label "supervisee"@en,
+        "orientando"@pt ;
+    rdfs:domain uminho:Supervision ;
+    rdfs:range foaf:Person .
+
+uminho:supervises a owl:ObjectProperty ;
+    rdfs:label "supervises"@en,
+        "orienta"@pt ;
+    rdfs:domain foaf:Person ;
+    rdfs:range foaf:Person ;
+    owl:inverseOf uminho:isSupervisedBy .
+
+uminho:supervisionOrganization a owl:ObjectProperty ;
+    rdfs:label "supervision organization"@en,
+        "organização da orientação"@pt ;
+    rdfs:domain uminho:Supervision ;
+    rdfs:range org:Organization .
+
+uminho:supervisionProgramme a owl:ObjectProperty ;
+    rdfs:label "supervision programme"@en,
+        "programa da orientação"@pt ;
+    rdfs:domain uminho:Supervision ;
+    rdfs:range prov:Entity .
+
+uminho:supervisor a owl:ObjectProperty ;
+    rdfs:label "supervisor"@en,
+        "orientador"@pt ;
+    rdfs:domain uminho:Supervision ;
+    rdfs:range foaf:Person .
+
+uminho:test_data a skos:Concept ;
+    skos:inScheme uminho:SourceClassificationScheme ;
+    skos:prefLabel "synthetic test data"@en,
+        "dado sintético de teste"@pt .
+
+uminho:unsupported a skos:Concept ;
+    skos:inScheme uminho:SourceClassificationScheme ;
+    skos:prefLabel "unsupported"@en,
+        "não sustentado"@pt .
+
+<http://www.semanticweb.org/dekao/ontologies/2024/UMinho> a owl:Ontology ;
+    dcterms:created "2026-07-20"^^xsd:date ;
+    dcterms:creator "researcher identity to be confirmed before publication" ;
+    dcterms:description "Perfil institucional limitado a pessoas, papéis, cargos, memberships, organizações e supervisão, para evidência semântica no demonstrador da tese."@pt ;
+    dcterms:isVersionOf <http://www.semanticweb.org/dekao/ontologies/2024/UMinho> ;
+    dcterms:language "en",
+        "pt" ;
+    dcterms:modified "2026-07-20"^^xsd:date ;
+    dcterms:replaces <urn:local-file:UMinho_atual.rdf> ;
+    dcterms:source <https://www.uminho.pt/PT/uminho/Informacao-Institucional/Documents/Despacho%20Normativo%2015-2021%20Estatutos%20UMinho.pdf>,
+        <https://www.w3.org/TR/owl-time/>,
+        <https://www.w3.org/TR/prov-o/>,
+        <https://www.w3.org/TR/skos-reference/>,
+        <https://www.w3.org/TR/vocab-org/>,
+        <https://xmlns.com/foaf/spec/>,
+        <urn:local-document:R12-2026-07-16>,
+        <urn:local-document:RAUM-RT-125-2025>,
+        <urn:local-document:Regulamento-ISISE-2022>,
+        <urn:local-document:Regulation-LEST-2013> ;
+    dcterms:title "UMinho institutional ontology for a private demonstrator"@en,
+        "Ontologia institucional UMinho para demonstrador privado"@pt ;
+    vann:preferredNamespacePrefix "uminho" ;
+    vann:preferredNamespaceUri "http://www.semanticweb.org/dekao/ontologies/2024/UMinho#"^^xsd:anyURI ;
+    uminho:ontologyStatus "draft_private_demonstrator" ;
+    rdfs:comment "Release 1.1 removes application-bridge terms from the institutional ontology. The legacy namespace is retained for research compatibility and is not an official UMinho namespace."@en,
+        "This is a non-official research artefact. It is not published, approved, or maintained by the University of Minho."@en,
+        "A release 1.1 remove da ontologia institucional os termos exclusivos da ponte da aplicação. O namespace legado é preservado para compatibilidade de investigação e não é um namespace oficial da UMinho."@pt,
+        "Esta ontologia é um artefacto de investigação não oficial. Não é publicada, aprovada nem mantida pela Universidade do Minho."@pt ;
+    owl:priorVersion <http://www.semanticweb.org/dekao/ontologies/2024/UMinho/1.0.0> ;
+    owl:versionIRI <http://www.semanticweb.org/dekao/ontologies/2024/UMinho/1.1.0> ;
+    owl:versionInfo "1.1.0-draft" .
+
+uminho:DirectorRole a uminho:InstitutionalRole,
+        skos:Concept,
+        org:Role ;
+    skos:prefLabel "Director role"@en,
+        "Papel de diretor"@pt .
+
+uminho:FunctionalUnit a owl:Class ;
+    rdfs:label "Functional unit"@en,
+        "Unidade funcional"@pt ;
+    rdfs:subClassOf uminho:OrganizationalUnit .
+
+uminho:StudentRole a uminho:InstitutionalRole,
+        skos:Concept,
+        org:Role ;
+    skos:prefLabel "Student role"@en,
+        "Papel de estudante"@pt .
+
+uminho:hasGoverningBody a owl:ObjectProperty ;
+    rdfs:label "has governing body"@en,
+        "tem órgão de governo"@pt ;
+    rdfs:domain org:Organization ;
+    rdfs:range uminho:GoverningBody .
+
+uminho:isSupervisedBy a owl:ObjectProperty ;
+    rdfs:label "is supervised by"@en,
+        "é orientado por"@pt ;
+    rdfs:comment "Atalho direto entre pessoas. Não é simétrico, transitivo nem funcional; RAUM admite diferentes categorias de orientador e exceções."@pt ;
+    rdfs:domain foaf:Person ;
+    rdfs:range foaf:Person .
+
+uminho:Department a owl:Class ;
+    rdfs:label "Department"@en,
+        "Departamento"@pt ;
+    dcterms:source <https://www.uminho.pt/PT/uminho/Informacao-Institucional/Documents/Despacho%20Normativo%2015-2021%20Estatutos%20UMinho.pdf> ;
+    rdfs:subClassOf uminho:OrganicSubunit .
+
+uminho:DoctoralResearcher a owl:Class ;
+    rdfs:label "Doctoral researcher"@en,
+        "Investigador doutorado"@pt ;
+    dcterms:source <urn:local-document:RAUM-RT-125-2025>,
+        <urn:local-document:Regulamento-ISISE-2022> ;
+    rdfs:subClassOf uminho:Researcher .
+
+uminho:DoctoralStudent a owl:Class ;
+    rdfs:label "Doctoral student"@en,
+        "Estudante de doutoramento"@pt ;
+    dcterms:source <urn:local-document:RAUM-RT-125-2025>,
+        <urn:local-document:Regulation-LEST-2013> ;
+    rdfs:comment "Classe de conveniência; o papel desempenhado numa organização é representado separadamente por org:Role e org:Membership."@pt ;
+    rdfs:subClassOf uminho:Student .
+
+uminho:MastersStudent a owl:Class ;
+    rdfs:label "Master student"@en,
+        "Estudante de 2.º ciclo"@pt ;
+    dcterms:source <urn:local-document:RAUM-RT-125-2025> ;
+    rdfs:subClassOf uminho:Student .
+
+uminho:OrganicUnit a owl:Class ;
+    rdfs:label "Organic unit"@en,
+        "Unidade orgânica"@pt ;
+    dcterms:source <https://www.uminho.pt/PT/uminho/Informacao-Institucional/Documents/Despacho%20Normativo%2015-2021%20Estatutos%20UMinho.pdf> ;
+    rdfs:subClassOf uminho:OrganizationalUnit .
+
+uminho:ResearchCentre a owl:Class ;
+    rdfs:label "Research centre"@en,
+        "Centro de investigação"@pt ;
+    dcterms:source <https://www.uminho.pt/PT/uminho/Informacao-Institucional/Documents/Despacho%20Normativo%2015-2021%20Estatutos%20UMinho.pdf> ;
+    rdfs:subClassOf uminho:OrganicSubunit .
+
+uminho:ResearchGroup a owl:Class ;
+    rdfs:label "Research group"@en,
+        "Grupo de investigação"@pt ;
+    dcterms:source <urn:local-document:Regulamento-ISISE-2022> ;
+    rdfs:subClassOf uminho:OrganizationalUnit .
+
+uminho:ResearchOrganicUnit a owl:Class ;
+    rdfs:label "Research organic unit"@en,
+        "Unidade orgânica de investigação"@pt ;
+    dcterms:source <https://www.uminho.pt/PT/uminho/Informacao-Institucional/Documents/Despacho%20Normativo%2015-2021%20Estatutos%20UMinho.pdf> ;
+    rdfs:subClassOf uminho:OrganicUnit .
+
+uminho:School a owl:Class ;
+    rdfs:label "School"@en,
+        "Escola"@pt ;
+    dcterms:source <https://www.uminho.pt/PT/uminho/Informacao-Institucional/Documents/Despacho%20Normativo%2015-2021%20Estatutos%20UMinho.pdf> ;
+    rdfs:subClassOf uminho:TeachingResearchOrganicUnit .
+
+uminho:UndergraduateStudent a owl:Class ;
+    rdfs:label "Undergraduate student"@en,
+        "Estudante de 1.º ciclo"@pt ;
+    dcterms:source <urn:local-document:RAUM-RT-125-2025> ;
+    rdfs:subClassOf uminho:Student .
+
+uminho:University a owl:Class ;
+    rdfs:label "University"@en,
+        "Universidade"@pt ;
+    dcterms:source <https://www.uminho.pt/PT/uminho/Informacao-Institucional/Documents/Despacho%20Normativo%2015-2021%20Estatutos%20UMinho.pdf> ;
+    rdfs:subClassOf uminho:InstitutionalOrganization,
+        org:FormalOrganization .
+
+uminho:UniversityInstitute a owl:Class ;
+    rdfs:label "University institute"@en,
+        "Instituto universitário"@pt ;
+    dcterms:source <https://www.uminho.pt/PT/uminho/Informacao-Institucional/Documents/Despacho%20Normativo%2015-2021%20Estatutos%20UMinho.pdf> ;
+    rdfs:comment "Instituto que é unidade orgânica de ensino e investigação da Universidade; não deve ser confundido com o ISISE."@pt ;
+    rdfs:subClassOf uminho:TeachingResearchOrganicUnit .
+
+uminho:Researcher a owl:Class ;
+    rdfs:label "Researcher"@en,
+        "Investigador"@pt ;
+    dcterms:source <https://www.uminho.pt/PT/uminho/Informacao-Institucional/Documents/Despacho%20Normativo%2015-2021%20Estatutos%20UMinho.pdf>,
+        <urn:local-document:RAUM-RT-125-2025>,
+        <urn:local-document:Regulamento-ISISE-2022> ;
+    rdfs:subClassOf foaf:Person .
+
+uminho:AdvisoryBody a owl:Class ;
+    rdfs:label "Advisory body"@en,
+        "Órgão consultivo"@pt ;
+    dcterms:source <https://www.uminho.pt/PT/uminho/Informacao-Institucional/Documents/Despacho%20Normativo%2015-2021%20Estatutos%20UMinho.pdf> ;
+    rdfs:subClassOf uminho:InstitutionalOrganization .
+
+uminho:GoverningBody a owl:Class ;
+    rdfs:label "Governing body"@en,
+        "Órgão de governo"@pt ;
+    dcterms:source <https://www.uminho.pt/PT/uminho/Informacao-Institucional/Documents/Despacho%20Normativo%2015-2021%20Estatutos%20UMinho.pdf>,
+        <urn:local-document:Regulamento-ISISE-2022> ;
+    rdfs:subClassOf uminho:InstitutionalOrganization .
+
+uminho:OrganicSubunit a owl:Class ;
+    rdfs:label "Organic subunit"@en,
+        "Subunidade orgânica"@pt ;
+    dcterms:source <https://www.uminho.pt/PT/uminho/Informacao-Institucional/Documents/Despacho%20Normativo%2015-2021%20Estatutos%20UMinho.pdf> ;
+    rdfs:subClassOf uminho:OrganizationalUnit .
+
+uminho:TeachingResearchOrganicUnit a owl:Class ;
+    rdfs:label "Teaching and research organic unit"@en,
+        "Unidade orgânica de ensino e investigação"@pt ;
+    dcterms:source <https://www.uminho.pt/PT/uminho/Informacao-Institucional/Documents/Despacho%20Normativo%2015-2021%20Estatutos%20UMinho.pdf> ;
+    rdfs:subClassOf uminho:OrganicUnit .
+
+uminho:InstitutionalOrganization a owl:Class ;
+    rdfs:label "Institutional organization"@en,
+        "Organização institucional"@pt ;
+    rdfs:subClassOf org:Organization .
+
+uminho:Supervision a owl:Class ;
+    rdfs:label "Qualified supervision"@en,
+        "Relação qualificada de orientação"@pt ;
+    dcterms:source <urn:local-document:RAUM-RT-125-2025> ;
+    rdfs:comment "Modelo opcional para qualificar orientação por contexto, organização, programa, período ou fonte. A propriedade direta isSupervisedBy permanece como atalho."@pt ;
+    rdfs:subClassOf prov:Entity .
+
+uminho:Student a owl:Class ;
+    rdfs:label "Student"@en,
+        "Estudante"@pt ;
+    dcterms:source <urn:local-document:RAUM-RT-125-2025> ;
+    rdfs:comment "Classe de conveniência para pessoas com condição de estudante no contexto representado. A relação institucional contextual deve ser registada por org:Membership."@pt ;
+    rdfs:subClassOf foaf:Person .
+
+uminho:OrganizationalUnit a owl:Class ;
+    rdfs:label "Organizational unit"@en,
+        "Unidade organizacional"@pt ;
+    rdfs:subClassOf uminho:InstitutionalOrganization,
+        org:OrganizationalUnit .
+
+uminho:SourceClassificationScheme a skos:ConceptScheme ;
+    rdfs:label "Provenance classification"@en,
+        "Classificação de proveniência"@pt .
+
+uminho:InstitutionalRole a owl:Class ;
+    rdfs:label "Institutional role"@en,
+        "Papel institucional"@pt ;
+    rdfs:subClassOf org:Role .
+

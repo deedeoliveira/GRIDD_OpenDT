@@ -1,0 +1,140 @@
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix org: <http://www.w3.org/ns/org#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix test: <https://example.org/uminho-phd/test/institutional/> .
+@prefix uminho: <http://www.semanticweb.org/dekao/ontologies/2024/UMinho#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+test:Membership_TestProfessor001_Group a uminho:InstitutionalMembership,
+        org:Membership ;
+    uminho:sourceClassification uminho:test_data ;
+    org:member test:TestProfessor001 ;
+    org:organization test:TestResearchGroup001 ;
+    org:role uminho:ProfessorRole,
+        uminho:ResearchGroupMemberRole,
+        uminho:SupervisorRole .
+
+test:Membership_TestProfessor001_School a uminho:InstitutionalMembership,
+        org:Membership ;
+    uminho:sourceClassification uminho:test_data ;
+    org:member test:TestProfessor001 ;
+    org:organization test:TestSchool001 ;
+    org:role uminho:ProfessorRole .
+
+test:Membership_TestProfessor002_Group a uminho:InstitutionalMembership,
+        org:Membership ;
+    uminho:sourceClassification uminho:test_data ;
+    org:member test:TestProfessor002 ;
+    org:organization test:TestResearchGroup001 ;
+    org:role uminho:ProfessorRole,
+        uminho:SupervisorRole .
+
+test:Membership_TestResearcher001_Group a uminho:InstitutionalMembership,
+        org:Membership ;
+    uminho:sourceClassification uminho:test_data ;
+    org:member test:TestResearcher001 ;
+    org:organization test:TestResearchGroup001 ;
+    org:role uminho:ResearchGroupMemberRole,
+        uminho:ResearcherRole .
+
+test:Membership_TestResearcher001_Lab a uminho:InstitutionalMembership,
+        org:Membership ;
+    uminho:sourceClassification uminho:test_data ;
+    org:member test:TestResearcher001 ;
+    org:organization test:TestLaboratory001 ;
+    org:role uminho:LESTUserRole,
+        uminho:ResearcherRole .
+
+test:Membership_TestStudentPhD001_Group a uminho:InstitutionalMembership,
+        org:Membership ;
+    uminho:sourceClassification uminho:test_data ;
+    org:member test:TestStudentPhD001 ;
+    org:organization test:TestResearchGroup001 ;
+    org:role uminho:DoctoralStudentRole,
+        uminho:ResearchGroupMemberRole .
+
+test:Membership_TestStudentPhD002_Cluster a uminho:InstitutionalMembership,
+        org:Membership ;
+    uminho:sourceClassification uminho:test_data ;
+    org:member test:TestStudentPhD002 ;
+    org:organization test:TestResearchCluster001 ;
+    org:role uminho:DoctoralStudentRole,
+        uminho:ResearchClusterMemberRole .
+
+test:TestProfessor002 a uminho:Professor,
+        foaf:Person ;
+    rdfs:label "TEST Professor 002" ;
+    uminho:sourceClassification uminho:test_data ;
+    org:hasMembership test:Membership_TestProfessor002_Group ;
+    org:memberOf test:TestResearchGroup001 ;
+    foaf:name "TEST Professor 002" .
+
+test:TestStudentPhD001 a uminho:DoctoralStudent,
+        foaf:Person ;
+    rdfs:label "TEST Student PhD 001" ;
+    uminho:isSupervisedBy test:TestProfessor001 ;
+    uminho:sourceClassification uminho:test_data ;
+    uminho:studentNumber "TEST-STUDENT-001"^^xsd:string ;
+    org:hasMembership test:Membership_TestStudentPhD001_Group ;
+    org:memberOf test:TestResearchGroup001 ;
+    foaf:name "TEST Student PhD 001" .
+
+test:TestStudentPhD002 a uminho:DoctoralStudent,
+        foaf:Person ;
+    rdfs:label "TEST Student PhD 002" ;
+    uminho:sourceClassification uminho:test_data ;
+    uminho:studentNumber "TEST-STUDENT-002"^^xsd:string ;
+    org:hasMembership test:Membership_TestStudentPhD002_Cluster ;
+    org:memberOf test:TestResearchCluster001 ;
+    foaf:name "TEST Student PhD 002" .
+
+test:TestUniversity001 a uminho:University,
+        org:Organization ;
+    uminho:sourceClassification uminho:test_data ;
+    skos:prefLabel "TEST University 001"@pt .
+
+test:TestLaboratory001 a uminho:Laboratory,
+        org:Organization ;
+    uminho:sourceClassification uminho:test_data ;
+    skos:prefLabel "TEST Laboratory 001"@pt ;
+    org:subOrganizationOf test:TestSchool001 .
+
+test:TestResearchCluster001 a uminho:ResearchCluster,
+        org:Organization ;
+    uminho:sourceClassification uminho:test_data ;
+    skos:prefLabel "TEST Research Cluster 001"@pt ;
+    org:subOrganizationOf test:TestResearchGroup001 .
+
+test:TestResearcher001 a uminho:Researcher,
+        foaf:Person ;
+    rdfs:label "TEST Researcher 001" ;
+    uminho:sourceClassification uminho:test_data ;
+    org:hasMembership test:Membership_TestResearcher001_Group,
+        test:Membership_TestResearcher001_Lab ;
+    org:memberOf test:TestLaboratory001,
+        test:TestResearchGroup001 ;
+    foaf:name "TEST Researcher 001" .
+
+test:TestProfessor001 a uminho:Professor,
+        foaf:Person ;
+    rdfs:label "TEST Professor 001" ;
+    uminho:sourceClassification uminho:test_data ;
+    org:hasMembership test:Membership_TestProfessor001_Group,
+        test:Membership_TestProfessor001_School ;
+    org:memberOf test:TestResearchGroup001,
+        test:TestSchool001 ;
+    foaf:name "TEST Professor 001" .
+
+test:TestSchool001 a uminho:School,
+        org:Organization ;
+    uminho:sourceClassification uminho:test_data ;
+    skos:prefLabel "TEST School 001"@pt ;
+    org:subOrganizationOf test:TestUniversity001 .
+
+test:TestResearchGroup001 a uminho:ResearchGroup,
+        org:Organization ;
+    uminho:sourceClassification uminho:test_data ;
+    skos:prefLabel "TEST Research Group 001"@pt ;
+    org:subOrganizationOf test:TestSchool001 .
+

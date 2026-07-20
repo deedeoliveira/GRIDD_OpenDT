@@ -1,0 +1,131 @@
+@prefix bridge: <https://deedeoliveira.github.io/GRIDD_OpenDT/ontology/project-institutional-bridge#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<https://deedeoliveira.github.io/GRIDD_OpenDT/ontology/project-institutional-bridge> a owl:Ontology ;
+    dcterms:created "2026-07-20"^^xsd:date ;
+    dcterms:creator "researcher identity to be confirmed before publication" ;
+    dcterms:description "Project-specific vocabulary for associating platform accounts or transactional actors with institutional RDF agents. It is independent of any concrete SQL schema and is not an institutional source of truth."@en,
+        "Vocabulário específico do projeto para associar contas da plataforma ou atores transacionais a agentes institucionais RDF. É independente de um esquema SQL concreto e não constitui fonte institucional de verdade."@pt ;
+    dcterms:language "en",
+        "pt" ;
+    dcterms:modified "2026-07-20"^^xsd:date ;
+    dcterms:references <http://www.semanticweb.org/dekao/ontologies/2024/UMinho/1.1.0> ;
+    dcterms:title "Project institutional bridge vocabulary"@en,
+        "Vocabulário de ponte institucional do projeto"@pt ;
+    dcterms:type <https://deedeoliveira.github.io/GRIDD_OpenDT/artifact-type/project-specific-bridge> ;
+    vann:preferredNamespacePrefix "bridge" ;
+    vann:preferredNamespaceUri "https://deedeoliveira.github.io/GRIDD_OpenDT/ontology/project-institutional-bridge#"^^xsd:anyURI ;
+    rdfs:comment "This is not an official University of Minho ontology. It does not define authentication, authorization, reservation rules, SQL tables, or application columns."@en,
+        "Este módulo não é uma ontologia oficial da Universidade do Minho. Não define autenticação, autorização, regras de reserva, tabelas SQL ou colunas da aplicação."@pt ;
+    owl:versionIRI <https://deedeoliveira.github.io/GRIDD_OpenDT/ontology/project-institutional-bridge/1.0.0> ;
+    owl:versionInfo "1.0.0-draft" .
+
+bridge:AccountRepresentationLink a skos:Concept ;
+    skos:prefLabel "account representation link"@en,
+        "ligação de representação por conta"@pt .
+
+bridge:PendingLinkStatus a skos:Concept ;
+    skos:prefLabel "pending"@en,
+        "pendente"@pt .
+
+bridge:RevokedLinkStatus a skos:Concept ;
+    skos:prefLabel "revoked"@en,
+        "revogada"@pt .
+
+bridge:SuspendedLinkStatus a skos:Concept ;
+    skos:prefLabel "suspended"@en,
+        "suspensa"@pt .
+
+bridge:VerifiedLinkStatus a skos:Concept ;
+    skos:prefLabel "verified"@en,
+        "verificada"@pt .
+
+bridge:account a owl:ObjectProperty ;
+    rdfs:label "linked account"@en,
+        "conta ligada"@pt ;
+    rdfs:comment "Account participating in a qualified institutional actor link."@en ;
+    rdfs:domain bridge:InstitutionalActorLink ;
+    rdfs:range bridge:PlatformAccount .
+
+bridge:institutionalActor a owl:ObjectProperty ;
+    rdfs:label "institutional actor"@en,
+        "ator institucional"@pt ;
+    rdfs:comment "Institutional RDF agent referenced by a qualified link."@en ;
+    rdfs:domain bridge:InstitutionalActorLink ;
+    rdfs:range foaf:Agent .
+
+bridge:institutionalGraph a owl:ObjectProperty ;
+    rdfs:label "institutional graph"@en,
+        "grafo institucional"@pt ;
+    rdfs:comment "Graph or dataset resource from which the institutional actor assertion is obtained."@en ;
+    rdfs:domain bridge:InstitutionalActorLink ;
+    rdfs:range prov:Entity .
+
+bridge:linkStatus a owl:ObjectProperty ;
+    rdfs:label "link status"@en,
+        "estado da ligação"@pt ;
+    rdfs:comment "Lifecycle status of the qualified association."@en ;
+    rdfs:domain bridge:InstitutionalActorLink ;
+    rdfs:range skos:Concept .
+
+bridge:linkType a owl:ObjectProperty ;
+    rdfs:label "link type"@en,
+        "tipo de ligação"@pt ;
+    rdfs:comment "Controlled description of the association represented by the link."@en ;
+    rdfs:domain bridge:InstitutionalActorLink ;
+    rdfs:range skos:Concept .
+
+bridge:representsInstitutionalActor a owl:ObjectProperty ;
+    rdfs:label "represents institutional actor"@en,
+        "representa ator institucional"@pt ;
+    rdfs:comment "Direct convenience association. It is not owl:sameAs and does not make the account an institutional authority."@en ;
+    rdfs:domain bridge:PlatformAccount ;
+    rdfs:range foaf:Agent .
+
+bridge:validFrom a owl:DatatypeProperty ;
+    rdfs:label "valid from"@en,
+        "válida desde"@pt ;
+    rdfs:comment "Beginning of the validity interval for the link."@en ;
+    rdfs:domain bridge:InstitutionalActorLink ;
+    rdfs:range xsd:dateTime .
+
+bridge:validTo a owl:DatatypeProperty ;
+    rdfs:label "valid to"@en,
+        "válida até"@pt ;
+    rdfs:comment "End of the validity interval for the link."@en ;
+    rdfs:domain bridge:InstitutionalActorLink ;
+    rdfs:range xsd:dateTime .
+
+bridge:verifiedAt a owl:DatatypeProperty ;
+    rdfs:label "verified at"@en,
+        "verificada em"@pt ;
+    rdfs:comment "Timestamp at which the link was verified."@en ;
+    rdfs:domain bridge:InstitutionalActorLink ;
+    rdfs:range xsd:dateTime .
+
+bridge:verifiedBy a owl:ObjectProperty ;
+    rdfs:label "verified by"@en,
+        "verificado por"@pt ;
+    rdfs:comment "Agent responsible for recording verification evidence."@en ;
+    rdfs:domain bridge:InstitutionalActorLink ;
+    rdfs:range prov:Agent .
+
+bridge:PlatformAccount a owl:Class ;
+    rdfs:label "Platform account"@en,
+        "Conta da plataforma"@pt ;
+    rdfs:comment "Technical account or transactional actor identity. It is not identical to the institutional person or agent it may represent."@en ;
+    rdfs:subClassOf prov:Entity .
+
+bridge:InstitutionalActorLink a owl:Class ;
+    rdfs:label "Institutional actor link"@en,
+        "Ligação a ator institucional"@pt ;
+    rdfs:comment "Qualified association between a platform account and an institutional RDF agent, including lifecycle and verification metadata."@en ;
+    rdfs:subClassOf prov:Entity .
+
