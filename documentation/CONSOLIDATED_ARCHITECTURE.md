@@ -1,6 +1,6 @@
-# OSWADT — Arquitetura Consolidada (Prompt 6, 2026-07-18)
+# OSWADT — Arquitetura Consolidada (Prompt 7B1, 2026-07-20)
 
-Visão viva do protótipo após os Prompts 0–6. Fontes de verdade: código,
+Visão viva do protótipo após os Prompts 0–6 e 7B1. Fontes de verdade: código,
 migrations, testes, ADRs (0001–0031), MANUAL_TESTS.md. Secção final descreve
 o trabalho semântico FUTURO — nada aí está implementado.
 
@@ -141,8 +141,10 @@ sequenceDiagram
 - Sincronização: `semantic_sync_operations` (ADR-0027) — SEM transação
   distribuída (nunca alegada); ordem SQL-op → grafo → verificação → projeção;
   retry idempotente (UUIDs/URIs reutilizados; ASK-guardado).
-- Reconciliação (ADR-0029): report read-only; apply-safe idempotente,
-  serializado (P6) e revalidado por correção; nunca altera o grafo.
+- Reconciliação (ADR-0029): report read-only; apply-safe idempotente e
+  revalidado por correção; o named lock coordena execuções concorrentes do
+  próprio apply-safe, mas não serializa globalmente todas as mutações do
+  sistema; nunca altera o grafo.
 
 ```mermaid
 stateDiagram-v2
@@ -176,9 +178,9 @@ sequenceDiagram
     participant DB as MySQL
     A->>DB: BEGIN; SELECT assets FOR UPDATE (lock)
     B->>DB: BEGIN; SELECT assets FOR UPDATE (espera…)
-    A->>DB: conflitos? não → INSERT pending; COMMIT (liberta)
-    B->>DB: (obtém lock) conflitos? SIM → erro; ROLLBACK
-    Note over A,B: exatamente uma aceite — garantido pela base
+    A->>DB: conflitos bloqueantes? não → INSERT pending; COMMIT (liberta)
+    B->>DB: (obtém lock) reavalia conflitos e insere ou rejeita
+    Note over A,B: pending de atores distintos não é exclusividade universal; bloqueiam approved/in_use/no_show do ativo e pending/approved do mesmo ator
 ```
 
 ### Limites transacionais (P6)
@@ -195,7 +197,9 @@ sequenceDiagram
 ## 15.8 Policy Architecture (P1; ADR-0017)
 
 - `ReservabilityEvaluator` + `ReservationRequestValidator` via providers
-  configuráveis (POLICY_* no .env); decisões allow/deny/undetermined/error;
+  configuráveis (`RESERVABILITY_POLICY_PROVIDER` e
+  `RESERVATION_VALIDATION_PROVIDER` no `.env`); decisões
+  allow/deny/undetermined/error;
   logs `policy_evaluation`.
 - O GraphClient NÃO é provider de política; o provider legado devolve
   `undetermined` para `non_modelled_asset` (⇒ não reservável) — regra
@@ -227,7 +231,25 @@ flowchart TD
     F -->|lock timeout| C5[erro controlado, sem retry]
 ```
 
-## 15.10 Future Semantic Extension (NADA disto está implementado)
+## 15.10 Governed Semantic Artifacts (Prompt 7B1; ADR-0032/0033)
+
+- Cinco ficheiros Turtle aprovados: quatro releases públicas/sintéticas de
+  runtime e um fixture negativo sintético, isolado e não ativável. A ontologia
+  institucional é um draft de investigação não oficial.
+- Autoridade: bytes no ficheiro auditado; identidade/lifecycle/current pointer
+  no SQL; cópia consultável num named graph imutável por artifact UUID.
+- Registry: `semantic_artifact_families`, `semantic_artifacts` e
+  `semantic_artifact_load_operations`; migration manual com rollback dedicado.
+- Saga CLI idempotente: integridade → registry → PUT exclusivo → contagem e
+  recurso esperado → ativação SQL por row lock/CAS. O operation lock ocupa uma
+  conexão dedicada durante I/O; o family lock limita-se à transação curta.
+- Rollback move apenas o current pointer para uma revisão elegível; nunca
+  apaga ou sobrescreve graph histórico. `/graph/operational` permanece isolado.
+- O shape set é RDF governado e carregável. Não existe execução SHACL,
+  elegibilidade semântica, IDS, IFC-to-RDF, actor links ou queries
+  institucionais.
+
+## 15.11 Future Semantic Extension (NADA disto está implementado)
 
 Trabalho futuro, por ordem provável: seleção ontológica (IFC-OWL/BOT/Brick/
 SAREF — decisão da tese) → IFC-to-RDF (materialização por model_version em

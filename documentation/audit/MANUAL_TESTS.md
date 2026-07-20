@@ -941,3 +941,95 @@ toca no universo 5B e só quando TU a executares).
 23. `cd back && npx tsx scripts/cleanupNonModelledGraphData.ts` — remove SÓ o
     universo 5B (SQL + RDF, direcionado, idempotente). Reservas de demo de
     ativos modelados: apagar à mão por id, se quiseres.
+
+## 22. Prompt 7B1 — Semantic Artifact Registry e graphs imutáveis
+
+**Manual infrastructure verification not performed.**
+
+Este roteiro está **pendente** e deve correr apenas num ambiente local
+descartável/reversível. Não foi executado pela implementação. Nunca apontar
+estes comandos a produção nem carregar no dataset `oswadt-dev` sem decisão
+humana explícita. É uma referência técnica para um futuro executor, não uma
+tarefa obrigatória da investigadora. Futuras verificações manuais destinadas à
+investigadora devem usar cenários funcionais observáveis, não inspeções de
+locks, hashes, migrations, retries ou tabelas internas.
+
+### 22.1 Preparação e migration manual
+
+1. Guarda backup da base e confirma `git status --short`.
+2. Inicia MySQL e o Fuseki local conforme §19. Confirma que as `GRAPH_*`
+   apontam ao dataset escolhido para este teste e guarda, antes da carga, a
+   contagem do graph `/graph/operational` com uma query `SELECT (COUNT(*) AS
+   ?count) WHERE { GRAPH <.../graph/operational> { ?s ?p ?o } }`.
+3. Revê e aplica manualmente
+   `database/migrations/2026-07-20_semantic_artifact_registry.sql` no MySQL.
+   Não existe migration ledger automático.
+4. Confirma com `SHOW TABLES LIKE 'semantic_artifact%';` que existem exatamente
+   as três tabelas novas e inspeciona os índices com `SHOW INDEX`.
+5. Em `back/.env`, reutiliza as credenciais/endpoints `GRAPH_*` já existentes e
+   define `SEMANTIC_ARTIFACT_LOADING_ENABLED=true`. Não duplica credenciais.
+
+### 22.2 Integridade e dry-run
+
+6. Em `back/`, corre `npm run semantic:artifacts:validate` → cinco artefactos,
+   hashes/tamanhos esperados e nota explícita de que não houve execução SHACL.
+7. Corre `npm run semantic:artifacts:load-public -- --dry-run` → quatro chaves,
+   zero writes SQL e zero writes no grafo.
+8. Confirma que `semantic/artifacts` contém apenas os cinco `.ttl`, o manifesto
+   público e README; nenhum RDF/XML ou ficheiro privado do pacote externo.
+
+### 22.3 Falha recuperável e retry
+
+9. Antes da primeira carga real, para o Fuseki e executa, com uma chave pública,
+   `npm run semantic:artifacts:load -- --key <artifactKey>
+   --idempotency-key manual-retry-7b1` → erro controlado `graph_load_failed` e
+   operação `failed_retryable`, sem current pointer.
+10. Reinicia o Fuseki, obtém o `operation_uuid` diretamente em
+    `semantic_artifact_load_operations` e corre `npm run
+    semantic:artifacts:retry -- --operation <operationUuid>`.
+11. Confirma que `artifact_uuid`, `named_graph_uri` e `sha256` não mudaram, a
+    contagem coincide e a operação terminou. O erro SQL guardado não contém
+    payload, query ou credencial.
+
+### 22.4 Carga pública, registry e repetição
+
+12. Corre `npm run semantic:artifacts:load-public` → quatro releases runtime;
+    o fixture negativo não aparece.
+13. Corre `npm run semantic:artifacts:status` e confirma uma família/revisão
+    ativa por chave, `graph_verified`, operações concluídas e current pointers.
+14. No Fuseki, consulta individualmente os quatro `named_graph_uri` devolvidos:
+    contagens 457, 103, 72 e 115. Confirma o recurso semântico esperado nos
+    graphs de ontologia, ponte e shapes.
+15. Repete `npm run semantic:artifacts:load-public`; confirma que as mesmas
+    revisões/graphs convergem, sem novos PUTs nem UUIDs de artefacto.
+16. Repete a contagem do `/graph/operational` feita no item 2 → exatamente o
+    mesmo valor. Nenhum URI do registry usa `/graph/operational`, `current`,
+    `active` ou `latest`.
+
+### 22.5 Rollback e histórico
+
+17. Um rollback real exige duas revisões elegíveis da mesma família. Quando uma
+    segunda release pública auditada existir, carrega-a, guarda os dois graph
+    URIs e corre `npm run semantic:artifacts:rollback -- --family <familyKey>
+    --to-version <previousVersion> --idempotency-key manual-rollback-7b1`.
+18. Confirma que o current pointer voltou à revisão anterior, a revisão alvo
+    está `active`, a outra está `superseded`, ambos os named graphs continuam
+    consultáveis e `deleteGraph`/`CLEAR`/`DROP` não ocorreu. Repete a mesma
+    operação e confirma convergência idempotente.
+19. Enquanto só existe uma versão pública por família, limita esta verificação
+    ao teste automatizado de rollback concorrente; não fabrica uma release nem
+    edita um TTL para simular versão.
+
+### 22.6 Privacidade, fixture e encerramento
+
+20. Confirma no manifesto e SQL que o fixture negativo é `synthetic_test_only`,
+    `testOnly=true`, `activationAllowed=false`, não possui current pointer e não
+    foi carregado por `load-public`. A CLI normal não oferece carga desse fixture.
+21. Inspeciona os cinco Turtle e os quatro graphs runtime somente para classes de
+    privacidade aprovadas; confirma ausência de pessoas reais, identificadores
+    institucionais privados e URIs individuais privadas.
+22. Desativa novamente `SEMANTIC_ARTIFACT_LOADING_ENABLED=false`. Se o ambiente
+    for descartável e houver aprovação, aplica manualmente o rollback SQL: ele
+    remove apenas as três tabelas desta etapa e nunca toca Fuseki. Os graphs
+    históricos são preservados por desenho e qualquer retenção futura deve ser
+    dirigida por URI, nunca ampla.

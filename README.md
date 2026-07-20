@@ -124,6 +124,23 @@ check the connection with `npx tsx scripts/graphSmoke.ts` (from `back/`).
 See `documentation/audit/PROMPT5A_GRAPH.md` for the URI strategy, named-graph
 conventions and the data-authority matrix.
 
+The governed semantic-artifact layer keeps an audited public/synthetic Turtle
+subset in `semantic/artifacts`, an immutable revision registry in SQL, and one
+UUID-scoped Fuseki graph per revision. Loading is local-CLI only, disabled by
+default, and never runs at application startup:
+
+```bash
+cd back
+npm run semantic:artifacts:validate
+npm run semantic:artifacts:load-public -- --dry-run
+```
+
+Actual loading requires the registry migration, existing `GRAPH_*` settings,
+and explicit `SEMANTIC_ARTIFACT_LOADING_ENABLED=true`. The institutional
+ontology is a non-official draft research artefact; the governed shape set is
+not SHACL execution. See
+`documentation/audit/PROMPT7B1_SEMANTIC_ARTIFACTS.md` and ADR-0032/0033.
+
 Non-modelled assets (no IFC representation) are registered through
 `POST /api/asset/non-modelled` and live in the operational graph as the data
 authority, with a SQL projection used for reservations — the graph service
@@ -141,4 +158,4 @@ The documentation is available in the [documentation directory](./documentation/
   [documentation/audit/CONCURRENCY_AUDIT.md](./documentation/audit/CONCURRENCY_AUDIT.md)
 - Final integration assessment: [documentation/audit/PROMPT6_INTEGRATION.md](./documentation/audit/PROMPT6_INTEGRATION.md)
 - Demo walkthrough (10–15 min): [documentation/audit/DEMO_SCRIPT.md](./documentation/audit/DEMO_SCRIPT.md)
-- Architecture decision records: [documentation/adr/](./documentation/adr/) (ADR-0001…ADR-0031)
+- Architecture decision records: [documentation/adr/](./documentation/adr/) (ADR-0001…ADR-0033)
