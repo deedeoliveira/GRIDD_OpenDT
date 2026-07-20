@@ -6,10 +6,11 @@ import spaceDb from "../utils/spaceDatabase.ts";
 import { fetchInventory } from "./preprocessService.ts";
 import { getModelRequirementsValidator } from "../requirements/modelRequirementsProvider.ts";
 import { ModelRequirementsError } from "../requirements/modelRequirementsTypes.ts";
+import { ModelRequirementsValidationService } from "../requirements/modelRequirementsValidationService.ts";
 import { persistSpaceIdentities, reconcileSpaceStatusesAfterActivation, type SpaceCandidateInput } from "./spaceIdentityService.ts";
 import { persistAssetsForVersion, reconcileAssetLifecycleAfterActivation } from "./assetInventoryService.ts";
 import persistentAssetDb from "../utils/persistentAssetDatabase.ts";
-import { hashFile, promoteFile, removeTempFile, removeVersionDir, versionStorageKey } from "../utils/storage.ts";
+import { hashFile, promoteFile, removeTempFile, removeVersionDir, resolveStorageKey, versionStorageKey } from "../utils/storage.ts";
 
 /**
  * Fluxo de upload por etapas (Prompt 2).
@@ -137,24 +138,22 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
                        entities/assets/spaces/bindings/casos. Falha de
                        requisitos ≠ decisão de política. -------- */
         stage = "model_requirements_preflight";
-        const requirements = await getModelRequirementsValidator().validate(extracted, {
-            linkedModelId: linkedParentId,
-            modelId,
-            modelVersionId: versionId,
+        const requirements = await new ModelRequirementsValidationService().validate({
+            ifcPath: resolveStorageKey(storageKey),
+            extractedModel: extracted,
+            context: { linkedModelId: linkedParentId, modelId, modelVersionId: versionId },
+            projectValidator: getModelRequirementsValidator(),
+            sourceKind: "upload",
         });
 
-        if (requirements.status !== "conforms") {
-            const errors = requirements.findings.filter((f) => f.severity === "error");
+        if (requirements.blocking) {
+            const errors = requirements.findings.filter((f) => f.status === "fail");
             const requirementIds = [...new Set(errors.map((f) => f.requirementId))];
             const detail = errors.map((f) => {
                 const parts = [f.message];
                 const ctx: string[] = [];
-                if (f.ifcClass) ctx.push(`class=${f.ifcClass}`);
+                if (f.entityType) ctx.push(`class=${f.entityType}`);
                 if (f.entityGuid) ctx.push(`guid=${f.entityGuid}`);
-                if (f.name) ctx.push(`name=${f.name}`);
-                if (f.objectType) ctx.push(`objectType=${f.objectType}`);
-                if (f.tag !== null && f.tag !== undefined) ctx.push(`tag=${f.tag}`);
-                if ((f.details as any)?.motivo) ctx.push(`motivo=${(f.details as any).motivo}`);
                 if (ctx.length) parts.push(`[${ctx.join(", ")}]`);
                 return parts.join(" ");
             }).join(" | ");
@@ -162,8 +161,15 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
             throw new ModelRequirementsError(
                 detail,
                 `${requirementIds.join(", ")} — ${errors.length} information requirement violation(s)`,
-                errors,
-                requirements.profileId
+                errors.map((f) => ({
+                    requirementId: f.requirementId,
+                    severity: "error" as const,
+                    entityGuid: f.entityGuid,
+                    ifcClass: f.entityType,
+                    message: f.message,
+                    details: { source: f.source, runUuid: requirements.runUuid },
+                })),
+                requirements.profile?.familyKey ?? "project-profile-v1"
             );
         }
 

@@ -48,8 +48,8 @@ def _space_entry(sp):
         "elements": []
     }
 
-def extract_inventory_by_space():
-    model = ifcopenshell.open("source_model.ifc")
+def extract_inventory_by_space(file_path="source_model.ifc"):
+    model = ifcopenshell.open(file_path)
 
     # Base: spaces existentes
     spaces = model.by_type("IfcSpace")
@@ -105,14 +105,14 @@ def _element_entry(el):
     }
 
 
-def extract_model_context():
+def extract_model_context(file_path="source_model.ifc"):
     """
     Contexto do modelo para o preflight de requisitos no Node.js:
      - schema declarado no header (o perfil suportado/testado é IFC4);
      - IfcBuildingElementProxy fora de qualquer IfcSpace (as regras PROXY-*
        aplicam-se a QUALQUER proxy do modelo, contido ou não).
     """
-    model = ifcopenshell.open("source_model.ifc")
+    model = ifcopenshell.open(file_path)
 
     try:
         schema = model.header.file_schema.schema_identifiers[0]

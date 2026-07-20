@@ -55,6 +55,8 @@ backup_*.sql
 
 # IFCs
 *.ifc
+!back/tests/fixtures/ids/
+!back/tests/fixtures/ids/*.ifc
 
 # Python
 /back/python/__pycache__*

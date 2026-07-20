@@ -16,6 +16,8 @@
     "semantic:institutional:seed-synthetic-links": "tsx scripts/seedSyntheticInstitutionalLinks.ts",
     "semantic:institutional:demo": "tsx scripts/institutionalContextDemo.ts",
     "semantic:institutional:demo-setup": "tsx scripts/institutionalDemoSetup.ts"
+    ,"ids:demo": "tsx scripts/idsDemo.ts"
+    ,"ids:demo:setup": "tsx scripts/idsDemoSetup.ts"
   },
   "keywords": [],
   "author": "",
