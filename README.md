@@ -1,5 +1,10 @@
 # <ins>O</ins>pen <ins>S</ins>ource based <ins>W</ins>eb <ins>A</ins>pplication for <ins>D</ins>igital <ins>T</ins>wins
 
+> Prompt 7C adds genuine IDS validation through IfcTester/IfcOpenShell. The
+> governed public profile is a `file_executed` registry artifact: it has an
+> immutable hash, version, lifecycle and SQL current pointer, but no named graph
+> and is never sent to Fuseki.
+
 ## Getting started
 
 ### Prerequisites
@@ -153,6 +158,24 @@ Non-modelled assets (no IFC representation) are registered through
 authority, with a SQL projection used for reservations — the graph service
 must be running for those specific operations only (everything else works
 without it). See `documentation/audit/PROMPT5B_NON_MODELLED.md`.
+
+## IDS functional demonstrator
+
+IDS validation is disabled by default. Local technical preparation uses the
+exact flags `IDS_VALIDATION_ENABLED=true`, `IDS_VALIDATION_MODE=required`,
+`IDS_PROFILE_FAMILY_KEY=oswadt-ifc4-model-requirements`, and
+`IDS_DEMO_MODE=true`, followed from `back/` by:
+
+```bash
+npm run ids:demo:setup
+npm run ids:demo:setup -- --execute
+```
+
+The first command is a dry-run and neither command applies migrations. The
+researcher only opens `http://localhost:3000/ids-demo`, chooses a synthetic
+scenario and reads the separate IDS/project-rule report. The demonstrator does
+not decide reservability, eligibility, authorization or approval and does not
+create or alter reservations.
 
 ## Documentation
 

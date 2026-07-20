@@ -60,8 +60,8 @@ sequenceDiagram
   regras específicas de IfcBuildingElementProxy (ObjectType só é relevante em
   proxies).
 - Falha de requisitos ≠ decisão de política (fronteiras separadas, guardadas
-  por teste). **IDS não está implementado** — o preflight é o ponto de
-  inserção futuro.
+  por teste). Prompt 7C compõe este perfil local com uma camada IDS genuína;
+  regras não expressáveis em IDS permanecem aqui.
 
 ## 15.3 Persistent Space Identity (Prompt 3; ADR-0005..0009)
 
@@ -266,15 +266,35 @@ flowchart TD
   Não implementado: authentication, authorization, eligibility, SHACL,
   reservability ou approval.
 
-## 15.12 Future Semantic Extension (NADA disto está implementado)
+## 15.12 IDS-based IFC preflight (Prompt 7C; ADR-0036/0037)
+
+- The public IDS profile is governed by the registry as
+  `storage_mode=file_executed`; its `named_graph_uri` is null and Fuseki is not
+  in its execution path.
+- `IfcOpenShellIdsValidationProvider` isolates the application from IfcTester
+  0.8.4 and returns normalized results. XML profile loading and IFC evaluation
+  are performed by the genuine executor, not by application regexes/parsers.
+- `ModelRequirementsValidationService` preserves `source=ids` and
+  `source=project_rule`. Disabled preserves prior behaviour, report-only
+  records IDS failure without blocking, and required blocks an IDS or project
+  rule failure.
+- Reports store provenance, modes, statuses and bounded messages without IFC or
+  XML bodies, credentials, SQL, SPARQL or stack traces. Upload validation runs
+  before inventory, identity, assets, activation and any reservation effect.
+- `/api/model-requirements/demo/:scenario` is POST-only, feature-gated and
+  allowlists three repository fixtures. `/ids-demo` calls the Node API only.
+- Duplicate codes, federation authority, identity continuity, availability,
+  reservability, eligibility, approval and reservation transactions remain
+  outside IDS.
+
+## 15.13 Future Semantic Extension
 
 Trabalho futuro, por ordem provável: seleção ontológica (IFC-OWL/BOT/Brick/
 SAREF — decisão da tese) → IFC-to-RDF (materialização por model_version em
 named graph próprio `graph/model-version/{id}`, convenções já reservadas em
 namedGraphs.ts) → migração do vocabulário operational-v1 para a ontologia
-escolhida → SHACL (validação de shapes) → IDS (requisitos de informação
-executáveis no preflight) → ingestão de sensores (fonte sensor_inference nas
+escolhida → SHACL (validação de shapes) → ingestão de sensores (fonte sensor_inference nas
 atribuições de localização, com confidence/observed_at já previstos no
 esquema) → regras institucionais como provider de política semântico →
-proveniência ampliada (PROV-O). Cada peça tem o ponto de inserção preparado,
-e NENHUMA está construída.
+proveniência ampliada (PROV-O). Nenhuma destas extensões futuras está
+construída.

@@ -12,4 +12,10 @@
 - Do not claim IDS, IFC-to-RDF, SHACL execution, or semantic eligibility without executable evidence.
 - Do not change reservations or policy behaviour as a side effect unless that change is explicitly in scope.
 - Do not apply migrations, commit, or push unless explicitly requested.
+- Do not commit before the researcher's functional walkthrough unless an explicit later instruction authorizes it.
+- Manual tests for the researcher must be functional and observable; technical setup is the executor's responsibility.
+- Every test list must explain in plain language what is being tested, not only name files or suites.
+- Never call a custom validator IDS; IDS claims require a genuine standard-compatible executor.
+- Loading a shapes graph is not SHACL execution.
+- Keep IDS results, project rules, eligibility decisions, and reservation decisions as separate layers.
 - Minimum verification: `cd back && npm test`, `cd back && npx tsc --noEmit`, `cd front && npx tsc --noEmit`, and `cd front && npm run build`.

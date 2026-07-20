@@ -971,12 +971,14 @@ locks, hashes, migrations, retries ou tabelas internas.
 
 ### 22.2 Integridade e dry-run
 
-6. Em `back/`, corre `npm run semantic:artifacts:validate` → cinco artefactos,
+6. Em `back/`, corre `npm run semantic:artifacts:validate` → seis artefactos
+   governados (cinco Turtle e um IDS/XML),
    hashes/tamanhos esperados e nota explícita de que não houve execução SHACL.
 7. Corre `npm run semantic:artifacts:load-public -- --dry-run` → quatro chaves,
    zero writes SQL e zero writes no grafo.
-8. Confirma que `semantic/artifacts` contém apenas os cinco `.ttl`, o manifesto
-   público e README; nenhum RDF/XML ou ficheiro privado do pacote externo.
+8. Confirma que `semantic/artifacts` contém apenas os cinco `.ttl`, o IDS
+   público, o manifesto e README; nenhum RDF/XML ou ficheiro privado do pacote
+   externo.
 
 ### 22.3 Falha recuperável e retry
 
@@ -1060,3 +1062,27 @@ SQL, SPARQL ou inspeções de infraestrutura.
 
 Não pedir à investigadora que inspecione locks, hashes, migrations, retries,
 tabelas internas, SPARQL, named graphs ou contagens técnicas.
+
+## 24. Prompt 7C — demonstração funcional IDS
+
+Este é o único roteiro manual destinado à investigadora. A migration, o perfil
+ativo, as dependências, as fixtures, os serviços e o setup são preparados pelo
+executor. Instruções técnicas em `DEMO_IDS_VALIDATION.md` são referência para
+o executor e **Not intended as a required manual test for the researcher.**
+
+1. Abrir `/ids-demo` no ambiente já preparado.
+2. Escolher **Scenario A — Missing Reference**, executar a validação e observar
+   `Overall: FAIL`, `IDS: FAIL`; compreender que o espaço não fornece
+   `Pset_SpaceCommon.Reference`.
+3. Escolher **Scenario B — Valid Model**, executar e observar `Overall: PASS`,
+   `IDS: PASS`, `Project rules: PASS`.
+4. Escolher **Scenario C — Duplicate Reference**, executar e observar
+   `Overall: FAIL`, `IDS: PASS`, `Project rules: FAIL`; compreender que cada
+   espaço satisfaz individualmente o IDS, mas dois espaços usam o mesmo código.
+5. Confirmar que perfil, versão, hash e executor aparecem no relatório e que
+   requisitos aprovados/falhados estão legíveis e separados por camada.
+6. Confirmar o aviso permanente: a demonstração não decide reservabilidade,
+   elegibilidade, autorização ou aprovação e não cria/altera reservas.
+
+A investigadora não executa migrations, SQL, SPARQL, hashes, locks, instalação
+de dependências, seeds, preparação de fixtures nem inspeção de tabelas.
