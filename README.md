@@ -133,3 +133,12 @@ without it). See `documentation/audit/PROMPT5B_NON_MODELLED.md`.
 ## Documentation
 
 The documentation is available in the [documentation directory](./documentation/Documentation.md)].
+
+- **Consolidated architecture** (versioning, identities, location, graph/SQL
+  authority, reservations, concurrency, failure recovery, future semantic
+  work): [documentation/CONSOLIDATED_ARCHITECTURE.md](./documentation/CONSOLIDATED_ARCHITECTURE.md)
+- Concurrency audit and transactional boundaries (Prompt 6):
+  [documentation/audit/CONCURRENCY_AUDIT.md](./documentation/audit/CONCURRENCY_AUDIT.md)
+- Final integration assessment: [documentation/audit/PROMPT6_INTEGRATION.md](./documentation/audit/PROMPT6_INTEGRATION.md)
+- Demo walkthrough (10–15 min): [documentation/audit/DEMO_SCRIPT.md](./documentation/audit/DEMO_SCRIPT.md)
+- Architecture decision records: [documentation/adr/](./documentation/adr/) (ADR-0001…ADR-0031)

@@ -856,3 +856,88 @@ Fuseki preparado (§19). Usa SEMPRE chaves novas (UUIDs) nos comandos.
     (com o Fuseki LIGADO e as GRAPH_* no .env; remove reservas/localizações/
     operações/assets source='graph' e os recursos RDF correspondentes; nunca
     usa CLEAR/DROP; preserva modelos, espaços, bindings, sensores e channels.)
+## 21. Prompt 6 — Roteiro FINAL completo (concorrência, integração, recuperação)
+
+Roteiro único de verificação de todo o protótipo. NÃO executes reset da base
+sem autorização; nenhum passo apaga dados reais (a limpeza do item 21.12 só
+toca no universo 5B e só quando TU a executares).
+
+### 21.1 Base e serviços
+1. MySQL (3336), backend (3001), front (3000), Flask (3002), Fuseki (3030)
+   ligados. `GET http://localhost:3001/api/model` responde; `GET
+   http://localhost:3030/$/ping` responde.
+2. Migrations aplicadas — a nova (índice de concorrência) se ainda não:
+   `cd back && npx tsx scripts/runSqlFile.ts ../database/migrations/2026-07-18_concurrency_constraints.sql`
+   (idempotência: 2.ª execução falha com "Duplicate key name" — esperado e
+   inofensivo). Rollback documentado no ficheiro `_rollback.sql` — só em
+   ambiente descartável.
+3. `SHOW INDEX FROM assets WHERE Key_name='uq_assets_graph_manager_code';` → 1 linha.
+
+### 21.2 Suite automática, typecheck, front
+4. `cd back && npm test` → **416 testes, 0 falhas**.
+5. `npx tsc --noEmit` → sem erros. `cd ../front && npm run build` → conclui.
+
+### 21.3 IFC V1/V2, versões, espaços, ativos, bindings
+6. Segue DEMO_SCRIPT.md §18.1–18.3 (upload V1 → reserva → upload V2):
+   mesma identidade (asset_uuid/space_uuid), binding novo por versão, corrente
+   por `models.current_version_id`, reserva preservada com snapshots antigos,
+   conflito preservado por asset_id.
+
+### 21.4 Estados das reservas (inclui overdue e checkout)
+7. Cria reserva (pending). Cancela → OK sem restrição de 24 h.
+8. Cria outra; marca-a `approved` diretamente em SQL (não há workflow de
+   aprovação — mecanismo documentado):
+   `UPDATE res_reservations SET status='approved' WHERE id=<id>;`
+   Cancelar a <24 h do início → erro da regra 24 h.
+9. Com uma approved dentro da janela: `POST /api/reservation/checkin` →
+   in_use; `POST /api/reservation/checkout` → completed. Segundo checkout →
+   "No active reservation to checkout".
+10. Overdue: cria reserva curta já a decorrer (approved em SQL, checkin), deixa
+    passar o end_time, faz qualquer GET de reservas → status vira `overdue`;
+    checkout de overdue → completed (obrigatório e aceite).
+11. Datas inválidas: início no passado e fim ≤ início → 400 com as mensagens
+    de sempre, ANTES de tocar na base.
+
+### 21.5 Concorrência (real, contra o backend)
+12. `cd back && npx tsx scripts/concurrencyProbe.ts reservation <assetId>` →
+    10 rondas, todas `accepted=1 rejected=1`.
+13. `npx tsx scripts/concurrencyProbe.ts idempotency` → 1 ativo, 1 operação.
+14. Regista um ativo não modelado com localização e corre
+    `npx tsx scripts/concurrencyProbe.ts movement <assetId>` → 1 corrente.
+
+### 21.6 Ativo não modelado, grafo, projeção, movimento, histórico
+15. Roteiro §20 (itens 1–20) continua válido — versão curta: regista com
+    initialSpaceId, vê a URI no Fuseki, projection-status, move, histórico.
+
+### 21.7 Retries e reconciliação
+16. Pára o Fuseki; POST de registo novo → 503 controlado; sobe o Fuseki;
+    `POST /api/semantic/sync/<id>/retry` → completed (attempt_count +1 UMA vez,
+    mesmo se dispararem dois retries ao mesmo tempo).
+17. `GET /api/semantic/reconciliation/report` → sem findings (ou explica-os);
+    `POST /api/semantic/reconciliation/apply-safe` 2× seguidas → 2.ª sem nada
+    a aplicar (idempotente).
+
+### 21.8 Falha de upload
+18. Envia um IFC inválido (sem IfcSpace/Reference) → upload falha no preflight;
+    `model_versions` mostra a linha `failed` com failure_reason;
+    `current_version_id` INALTERADO; viewer continua a servir a corrente.
+19. Confirma que a falha IFC não tocou no grafo: a contagem de recursos do
+    grafo operacional é a mesma de antes do upload falhado.
+
+### 21.9 Viewer, sensores, frontend, Bruno
+20. Viewer abre a versão corrente; painel de sensores responde; coleção Bruno
+    (Models/Spaces/Reservation/Assets/NonModelled/Semantic) funcional.
+
+### 21.10 Isolamento com grafo em baixo
+21. Com o Fuseki parado: modelados, espaços, reservas de modelados E de não
+    modelados JÁ projetados funcionam; só os fluxos 5B novos devolvem 503.
+
+### 21.11 Rollback (APENAS em ambiente descartável)
+22. Numa base descartável (nunca na dev): aplica
+    `2026-07-18_concurrency_constraints_rollback.sql` e confirma que só o
+    índice desaparece (nenhuma linha alterada); reaplica a migration.
+
+### 21.12 Limpeza (opcional, decisão tua)
+23. `cd back && npx tsx scripts/cleanupNonModelledGraphData.ts` — remove SÓ o
+    universo 5B (SQL + RDF, direcionado, idempotente). Reservas de demo de
+    ativos modelados: apagar à mão por id, se quiseres.
