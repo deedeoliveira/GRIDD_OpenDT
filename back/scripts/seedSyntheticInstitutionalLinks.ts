@@ -29,7 +29,10 @@ async function main(): Promise<void> {
     console.log(JSON.stringify({ ok: true, syntheticOnly: true, rdfWrites: 0, links }, null, 2));
 }
 
-main().catch((error: unknown) => {
-    console.error(JSON.stringify({ ok: false, ...sanitizedLinkError(error) }));
-    process.exitCode = 1;
-});
+void main().then(
+    () => process.exit(0),
+    (error: unknown) => {
+        console.error(JSON.stringify({ ok: false, ...sanitizedLinkError(error) }));
+        process.exit(1);
+    }
+);

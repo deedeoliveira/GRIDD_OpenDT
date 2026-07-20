@@ -30,7 +30,13 @@ Features default disabled. Graph URIs come only from active registry pointers. O
 
 ## Automated evidence and unperformed infrastructure work
 
-Deterministic fakes cover lifecycle, concurrency, escaping/injection, graph mapping, unavailable states, API serialization, frontend contracts and the complete vertical story. MySQL/Fuseki real infrastructure, migrations and seeds were not executed. No technical manual test is claimed.
+Deterministic fakes cover lifecycle, concurrency, escaping/injection, graph mapping, unavailable states, API serialization, frontend contracts and the complete vertical story. At the close of the implementation commit, MySQL/Fuseki real infrastructure, migrations and seeds had not been executed.
+
+Post-implementation local preparation on 2026-07-20 applied the two absent
+7B1/7B2 migrations, activated the four approved runtime artefacts in local
+Fuseki and created only the four synthetic SQL links. The three functional
+scenarios were observed through the application API, with no reservation-table
+change. This technical preparation is not a required researcher task.
 
 ## Scientific status
 

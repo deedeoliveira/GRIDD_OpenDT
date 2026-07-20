@@ -1041,6 +1041,10 @@ observáveis. A preparação técnica está separada em
 `DEMO_INSTITUTIONAL_CONTEXT.md` e **não é um teste manual obrigatório da
 investigadora**.
 
+Estado local em 2026-07-20: preparação técnica concluída pelo executor; a
+investigadora começa diretamente no passo 1 e não executa migrations, seeds,
+SQL, SPARQL ou inspeções de infraestrutura.
+
 1. Abrir `/semantic-demo` já preparado pelo executor técnico.
 2. Selecionar `TEST-ACTOR-STUDENT-001` e observar pessoa sintética, número de
    estudante, grupo de investigação, dois papéis, supervisor e versões dos

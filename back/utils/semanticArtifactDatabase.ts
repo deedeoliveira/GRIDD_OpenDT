@@ -284,7 +284,10 @@ export class SemanticArtifactDatabase implements SemanticArtifactDatabasePort {
     }
 
     async withOperationLock<T>(operationUuid: string, fn: () => Promise<T>): Promise<T> {
-        return this.db.withNamedLock(`oswadt.semantic_artifact.operation.${operationUuid}`, 30, fn);
+        // MySQL user-level lock names are limited to 64 characters. The
+        // operation UUID is already unique, so a compact namespace preserves
+        // that identity without making the lock invalid on real MySQL 8.
+        return this.db.withNamedLock(`oswadt.sem.op.${operationUuid}`, 30, fn);
     }
 
     async incrementOperationAttempt(operationUuid: string): Promise<void> {

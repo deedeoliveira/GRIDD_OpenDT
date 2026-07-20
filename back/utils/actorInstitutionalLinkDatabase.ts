@@ -41,8 +41,9 @@ export class ActorInstitutionalLinkDatabase implements ActorInstitutionalLinkDat
     }
 
     async withActorLock<T>(normalizedActorKey: string, fn: () => Promise<T>): Promise<T> {
-        const digest = crypto.createHash("sha256").update(normalizedActorKey).digest("hex");
-        return this.db.withNamedLock(`oswadt.institutional.actor.${digest}`, 30, fn);
+        const digest = crypto.createHash("sha256").update(normalizedActorKey).digest("hex").slice(0, 40);
+        // 58 characters: safely below MySQL's 64-character GET_LOCK limit.
+        return this.db.withNamedLock(`oswadt.inst.actor.${digest}`, 30, fn);
     }
 
     async createPending(input: CreatePendingActorLinkInput): Promise<ActorInstitutionalLinkRow> {

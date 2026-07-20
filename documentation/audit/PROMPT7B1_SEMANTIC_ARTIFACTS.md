@@ -49,6 +49,11 @@ Implemented evidence is named `integrity_validation`, `fuseki_parsing_loading_va
 
 Automated tests use filesystem fixtures and deterministic in-memory SQL/graph fakes; they do not require live MySQL or Fuseki. The local validation CLI verified all five hashes/sizes. The SQL migration and real Fuseki load were deliberately not executed. See `MANUAL_TESTS.md` for the pending opt-in procedure.
 
+Post-implementation update (2026-07-20): the local demonstration preparation
+applied the previously absent registry migration and activated the four public/
+synthetic runtime artefacts with `graph_verified` evidence. It did not load the
+negative fixture, private data or execute SHACL.
+
 ## Explicitly not implemented
 
 No institutional person/membership/supervisor queries, actor links, institutional API, private demo data, SHACL execution or eligibility, IDS, IFC-to-RDF, policy/reservation changes, approval, manager UI, operational graph migration, sensors or official ontology publication.
