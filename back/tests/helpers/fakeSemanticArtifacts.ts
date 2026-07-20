@@ -120,7 +120,9 @@ export class FakeSemanticArtifactDatabase implements SemanticArtifactDatabasePor
             media_type: input.mediaType,
             serialization: input.serialization,
             semantic_uri: input.semanticUri,
+            storage_mode: input.storageMode,
             named_graph_uri: input.namedGraphUri,
+            executor_metadata_json: input.executorMetadata ?? null,
             lifecycle_status: "staged",
             validation_status: "not_validated",
             validation_summary_json: null,
@@ -225,6 +227,15 @@ export class FakeSemanticArtifactDatabase implements SemanticArtifactDatabasePor
         await this.setOperationStatus(operationUuid, "graph_written");
     }
 
+    async markFileVerified(operationUuid: string, artifactId: number, summary: Record<string, unknown>): Promise<void> {
+        const artifact = this.artifacts.find((row) => row.id === artifactId);
+        if (!artifact) throw new Error("artifact not found");
+        artifact.validation_status = "file_verified";
+        artifact.lifecycle_status = "validated";
+        artifact.validation_summary_json = summary;
+        await this.setOperationStatus(operationUuid, "file_validated");
+    }
+
     async completeWithoutActivation(operationUuid: string): Promise<void> {
         await this.setOperationStatus(operationUuid, "completed");
     }
@@ -234,7 +245,10 @@ export class FakeSemanticArtifactDatabase implements SemanticArtifactDatabasePor
             const family = this.families.find((row) => row.id === input.familyId);
             const artifact = this.artifacts.find((row) => row.id === input.artifactId);
             if (!family || !artifact || artifact.family_id !== family.id) throw new SemanticArtifactError("activation_ineligible", "invalid family target");
-            if (artifact.validation_status !== "graph_verified" || artifact.lifecycle_status === "failed" || artifact.lifecycle_status === "retired" || artifact.privacy_classification === "synthetic_test_only") {
+            const verified = artifact.storage_mode === "file_executed"
+                ? artifact.validation_status === "file_verified" && artifact.named_graph_uri === null
+                : artifact.validation_status === "graph_verified" && artifact.named_graph_uri !== null;
+            if (!verified || artifact.lifecycle_status === "failed" || artifact.lifecycle_status === "retired" || artifact.privacy_classification === "synthetic_test_only") {
                 throw new SemanticArtifactError("activation_ineligible", "artifact is not eligible");
             }
             if (family.current_artifact_id === artifact.id) {

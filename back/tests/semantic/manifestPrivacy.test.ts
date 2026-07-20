@@ -22,9 +22,9 @@ async function assertSemanticError(promise: Promise<unknown>, code: string): Pro
     await assert.rejects(promise, (error: unknown) => error instanceof SemanticArtifactError && error.code === code);
 }
 
-test("public manifest: exactly the five approved Turtle files are declared", async () => {
+test("public manifest: the five approved Turtle files and one governed IDS are declared", async () => {
     const manifest = await loadPublicArtifactManifest(MANIFEST_PATH);
-    assert.equal(manifest.artifacts.length, 5);
+    assert.equal(manifest.artifacts.length, 6);
     assert.deepEqual(
         new Set(manifest.artifacts.map((entry) => entry.sourceFilename)),
         APPROVED_PUBLIC_SOURCE_FILENAMES
@@ -41,17 +41,18 @@ test("integrity: all committed source hashes and byte sizes match the public man
     const manifest = await loadPublicArtifactManifest(MANIFEST_PATH);
     const validation = new ArtifactValidationService(new FilesystemArtifactSource(ROOT));
     const results = await validation.validateManifestTree(manifest);
-    assert.equal(results.length, 5);
+    assert.equal(results.length, 6);
     assert.ok(results.every((result) => result.summary.sha256 === result.entry.sha256));
     assert.ok(results.every((result) => result.summary.byteSize === result.entry.byteSize));
 });
 
-test("privacy tree guard: no undeclared Turtle, RDF/XML, CSV or SPARQL file exists", async () => {
+test("privacy tree guard: no undeclared Turtle, IDS, RDF/XML, CSV or SPARQL file exists", async () => {
     const source = new FilesystemArtifactSource(ROOT);
     const files = await source.listFiles();
-    const rdfFiles = files.filter((file) => /\.(ttl|rdf|csv|sparql)$/i.test(file));
+    const rdfFiles = files.filter((file) => /\.(ttl|ids|rdf|csv|sparql)$/i.test(file));
     assert.equal(rdfFiles.filter((file) => file.endsWith(".ttl")).length, 5);
-    assert.equal(rdfFiles.filter((file) => !file.endsWith(".ttl")).length, 0);
+    assert.equal(rdfFiles.filter((file) => file.endsWith(".ids")).length, 1);
+    assert.equal(rdfFiles.filter((file) => !file.endsWith(".ttl") && !file.endsWith(".ids")).length, 0);
 });
 
 test("negative fixture: test-only, synthetic and never activatable", async () => {

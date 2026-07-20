@@ -60,7 +60,7 @@ test("registry creates a family, immutable revision, and operation", async () =>
     assert.equal(database.artifacts.length, 1);
     assert.equal(database.operations.length, 1);
     assert.equal(result.artifact.validation_status, "integrity_validated");
-    assert.match(result.artifact.named_graph_uri, /\/graph\/vocabularies\/institutional-ontology\/[0-9a-f-]+$/);
+    assert.match(result.artifact.named_graph_uri!, /\/graph\/vocabularies\/institutional-ontology\/[0-9a-f-]+$/);
 });
 
 test("same family, version, hash, and idempotency payload converge", async () => {
@@ -137,7 +137,7 @@ test("activation lifecycle records predecessor and supersedes the prior revision
     const first = await register(registry);
     await database.markGraphVerified(first.operation.operation_uuid, Number(first.artifact.id), {
         integrity: integrity(ontology),
-        fusekiLoading: { kind: "fuseki_parsing_loading_validation", accepted: true, graphUri: first.artifact.named_graph_uri },
+        fusekiLoading: { kind: "fuseki_parsing_loading_validation", accepted: true, graphUri: first.artifact.named_graph_uri! },
         postLoad: { kind: "post_load_graph_verification", tripleCount: ontology.tripleCount, expectedResourcePresent: true },
     });
     await database.activateArtifact({

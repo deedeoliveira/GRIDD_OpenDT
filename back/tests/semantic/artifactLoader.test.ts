@@ -71,7 +71,7 @@ test("load-public loads and activates exactly the four runtime artifacts", async
 
 test("ontology, bridge, shapes, and synthetic data use their governed graph namespaces", async () => {
     const { graph, loader } = realSetup();
-    for (const entry of publicManifest.artifacts.filter((item) => !item.testOnly)) {
+    for (const entry of publicManifest.artifacts.filter((item) => item.storageMode === "graph_backed" && !item.testOnly)) {
         await loader.load({ artifactKey: entry.artifactKey, idempotencyKey: `load:${entry.artifactKey}` });
     }
 
@@ -160,7 +160,7 @@ test("graph written plus SQL failure retries with the same artifact and graph UR
     operationUuid = database.operations[0]!.operation_uuid;
     const artifactUuid = database.artifacts[0]!.artifact_uuid;
     const graphUri = database.artifacts[0]!.named_graph_uri;
-    assert.ok(graph.graphs.has(graphUri));
+    assert.ok(graph.graphs.has(graphUri!));
 
     const result = await loader.retry(operationUuid);
     assert.equal(result.artifactUuid, artifactUuid);
@@ -269,7 +269,7 @@ async function concurrencyRows() {
     for (const row of registered) {
         await database.markGraphVerified(row.operation.operation_uuid, Number(row.artifact.id), {
             integrity: (await validation.validate(entries.find((entry) => entry.semanticVersion === row.artifact.semantic_version)!, true)).summary,
-            fusekiLoading: { kind: "fuseki_parsing_loading_validation", accepted: true, graphUri: row.artifact.named_graph_uri },
+            fusekiLoading: { kind: "fuseki_parsing_loading_validation", accepted: true, graphUri: row.artifact.named_graph_uri! },
             postLoad: { kind: "post_load_graph_verification", tripleCount: 1, expectedResourcePresent: true },
         });
     }
