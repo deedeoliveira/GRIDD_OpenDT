@@ -38,10 +38,13 @@ const GRAPH_AWARE_5B_FILES = new Set([
     "routes/semantic.ts",
     "routes/asset.ts", // importa os serviços 5B (não o grafo diretamente)
     "utils/nonModelledAssetDatabase.ts", // projeção SQL 5B (conserva semantic_uri/asset_uuid)
+    // Prompt 7B1: persistência dedicada do registry, usada apenas pela CLI
+    // semântica opt-in; não participa em upload/reservas/startup.
+    "utils/semanticArtifactDatabase.ts",
 ]);
 
-/** Diretórios que PODEM conhecer o grafo: o próprio módulo, scripts de diagnóstico e testes. */
-const ALLOWED_DIRS = new Set(["graph", "scripts", "tests"]);
+/** Diretórios que PODEM conhecer o grafo: módulo, CLI/testes e camada semântica isolada. */
+const ALLOWED_DIRS = new Set(["graph", "scripts", "tests", "semantic"]);
 const SKIPPED_DIRS = new Set(["node_modules", "cdn_resources", "python", "bruno_collection", "dist", ".git", ...ALLOWED_DIRS]);
 
 function operationalSources(): { file: string; source: string }[] {
