@@ -53,7 +53,8 @@ export class RegistryInstitutionalArtifactResolver implements InstitutionalArtif
             throw new ActorInstitutionalLinkError("institutional_artifact_not_active", `required institutional artifact family '${familyKey}' is not active`, 503);
         }
         const artifact = snapshot.artifacts.find((row) => Number(row.id) === Number(family.current_artifact_id));
-        if (!artifact || artifact.lifecycle_status !== "active" || artifact.validation_status !== "graph_verified") {
+        if (!artifact || artifact.lifecycle_status !== "active" || artifact.validation_status !== "graph_verified"
+            || artifact.named_graph_uri === null || artifact.storage_mode === "file_executed") {
             throw new ActorInstitutionalLinkError("institutional_artifact_not_active", `current artifact for '${familyKey}' is not graph-verified`, 503);
         }
         if (artifact.named_graph_uri.includes("/graph/operational") || artifact.named_graph_uri.includes("/graph/test/")) {

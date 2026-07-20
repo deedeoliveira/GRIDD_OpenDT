@@ -1,0 +1,73 @@
+<?xml version='1.0' encoding='utf-8'?>
+<ids xmlns="http://standards.buildingsmart.org/IDS" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://standards.buildingsmart.org/IDS http://standards.buildingsmart.org/IDS/1.0/ids.xsd">
+    <info>
+        <title>OSWADT IFC4 synthetic model information requirements</title>
+        <version>1.0.0</version>
+        <description>Public synthetic IDS profile for functional validation demonstrations.</description>
+        <purpose>Research demonstrator</purpose>
+        <milestone>Prompt 7C</milestone>
+    </info>
+    <specifications>
+        <specification name="Spaces provide a controlled persistent Reference" ifcVersion="IFC4" identifier="IDS-SPACE-REFERENCE" description="Every IfcSpace must provide Pset_SpaceCommon.Reference using the R-000 pattern.">
+            <applicability minOccurs="1" maxOccurs="unbounded">
+                <entity>
+                    <name>
+                        <simpleValue>IFCSPACE</simpleValue>
+                    </name>
+                </entity>
+            </applicability>
+            <requirements>
+                <property dataType="IFCIDENTIFIER" cardinality="required" instructions="Provide a non-empty synthetic room code such as R-101.">
+                    <propertySet>
+                        <simpleValue>Pset_SpaceCommon</simpleValue>
+                    </propertySet>
+                    <baseName>
+                        <simpleValue>Reference</simpleValue>
+                    </baseName>
+                    <value>
+                        <xs:restriction base="xs:string">
+                            <xs:pattern value="R-[0-9]{3}" />
+                        </xs:restriction>
+                    </value>
+                </property>
+            </requirements>
+        </specification>
+        <specification name="Managed demo equipment has an EQP Tag" ifcVersion="IFC4" identifier="IDS-EQUIPMENT-TAG" description="Every IfcFurnishingElement in this profile must have an EQP-prefixed Tag.">
+            <applicability minOccurs="0" maxOccurs="unbounded">
+                <entity>
+                    <name>
+                        <simpleValue>IFCFURNISHINGELEMENT</simpleValue>
+                    </name>
+                </entity>
+            </applicability>
+            <requirements>
+                <attribute cardinality="required" instructions="Use a synthetic identifier beginning with EQP-.">
+                    <name>
+                        <simpleValue>Tag</simpleValue>
+                    </name>
+                    <value>
+                        <xs:restriction base="xs:string">
+                            <xs:pattern value="EQP-[A-Z0-9-]+" />
+                        </xs:restriction>
+                    </value>
+                </attribute>
+            </requirements>
+        </specification>
+        <specification name="Building element proxies identify their object type" ifcVersion="IFC4" identifier="IDS-PROXY-OBJECTTYPE" description="When an IfcBuildingElementProxy is present, ObjectType is required.">
+            <applicability minOccurs="0" maxOccurs="unbounded">
+                <entity>
+                    <name>
+                        <simpleValue>IFCBUILDINGELEMENTPROXY</simpleValue>
+                    </name>
+                </entity>
+            </applicability>
+            <requirements>
+                <attribute cardinality="required">
+                    <name>
+                        <simpleValue>ObjectType</simpleValue>
+                    </name>
+                </attribute>
+            </requirements>
+        </specification>
+    </specifications>
+</ids>

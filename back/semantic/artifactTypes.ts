@@ -12,6 +12,7 @@ export const ARTIFACT_TYPES = [
 ] as const;
 
 export type SemanticArtifactType = (typeof ARTIFACT_TYPES)[number];
+export type ArtifactStorageMode = "graph_backed" | "file_executed";
 
 export const PRIVACY_CLASSIFICATIONS = [
     "public_research_artifact",
@@ -28,13 +29,14 @@ export type PublicPrivacyClassification = Extract<
 >;
 
 export type ArtifactLifecycleStatus = "staged" | "validated" | "active" | "superseded" | "retired" | "failed";
-export type ArtifactValidationStatus = "not_validated" | "integrity_validated" | "graph_verified" | "failed";
+export type ArtifactValidationStatus = "not_validated" | "integrity_validated" | "graph_verified" | "file_verified" | "failed";
 export type ArtifactOperationType = "load_and_activate" | "load_without_activation" | "activate_existing" | "rollback_activation";
 export type ArtifactOperationStatus =
     | "pending_validation"
     | "validated"
     | "pending_graph"
     | "graph_written"
+    | "file_validated"
     | "pending_activation"
     | "completed"
     | "failed_retryable"
@@ -53,8 +55,9 @@ export interface PublicArtifactManifestEntry {
     sha256: string;
     byteSize: number;
     tripleCount: number;
-    mediaType: "text/turtle";
-    serialization: "turtle";
+    mediaType: "text/turtle" | "application/ids+xml";
+    serialization: "turtle" | "ids-xml";
+    storageMode: ArtifactStorageMode;
     semanticUri: string;
     privacyClassification: PublicPrivacyClassification;
     activationAllowed: boolean;
@@ -74,8 +77,8 @@ export interface IntegrityValidationSummary {
     sha256: string;
     byteSize: number;
     expectedTripleCount: number;
-    mediaType: "text/turtle";
-    serialization: "turtle";
+    mediaType: "text/turtle" | "application/ids+xml";
+    serialization: "turtle" | "ids-xml";
     validatedAt: string;
 }
 
@@ -122,7 +125,9 @@ export interface SemanticArtifactRow {
     media_type: string;
     serialization: string;
     semantic_uri: string;
-    named_graph_uri: string;
+    storage_mode?: ArtifactStorageMode;
+    named_graph_uri: string | null;
+    executor_metadata_json?: string | Record<string, unknown> | null;
     lifecycle_status: ArtifactLifecycleStatus;
     validation_status: ArtifactValidationStatus;
     validation_summary_json: string | Record<string, unknown> | null;

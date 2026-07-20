@@ -7,6 +7,7 @@ import {
     type ArtifactOperationType,
     type GraphVerificationSummary,
     type IntegrityValidationSummary,
+    type ArtifactStorageMode,
     type PrivacyClassification,
     type SemanticArtifactFamilyRow,
     type SemanticArtifactLoadOperationRow,
@@ -34,7 +35,9 @@ export interface EnsureSemanticArtifactInput {
     mediaType: string;
     serialization: string;
     semanticUri: string;
-    namedGraphUri: string;
+    storageMode: ArtifactStorageMode;
+    namedGraphUri: string | null;
+    executorMetadata?: Record<string, unknown> | null;
     sourcePackageName: string;
     sourcePackageVersion: string;
     sourceReleaseStatus: string;
@@ -75,6 +78,7 @@ export interface SemanticArtifactDatabasePort {
     ): Promise<void>;
     markIntegrityValidated(artifactId: number, summary: IntegrityValidationSummary): Promise<void>;
     markGraphVerified(operationUuid: string, artifactId: number, summary: GraphVerificationSummary): Promise<void>;
+    markFileVerified(operationUuid: string, artifactId: number, summary: Record<string, unknown>): Promise<void>;
     completeWithoutActivation(operationUuid: string): Promise<void>;
     activateArtifact(input: {
         operationUuid: string;
@@ -191,13 +195,13 @@ export class SemanticArtifactDatabase implements SemanticArtifactDatabasePort {
                 INSERT INTO semantic_artifacts
                     (artifact_uuid, family_id, semantic_version, source_filename,
                      repository_relative_path, byte_size, sha256, media_type,
-                     serialization, semantic_uri, named_graph_uri, source_package_name,
+                     serialization, semantic_uri, storage_mode, named_graph_uri, executor_metadata_json, source_package_name,
                      source_package_version, source_release_status, privacy_classification,
                      predecessor_artifact_id)
                 VALUES
                     (:artifactUuid, :familyId, :semanticVersion, :sourceFilename,
                      :repositoryRelativePath, :byteSize, :sha256, :mediaType,
-                     :serialization, :semanticUri, :namedGraphUri, :sourcePackageName,
+                     :serialization, :semanticUri, :storageMode, :namedGraphUri, :executorMetadata, :sourcePackageName,
                      :sourcePackageVersion, :sourceReleaseStatus, :privacyClassification,
                      :predecessorArtifactId)
             `, input);
@@ -226,6 +230,8 @@ export class SemanticArtifactDatabase implements SemanticArtifactDatabasePort {
             && Number(row.byte_size) === input.byteSize
             && row.repository_relative_path === input.repositoryRelativePath
             && row.semantic_uri === input.semanticUri
+            && row.storage_mode === input.storageMode
+            && row.named_graph_uri === input.namedGraphUri
             && row.privacy_classification === input.privacyClassification;
         if (!compatible) {
             throw new SemanticArtifactError(
@@ -350,6 +356,28 @@ export class SemanticArtifactDatabase implements SemanticArtifactDatabasePort {
         });
     }
 
+    async markFileVerified(operationUuid: string, artifactId: number, summary: Record<string, unknown>): Promise<void> {
+        await this.db.withTransaction(async (conn) => {
+            await conn.execute(`
+                UPDATE semantic_artifacts
+                SET validation_status = 'file_verified', lifecycle_status = 'validated',
+                    validation_summary_json = :summary, executor_metadata_json = :executorMetadata,
+                    validated_at = COALESCE(validated_at, NOW())
+                WHERE id = :artifactId AND storage_mode = 'file_executed'
+                  AND named_graph_uri IS NULL AND lifecycle_status NOT IN ('active','retired','failed')
+            `, {
+                artifactId,
+                summary: JSON.stringify(summary),
+                executorMetadata: JSON.stringify((summary as any).executor ?? {}),
+            });
+            await conn.execute(`
+                UPDATE semantic_artifact_load_operations
+                SET status = 'file_validated', error_code = NULL, error_message = NULL
+                WHERE operation_uuid = :operationUuid
+            `, { operationUuid });
+        });
+    }
+
     async completeWithoutActivation(operationUuid: string): Promise<void> {
         await this.setOperationStatus(operationUuid, "completed", null);
     }
@@ -376,13 +404,17 @@ export class SemanticArtifactDatabase implements SemanticArtifactDatabasePort {
             if (!artifact || Number(artifact.family_id) !== Number(family.id)) {
                 throw new SemanticArtifactError("activation_ineligible", "activation target does not belong to the locked family");
             }
-            if (artifact.validation_status !== "graph_verified"
+            const verifiedForStorage = artifact.storage_mode === "graph_backed"
+                ? artifact.validation_status === "graph_verified" && artifact.named_graph_uri !== null
+                : artifact.storage_mode === "file_executed"
+                    && artifact.validation_status === "file_verified" && artifact.named_graph_uri === null;
+            if (!verifiedForStorage
                 || artifact.lifecycle_status === "failed"
                 || artifact.lifecycle_status === "retired"
                 || artifact.privacy_classification === "synthetic_test_only"
                 || artifact.privacy_classification === "private_local"
                 || artifact.privacy_classification === "requires_manual_review") {
-                throw new SemanticArtifactError("activation_ineligible", "artifact is not graph-verified and eligible for activation");
+                throw new SemanticArtifactError("activation_ineligible", "artifact is not verified for its storage mode and eligible for activation");
             }
 
             const current = family.current_artifact_id === null ? null : Number(family.current_artifact_id);

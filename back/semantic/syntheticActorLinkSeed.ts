@@ -46,6 +46,7 @@ export class RegistryBackedSyntheticLinkVerifier implements InstitutionalLinkVer
         }
         const artifact = snapshot.artifacts.find((row) => Number(row.id) === Number(family.current_artifact_id));
         if (!artifact || artifact.lifecycle_status !== "active" || artifact.validation_status !== "graph_verified"
+            || artifact.named_graph_uri === null || artifact.storage_mode === "file_executed"
             || artifact.privacy_classification !== "synthetic_runtime_data" || artifact.named_graph_uri.includes("/graph/test/")) {
             throw new ActorInstitutionalLinkError("institutional_artifact_not_active", "institutional dataset current pointer is not eligible", 503);
         }

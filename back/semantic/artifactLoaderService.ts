@@ -87,7 +87,8 @@ export class ArtifactLoaderService {
 
     async loadPublic(options: { dryRun?: boolean } = {}): Promise<ArtifactLoadResult[]> {
         const results: ArtifactLoadResult[] = [];
-        for (const entry of this.manifest.artifacts.filter((candidate) => !candidate.testOnly && candidate.activationAllowed)) {
+        for (const entry of this.manifest.artifacts.filter((candidate) =>
+            candidate.storageMode === "graph_backed" && !candidate.testOnly && candidate.activationAllowed)) {
             results.push(await this.load({
                 artifactKey: entry.artifactKey,
                 idempotencyKey: `public-load:${entry.artifactKey}:${entry.sha256}`,
@@ -100,6 +101,9 @@ export class ArtifactLoaderService {
 
     async load(input: LoadArtifactInput): Promise<ArtifactLoadResult> {
         const entry = this.entryByKey(input.artifactKey);
+        if (entry.storageMode !== "graph_backed") {
+            throw new SemanticArtifactError("manifest_invalid", "file-executed artifacts use their governed executor setup, not the Fuseki loader");
+        }
         const activate = input.activate ?? entry.activationAllowed;
         if (entry.testOnly && !input.allowTestFixture) {
             throw new SemanticArtifactError("artifact_activation_forbidden", "test fixture loading is available only to an isolated test harness");
@@ -175,6 +179,9 @@ export class ArtifactLoaderService {
     }
 
     private assertGraphAllowlisted(entry: PublicArtifactManifestEntry, artifact: SemanticArtifactRow): void {
+        if (entry.storageMode !== "graph_backed" || artifact.storage_mode !== "graph_backed" || artifact.named_graph_uri === null) {
+            throw new SemanticArtifactError("graph_namespace_rejected", "only graph-backed artifacts may be sent to Fuseki");
+        }
         const base = validateBaseUri(this.graphConfig.baseUri, "GRAPH_BASE_URI");
         let expected: string | null = null;
         switch (entry.artifactType) {
@@ -200,6 +207,9 @@ export class ArtifactLoaderService {
     }
 
     private async verifyGraph(entry: PublicArtifactManifestEntry, artifact: SemanticArtifactRow): Promise<{ count: number; resourcePresent: boolean | null }> {
+        if (artifact.named_graph_uri === null) {
+            throw new SemanticArtifactError("graph_namespace_rejected", "file-executed artifacts have no graph verification step");
+        }
         const graphIri = iri(artifact.named_graph_uri);
         const countResult = await this.graphClient.query(
             `SELECT (COUNT(*) AS ?count) WHERE { GRAPH ${graphIri} { ?s ?p ?o } }`
@@ -245,8 +255,10 @@ export class ArtifactLoaderService {
                         throw new SemanticArtifactError("activation_ineligible", "an active artifact can never receive another graph PUT");
                     }
                     await db.setOperationStatus(operation.operation_uuid, "pending_graph", null);
+                    const graphUri = artifact.named_graph_uri;
+                    if (graphUri === null) throw new SemanticArtifactError("graph_namespace_rejected", "graph-backed artifact has no graph URI");
                     await this.graphClient.putGraph(
-                        artifact.named_graph_uri,
+                        graphUri,
                         validated.payload.toString("utf8"),
                         "text/turtle"
                     );
@@ -256,7 +268,7 @@ export class ArtifactLoaderService {
                         fusekiLoading: {
                             kind: "fuseki_parsing_loading_validation",
                             accepted: true,
-                            graphUri: artifact.named_graph_uri,
+                            graphUri,
                         },
                         postLoad: {
                             kind: "post_load_graph_verification",

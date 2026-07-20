@@ -60,7 +60,8 @@ export class ArtifactRegistryService {
         baseUri: string,
         artifactUuid: string,
         testRunUuid?: string
-    ): string {
+    ): string | null {
+        if (entry.storageMode === "file_executed") return null;
         switch (entry.artifactType) {
             case "ontology": return institutionalOntologyGraphUri(baseUri, artifactUuid);
             case "bridge_vocabulary": return projectInstitutionalBridgeGraphUri(baseUri, artifactUuid);
@@ -103,7 +104,9 @@ export class ArtifactRegistryService {
             mediaType: input.entry.mediaType,
             serialization: input.entry.serialization,
             semanticUri: input.entry.semanticUri,
+            storageMode: input.entry.storageMode,
             namedGraphUri: proposedGraphUri,
+            executorMetadata: null,
             sourcePackageName: input.entry.sourcePackageName,
             sourcePackageVersion: input.entry.sourcePackageVersion,
             sourceReleaseStatus: input.entry.sourceReleaseStatus,

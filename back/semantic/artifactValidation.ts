@@ -20,8 +20,11 @@ export class ArtifactValidationService {
         if (!APPROVED_PUBLIC_SOURCE_FILENAMES.has(entry.sourceFilename)) {
             throw new SemanticArtifactError("manifest_invalid", `artifact '${entry.sourceFilename}' is outside the approved subset`);
         }
-        if (entry.mediaType !== "text/turtle" || entry.serialization !== "turtle") {
-            throw new SemanticArtifactError("artifact_integrity_failed", "only Turtle artefacts may be loaded");
+        const expectedFormat = entry.storageMode === "graph_backed"
+            ? entry.mediaType === "text/turtle" && entry.serialization === "turtle"
+            : entry.artifactType === "ids_profile" && entry.mediaType === "application/ids+xml" && entry.serialization === "ids-xml";
+        if (!expectedFormat) {
+            throw new SemanticArtifactError("artifact_integrity_failed", "artifact storage mode and serialization are inconsistent");
         }
         if (!ALLOWED_PRIVACY.has(entry.privacyClassification)) {
             throw new SemanticArtifactError("artifact_privacy_rejected", "artifact privacy classification is not allowed for repository loading");
@@ -50,8 +53,8 @@ export class ArtifactValidationService {
             sha256,
             byteSize: payload.byteLength,
             expectedTripleCount: entry.tripleCount,
-            mediaType: "text/turtle",
-            serialization: "turtle",
+            mediaType: entry.mediaType,
+            serialization: entry.serialization,
             validatedAt: this.now().toISOString(),
         };
         return { entry, payload, summary };
@@ -61,10 +64,10 @@ export class ArtifactValidationService {
         const results: ValidatedArtifactSource[] = [];
         for (const entry of manifest.artifacts) results.push(await this.validate(entry, false));
 
-        const actualTurtle = (await this.source.listFiles()).filter((file) => file.endsWith(".ttl"));
-        const declaredTurtle = manifest.artifacts.map((entry) => entry.relativePath).sort();
-        if (JSON.stringify(actualTurtle) !== JSON.stringify(declaredTurtle)) {
-            throw new SemanticArtifactError("manifest_invalid", "semantic artifact tree contains undeclared or missing Turtle files");
+        const actualArtifacts = (await this.source.listFiles()).filter((file) => file.endsWith(".ttl") || file.endsWith(".ids"));
+        const declaredArtifacts = manifest.artifacts.map((entry) => entry.relativePath).sort();
+        if (JSON.stringify(actualArtifacts) !== JSON.stringify(declaredArtifacts)) {
+            throw new SemanticArtifactError("manifest_invalid", "semantic artifact tree contains undeclared or missing governed files");
         }
         return results;
     }
