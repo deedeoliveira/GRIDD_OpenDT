@@ -1,7 +1,7 @@
-# OSWADT — Arquitetura Consolidada (Prompt 7B1, 2026-07-20)
+# OSWADT — Arquitetura Consolidada (Prompt 7B2, 2026-07-20)
 
-Visão viva do protótipo após os Prompts 0–6 e 7B1. Fontes de verdade: código,
-migrations, testes, ADRs (0001–0031), MANUAL_TESTS.md. Secção final descreve
+Visão viva do protótipo após os Prompts 0–6, 7B1 e 7B2. Fontes de verdade: código,
+migrations, testes, ADRs (0001–0035), MANUAL_TESTS.md. Secção final descreve
 o trabalho semântico FUTURO — nada aí está implementado.
 
 ## Arquitetura geral
@@ -245,11 +245,28 @@ flowchart TD
   conexão dedicada durante I/O; o family lock limita-se à transação curta.
 - Rollback move apenas o current pointer para uma revisão elegível; nunca
   apaga ou sobrescreve graph histórico. `/graph/operational` permanece isolado.
-- O shape set é RDF governado e carregável. Não existe execução SHACL,
-  elegibilidade semântica, IDS, IFC-to-RDF, actor links ou queries
-  institucionais.
+- O shape set é RDF governado e carregável. O 7B1 não executa SHACL,
+  elegibilidade semântica, IDS ou IFC-to-RDF; actor links e leitura
+  institucional foram acrescentados separadamente no 7B2.
 
-## 15.11 Future Semantic Extension (NADA disto está implementado)
+## 15.11 Institutional Context (Prompt 7B2; ADR-0034/0035)
+
+- SQL é autoridade dos actor links e respetivo lifecycle/histórico; o graph
+  institucional ativo é autoridade de pessoas, identifiers, memberships,
+  roles, organizations e supervision. O ABox do link não é RDF.
+- `actor_key` é texto não autenticado, nunca URI nem `owl:sameAs`; não altera
+  `res_reservations.actor_id`, políticas, conflitos ou aprovação.
+- O provider read-only resolve ontology/dataset/bridge pelo registry, executa
+  queries parametrizadas e devolve tipos de domínio, não JSON SPARQL cru.
+- A API institucional contém apenas GET; feature/demo default off.
+  `/semantic-demo` usa exclusivamente a API da aplicação.
+- Pending/suspended/revoked/superseded/expired e dataset superseded não usam
+  evidência corrente. Student 002 sem supervisor continua contexto válido.
+- Implementado: acesso institucional, links SQL e demonstrador sintético.
+  Não implementado: authentication, authorization, eligibility, SHACL,
+  reservability ou approval.
+
+## 15.12 Future Semantic Extension (NADA disto está implementado)
 
 Trabalho futuro, por ordem provável: seleção ontológica (IFC-OWL/BOT/Brick/
 SAREF — decisão da tese) → IFC-to-RDF (materialização por model_version em

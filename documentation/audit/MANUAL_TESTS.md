@@ -1033,3 +1033,26 @@ locks, hashes, migrations, retries ou tabelas internas.
     remove apenas as três tabelas desta etapa e nunca toca Fuseki. Os graphs
     históricos são preservados por desenho e qualquer retenção futura deve ser
     dirigida por URI, nunca ampla.
+
+## 23. Prompt 7B2 — demonstração funcional institucional
+
+Este roteiro destina-se à investigadora e contém somente resultados funcionais
+observáveis. A preparação técnica está separada em
+`DEMO_INSTITUTIONAL_CONTEXT.md` e **não é um teste manual obrigatório da
+investigadora**.
+
+1. Abrir `/semantic-demo` já preparado pelo executor técnico.
+2. Selecionar `TEST-ACTOR-STUDENT-001` e observar pessoa sintética, número de
+   estudante, grupo de investigação, dois papéis, supervisor e versões dos
+   artefactos usados.
+3. Selecionar `TEST-ACTOR-STUDENT-002` e observar contexto válido, número,
+   cluster e papéis; confirmar a mensagem de que não existe assertion de
+   supervisor no graph sintético ativo.
+4. Selecionar `TEST-ACTOR-REVOKED-001` e observar que a ligação é encontrada,
+   mas o contexto institucional corrente não é utilizado.
+5. Confirmar visualmente os caveats: dados sintéticos, actor key não
+   autenticado e nenhuma decisão de elegibilidade, autorização ou reserva.
+6. Confirmar que nenhuma reserva foi criada, alterada ou aprovada.
+
+Não pedir à investigadora que inspecione locks, hashes, migrations, retries,
+tabelas internas, SPARQL, named graphs ou contagens técnicas.

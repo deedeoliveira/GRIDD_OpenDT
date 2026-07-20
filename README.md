@@ -141,6 +141,13 @@ ontology is a non-official draft research artefact; the governed shape set is
 not SHACL execution. See
 `documentation/audit/PROMPT7B1_SEMANTIC_ARTIFACTS.md` and ADR-0032/0033.
 
+Prompt 7B2 adds a disabled-by-default, read-only institutional context layer.
+Controlled SQL links connect synthetic platform actor keys to agents in the
+active synthetic institutional graph; `/semantic-demo` presents memberships,
+roles, supervisors and artifact provenance. This is research evidence—not
+authentication, authorization, eligibility or a reservation decision. See
+`documentation/audit/DEMO_INSTITUTIONAL_CONTEXT.md` and ADR-0034/0035.
+
 Non-modelled assets (no IFC representation) are registered through
 `POST /api/asset/non-modelled` and live in the operational graph as the data
 authority, with a SQL projection used for reservations — the graph service
@@ -158,4 +165,6 @@ The documentation is available in the [documentation directory](./documentation/
   [documentation/audit/CONCURRENCY_AUDIT.md](./documentation/audit/CONCURRENCY_AUDIT.md)
 - Final integration assessment: [documentation/audit/PROMPT6_INTEGRATION.md](./documentation/audit/PROMPT6_INTEGRATION.md)
 - Demo walkthrough (10–15 min): [documentation/audit/DEMO_SCRIPT.md](./documentation/audit/DEMO_SCRIPT.md)
-- Architecture decision records: [documentation/adr/](./documentation/adr/) (ADR-0001…ADR-0033)
+- Institutional functional demonstration:
+  [documentation/audit/DEMO_INSTITUTIONAL_CONTEXT.md](./documentation/audit/DEMO_INSTITUTIONAL_CONTEXT.md)
+- Architecture decision records: [documentation/adr/](./documentation/adr/) (ADR-0001…ADR-0035)
