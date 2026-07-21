@@ -128,7 +128,7 @@ test("createReservation: antes de tudo marca reservas expiradas como no_show", a
     const second = fakeConnection.calls[1]!;
     assert.match(second.sql, /SET status = 'overdue'/);
     assert.match(second.sql, /status = 'in_use'/);
-    assert.match(second.sql, /NOW\(\) > end_time/);
+    assert.match(second.sql, /UTC_TIMESTAMP\(3\) > end_time/);
 });
 
 /* -------------------------------------
@@ -175,7 +175,7 @@ test("checkIn: sucesso muda status para 'in_use' e grava checkin_time", async ()
 
     const update = fakeConnection.callsMatching(/SET status = 'in_use'/i)[0]!;
     assert.ok(update);
-    assert.match(update.sql, /checkin_time = NOW\(\)/);
+    assert.match(update.sql, /checkin_time = UTC_TIMESTAMP\(3\)/);
 });
 
 /* -------------------------------------
