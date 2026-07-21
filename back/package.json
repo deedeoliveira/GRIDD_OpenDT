@@ -21,7 +21,8 @@
     "model-intake:setup": "tsx scripts/modelIntakeSetup.ts",
     "shacl:setup": "tsx scripts/shaclSetup.ts",
     "semantic-evidence:setup": "tsx scripts/semanticEvidenceSetup.ts",
-    "application-identity:setup": "tsx scripts/applicationIdentitySetup.ts"
+      "application-identity:setup": "tsx scripts/applicationIdentitySetup.ts",
+      "reservation-approval:setup": "tsx scripts/reservationApprovalSetup.ts --"
   },
   "keywords": [],
   "author": "",
