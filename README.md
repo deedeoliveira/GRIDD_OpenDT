@@ -235,6 +235,24 @@ SHACL validates RDF structure/quality. It does not decide authentication,
 authorization, eligibility, reservability, availability, approval, temporal
 conflicts or reservation transactions.
 
+## Cross-domain reservation evidence (shadow)
+
+Prompt 7F integrates evidence into the real `/student` reservation modal. The
+researcher controls actor key, selected asset and interval. **Check evidence**
+resolves institutional, model and structural evidence, executes the governed
+SHACL policy with pySHACL and separately calls existing SQL availability
+checks. It creates no reservation. **Create reservation request** is a second
+explicit action using the unchanged transactional conflict logic.
+
+The feature is disabled by default. Technical preparation applies the scoped
+migration separately, configures the five 7F flags, then runs
+`npm run semantic-evidence:setup` and `npm run semantic-evidence:setup -- --execute`.
+Setup never applies migrations, creates/cancels reservations or resets graphs.
+See `documentation/audit/RESERVATION_EVIDENCE_WALKTHROUGH.md` and ADR-0042/0043.
+
+Semantic eligibility is shadow-only: it cannot allow, block, authorize or
+approve. SQL remains temporal availability and reservation-lifecycle authority.
+
 ## Documentation
 
 The documentation is available in the [documentation directory](./documentation/Documentation.md)].
@@ -248,4 +266,4 @@ The documentation is available in the [documentation directory](./documentation/
 - Demo walkthrough (10–15 min): [documentation/audit/DEMO_SCRIPT.md](./documentation/audit/DEMO_SCRIPT.md)
 - Institutional functional demonstration:
   [documentation/audit/DEMO_INSTITUTIONAL_CONTEXT.md](./documentation/audit/DEMO_INSTITUTIONAL_CONTEXT.md)
-- Architecture decision records: [documentation/adr/](./documentation/adr/) (ADR-0001…ADR-0041)
+- Architecture decision records: [documentation/adr/](./documentation/adr/) (ADR-0001…ADR-0043)

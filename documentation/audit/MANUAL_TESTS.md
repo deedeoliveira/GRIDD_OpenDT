@@ -1134,3 +1134,28 @@ and shapes through the real dashboard pickers and follows
 
 Não pedir à investigadora SQL, SPARQL, migrations, pySHACL em linha de comando,
 hashes manuais, locks, retries, seeds ou inspeção de tabelas/graphs internos.
+
+## 27. Prompt 7F — reservation semantic evidence in shadow mode
+
+Correction: the researcher controls only asset and interval. The current development actor is read-only, unauthenticated and cannot be impersonated. The revoked actor is automated and executor-level only.
+
+Technical preparation belongs to the executor. The researcher controls actor
+key, asset and interval in the real reservation form and follows only
+`RESERVATION_EVIDENCE_WALKTHROUGH.md`.
+
+| Teste ou grupo | O que está sendo testado em linguagem comum | Resultado |
+|---|---|---|
+| Ligação actor–instituição | O actor escolhido resolve a ligação e papéis institucionais atuais ou mostra revoked/expired. | Pendente do walkthrough |
+| Evidência do asset/modelo | O asset escolhido resolve UUID, Tag, versão e manifestação correntes. | Pendente do walkthrough |
+| SHACL estrutural | A conformidade estrutural da versão usada aparece separadamente. | Pendente do walkthrough |
+| Eligibility shadow | pySHACL executa a policy real, mas o resultado não permite nem bloqueia. | Pendente do walkthrough |
+| Disponibilidade SQL | O intervalo é verificado pelas regras temporais SQL existentes. | Pendente do walkthrough |
+| Pedido real | Check evidence não cria; somente Create reservation request cria pending. | Pendente do walkthrough |
+| Conflito | Eligibility pode continuar eligible enquanto SQL rejeita overlap real. | Pendente do walkthrough |
+| Actor revogado | Trocar o actor muda evidência/policy sem ação automática. | Pendente do walkthrough |
+| Evidence snapshot | Um pedido explícito liga o run com actor, asset e intervalo correspondentes. | Pendente do walkthrough |
+| Ausência de autorização/aprovação | Nenhuma apresentação confunde shadow, disponibilidade e resultado operacional. | Pendente do walkthrough |
+| Regressão completa | Reservas anteriores, IDS, model intake e SHACL estrutural mantêm comportamento. | Cobertura automatizada |
+
+Não pedir SQL, SPARQL, migrations, seeds, setup, inspeção de graphs/tabelas,
+hashes manuais ou comandos pySHACL à investigadora.

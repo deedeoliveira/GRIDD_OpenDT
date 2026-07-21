@@ -28,4 +28,10 @@
 - Temporary shapes are local/dev, non-governed and ephemeral; they must never
   enter the registry/Fuseki or decide activation in required mode.
 - Keep IDS results, project rules, eligibility decisions, and reservation decisions as separate layers.
+- Semantic reservation eligibility is shadow-only until a later explicit scope;
+  it must never disable creation, authorize, approve or replace SQL conflicts.
+- Evidence preview and reservation creation are separate explicit actions. A
+  preview must not create, cancel or modify a reservation.
+- Reservation evidence graphs must be minimal, immutable and free of actor
+  keys, person labels, student numbers, credentials and complete payloads.
 - Minimum verification: `cd back && npm test`, `cd back && npx tsc --noEmit`, `cd front && npx tsc --noEmit`, and `cd front && npm run build`.

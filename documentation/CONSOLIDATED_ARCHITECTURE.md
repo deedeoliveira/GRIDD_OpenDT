@@ -340,3 +340,24 @@ line. Future manager workflow must add: building list; “Register building”;
 persistent building identity and basic/responsible-organization data; first
 model line; first IFC/version; and subsequent versions on the building page.
 Building registration is not implemented in Prompt 7E.
+
+## 15.16 Cross-domain reservation evidence (Prompt 7F; ADR-0042/0043)
+
+- The real reservation modal has two explicit actions: evidence preview, then
+  optional reservation creation. Inputs are actor key, selected asset and
+  start/end interval; the backend derives every evidence layer from them.
+- `ReservationSemanticEvidenceService` resolves the SQL actor link and current
+  institutional graph, persistent asset/current model manifestation, latest
+  structural run, real SHACL shadow policy and existing SQL conflict methods.
+- Each run persists normalized SQL evidence plus immutable
+  `graph/evidence/reservation/{runUuid}` and a separate immutable policy-report
+  graph. Neither graph copies personal labels, student number, complete IFC or
+  reservation payload.
+- Shadow outcomes (`eligible`, `not_eligible`, `indeterminate`) are audit
+  evidence only. Missing/failed graph evidence is indeterminate. No semantic
+  result changes the reservation transaction or approval lifecycle.
+- SQL remains authority for temporal availability: approved/in-use/no-show
+  block all actors; pending/approved block the same actor; pending does not
+  claim universal exclusivity against third parties.
+- Building registration remains future. Prompt 7G will consolidate the final
+  manager interface; the current flow assumes pre-existing building/model data.

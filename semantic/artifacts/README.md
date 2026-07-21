@@ -37,3 +37,14 @@ model/space/asset identities, version-specific manifestations and provenance,
 not geometry, full ifcOWL, authentication, authorization or reservations.
 Temporary uploaded shapes are not semantic artifacts: they are hashed,
 meta-SHACL checked, executed once and removed without registry/Fuseki changes.
+
+Prompt 7F adds two independent public Turtle releases. The
+`project-semantic-evidence` bridge vocabulary defines minimal evidence terms;
+`project-reservation-eligibility-shadow` is registered as `semantic_policy`
+with `policyLanguage=SHACL` and `policyScope=reservation_eligibility_shadow`.
+Both are graph-backed, immutable and activatable. The policy is executed by
+pySHACL over per-run minimal evidence; loading it is not policy execution.
+
+The policy never decides temporal availability, authentication, authorization,
+approval or reservation lifecycle. It is shadow-only. Evidence ABoxes live in
+run-specific graphs and are not registry artifacts or current aliases.
