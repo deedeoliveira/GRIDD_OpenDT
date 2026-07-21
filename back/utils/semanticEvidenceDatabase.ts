@@ -1,5 +1,6 @@
 import MySQLDatabase from "./mysqlDatabase.ts";
 import type { ResourceSemanticRow, SemanticEvidenceResponse } from "../semanticEvidence/semanticEvidenceTypes.ts";
+import { toMysqlUtc } from './utcTime.ts';
 
 function parsed(value: unknown): any {
     if (typeof value === "string") {
@@ -73,7 +74,7 @@ export class SemanticEvidenceDatabase implements SemanticEvidenceDatabasePort {
                         :structuralStatus,:shadowOutcome,:availabilityStatus,'completed',:responseJson,
                         :createdAt,:createdAt,:expiresAt${identityValues})`, {
                 runUuid: input.runUuid, actorKeyNormalized: input.actorKeyNormalized, assetId: input.inputs.assetId,
-                assetUuid: input.inputs.assetUuid, start: new Date(input.inputs.start), end: new Date(input.inputs.end),
+                assetUuid: input.inputs.assetUuid, start: toMysqlUtc(new Date(input.inputs.start)), end: toMysqlUtc(new Date(input.inputs.end)),
                 actorLinkId: input.actorLinkId, institutionalArtifactId: input.institutionalArtifactId,
                 modelVersionId: input.resourceEvidence.modelVersionId, materialisationId: input.resourceEvidence.materialisationId,
                 structuralValidationRunId: input.structuralEvidence.validationRunId, policyArtifactId: input.policyArtifactId,
@@ -82,7 +83,7 @@ export class SemanticEvidenceDatabase implements SemanticEvidenceDatabasePort {
                 actorStatus: input.actorEvidence.status, resourceStatus: input.resourceEvidence.status,
                 structuralStatus: input.structuralEvidence.status, shadowOutcome: input.semanticEligibility.outcome,
                 availabilityStatus: input.availability.status, responseJson: JSON.stringify(input),
-                createdAt: new Date(input.createdAt), expiresAt: new Date(input.expiresAt),
+                createdAt: toMysqlUtc(new Date(input.createdAt)), expiresAt: toMysqlUtc(new Date(input.expiresAt)),
                 applicationAccountId: input.applicationIdentity?.accountId ?? null,
                 accountUuidSnapshot: input.applicationIdentity?.accountUuid ?? null,
                 identityProvider: input.applicationIdentity?.provider ?? null,

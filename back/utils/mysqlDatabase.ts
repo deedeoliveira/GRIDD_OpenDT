@@ -35,6 +35,9 @@ class MySQLDatabase implements IDatabase {
             user: process.env.DB_USER,
             password: process.env.DB_PASSWORD,
             charset: 'utf8mb4',
+            // MySQL DATETIME is stored by application convention as UTC. This
+            // makes mysql2 serialize JavaScript Date parameters in UTC too.
+            timezone: 'Z',
             namedPlaceholders: true,
             // dimensionamento documentado (CONCURRENCY_AUDIT §9): locks
             // nomeados seguram uma conexão durante I/O ao grafo

@@ -13,6 +13,7 @@ import { buildReservationEvidenceGraph } from "./evidenceGraphBuilder.ts";
 import { loadSemanticEvidenceConfig, type SemanticEvidenceConfig } from "./semanticEvidenceConfig.ts";
 import { SemanticPolicyService } from "./semanticPolicyService.ts";
 import type { PolicySelection } from "./semanticEvidenceTypes.ts";
+import { fromMysqlUtc } from '../utils/utcTime.ts';
 import {
     SemanticEvidenceError,
     type ActorEvidenceView,
@@ -191,15 +192,15 @@ export class ReservationSemanticEvidenceService {
         const run = await this.getRun(input.runUuid);
         const normalized = normalizeActorKey(input.actorKey);
         const mismatch = run.row.actor_key_normalized !== normalized.normalized || Number(run.row.asset_id) !== input.assetId
-            || new Date(run.row.requested_start).getTime() !== input.start.getTime()
-            || new Date(run.row.requested_end).getTime() !== input.end.getTime()
+            || fromMysqlUtc(run.row.requested_start).getTime() !== input.start.getTime()
+            || fromMysqlUtc(run.row.requested_end).getTime() !== input.end.getTime()
             || (input.applicationAccountId !== undefined && Number(run.row.application_account_id) !== input.applicationAccountId);
         if (mismatch) {
             console.warn(JSON.stringify({ type: "reservation_evidence_mismatch", runUuid: input.runUuid,
                 actorReference: actorReference(normalized.original), assetId: input.assetId, at: this.now().toISOString() }));
             throw new SemanticEvidenceError("reservation_evidence_mismatch", "Evidence inputs do not match the reservation request.", 409);
         }
-        if (new Date(run.row.expires_at).getTime() <= this.now().getTime()) {
+        if (fromMysqlUtc(run.row.expires_at).getTime() <= this.now().getTime()) {
             throw new SemanticEvidenceError("reservation_evidence_expired", "Evidence run has expired; check evidence again.", 409);
         }
         if (input.reservationId !== undefined) {

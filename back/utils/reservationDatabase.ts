@@ -307,8 +307,8 @@ class ReservationDatabase {
       WHERE id = :reservationId
         AND actor_id = :actorId
         AND status = 'approved'
-        AND NOW() >= DATE_SUB(start_time, INTERVAL :before MINUTE)
-        AND NOW() <= DATE_ADD(start_time, INTERVAL :after MINUTE)
+        AND UTC_TIMESTAMP(3) >= DATE_SUB(start_time, INTERVAL :before MINUTE)
+        AND UTC_TIMESTAMP(3) <= DATE_ADD(start_time, INTERVAL :after MINUTE)
       LIMIT 1
     `, {
       reservationId,
@@ -334,7 +334,7 @@ class ReservationDatabase {
     const [update]: any = await this.db.connection.execute(`
       UPDATE res_reservations
       SET status = 'in_use',
-          checkin_time = NOW()
+          checkin_time = UTC_TIMESTAMP(3)
       WHERE id = :id
         AND status = 'approved'
         AND checkin_time IS NULL
@@ -470,7 +470,7 @@ class ReservationDatabase {
       SET status = 'no_show'
       WHERE status = 'approved'
         AND checkin_time IS NULL
-        AND NOW() > DATE_ADD(start_time, INTERVAL 10 MINUTE)
+        AND UTC_TIMESTAMP(3) > DATE_ADD(start_time, INTERVAL 10 MINUTE)
     `);
 
     // in_use cujo período já terminou sem checkout → overdue.
@@ -480,7 +480,7 @@ class ReservationDatabase {
       UPDATE res_reservations
       SET status = 'overdue'
       WHERE status = 'in_use'
-        AND NOW() > end_time
+        AND UTC_TIMESTAMP(3) > end_time
     `);
   }
 
