@@ -1,3 +1,4 @@
 ifcopenshell==0.8.4.post1
 ifctester==0.8.4
+pyshacl==0.40.0
 Flask==3.1.2

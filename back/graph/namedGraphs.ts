@@ -85,6 +85,14 @@ export function structuralShapesGraphUri(baseUri: string, artifactUuid: string):
     return `${validateBaseUri(baseUri, "baseUri")}/graph/validation/shapes/${artifactUuidSegment(artifactUuid)}`;
 }
 
+/** Relatório SHACL imutável por execução persistente. */
+export function semanticValidationReportGraphUri(baseUri: string, runUuid: string): string {
+    if (!UUID_PATTERN.test(runUuid.trim())) {
+        throw new GraphError("graph_configuration_error", "semantic validation run UUID must be a UUID");
+    }
+    return `${validateBaseUri(baseUri, "baseUri")}/graph/validation/report/${runUuid.trim().toLowerCase()}`;
+}
+
 /** Dataset institucional sintético permitido no runtime de investigação. */
 export function institutionalSyntheticDataGraphUri(baseUri: string, artifactUuid: string): string {
     return `${validateBaseUri(baseUri, "baseUri")}/graph/institutional-data/synthetic/${artifactUuidSegment(artifactUuid)}`;

@@ -1,0 +1,55 @@
+-- Prompt 7E: normalized SHACL execution evidence. Manual application only.
+-- This migration does not execute SHACL, load/delete graphs, create model versions,
+-- change current pointers, or touch reservations.
+
+CREATE TABLE `semantic_validation_runs` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `run_uuid` CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  `validation_kind` ENUM('model_rdf_structural','institutional_structural') NOT NULL,
+  `model_version_id` INT NULL,
+  `materialisation_id` BIGINT NULL,
+  `data_graph_sha256` CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  `data_graph_uri` VARCHAR(1000) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  `shapes_artifact_id` BIGINT NULL,
+  `shapes_sha256` CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  `shapes_source` ENUM('governed_active_shapes','temporary_uploaded_shapes','governed_institutional_shapes') NOT NULL,
+  `executor_name` VARCHAR(100) NOT NULL,
+  `executor_version` VARCHAR(100) NOT NULL,
+  `inference_mode` ENUM('none','rdfs','owlrl','both') NOT NULL DEFAULT 'none',
+  `advanced_enabled` BOOLEAN NOT NULL DEFAULT TRUE,
+  `meta_shacl_enabled` BOOLEAN NOT NULL DEFAULT TRUE,
+  `conforms` BOOLEAN NULL,
+  `result_count` INT NULL,
+  `status` ENUM('running','completed','failed') NOT NULL,
+  `started_at` DATETIME(3) NOT NULL,
+  `completed_at` DATETIME(3) NULL,
+  `report_graph_uri` VARCHAR(1000) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  `report_sha256` CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  `error_code` VARCHAR(100) NULL,
+  `error_message` VARCHAR(1000) NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_semantic_validation_run_uuid` (`run_uuid`),
+  UNIQUE KEY `uq_semantic_validation_report_graph` (`report_graph_uri`),
+  KEY `idx_semantic_validation_model_version` (`model_version_id`, `created_at`),
+  KEY `idx_semantic_validation_status` (`status`, `created_at`),
+  CONSTRAINT `fk_semantic_validation_model_version` FOREIGN KEY (`model_version_id`) REFERENCES `model_versions` (`id`),
+  CONSTRAINT `fk_semantic_validation_materialisation` FOREIGN KEY (`materialisation_id`) REFERENCES `model_version_semantic_materialisations` (`id`),
+  CONSTRAINT `fk_semantic_validation_shapes_artifact` FOREIGN KEY (`shapes_artifact_id`) REFERENCES `semantic_artifacts` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE `semantic_validation_results` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `validation_run_id` BIGINT NOT NULL,
+  `focus_node` TEXT NULL,
+  `result_path` TEXT NULL,
+  `result_value` TEXT NULL,
+  `source_shape` TEXT NULL,
+  `constraint_component` TEXT NULL,
+  `severity` VARCHAR(1000) NULL,
+  `message` TEXT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_semantic_validation_result_run` (`validation_run_id`, `id`),
+  CONSTRAINT `fk_semantic_validation_result_run` FOREIGN KEY (`validation_run_id`) REFERENCES `semantic_validation_runs` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
