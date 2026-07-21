@@ -20,10 +20,16 @@ type SelectedIfcInfo = {
 type ReservationRow = {
   id: number;
   asset_id: number;
-  actor_id: string;
   start_time: string;
   end_time: string;
   status: string;
+  decision?: {
+    type: "approve" | "reject" | "cancel";
+    status: string;
+    reason: string | null;
+    decidedAt: string | null;
+    decidedByRole: string | null;
+  } | null;
 };
 
 export default function ViewerPage() {
@@ -109,10 +115,8 @@ export default function ViewerPage() {
     return (json?.data ?? json ?? []) as ReservationRow[];
   }
 
-  async function fetchReservationsByActor(actorIdValue: string) {
-    const { res, json } = await fetchJson(
-      `/api/reservation/actor/${encodeURIComponent(actorIdValue)}`
-    );
+  async function fetchReservationsByActor(_actorIdValue: string) {
+    const { res, json } = await fetchJson('/api/reservations/mine');
 
     if (!res.ok) return [];
 
@@ -252,6 +256,20 @@ export default function ViewerPage() {
       ":" +
       pad(d.getMinutes())
     );
+  }
+
+  function decisionDetails(reservation: ReservationRow) {
+    const decision = reservation.decision;
+    if (!decision) {
+      return reservation.status === "cancelled" || reservation.status === "rejected"
+        ? <div className="text-xs">No reason was recorded for this historical decision.</div>
+        : null;
+    }
+    return <>
+      {decision.reason ? <div className="text-xs">Reason: {decision.reason}</div> : (reservation.status === "cancelled" || reservation.status === "rejected") && <div className="text-xs">No reason was recorded for this historical decision.</div>}
+      {decision.decidedAt && <div className="text-xs">Decision date: {formatDateTime(decision.decidedAt)}</div>}
+      {decision.decidedByRole && <div className="text-xs">Decision source: {decision.decidedByRole.replaceAll("_", " ")}</div>}
+    </>;
   }
 
   async function handleCheckIn(reservationId: number) {
@@ -418,6 +436,7 @@ export default function ViewerPage() {
                             <div>
                               {formatDateTime(r.start_time)} → {formatDateTime(r.end_time)}
                             </div>
+                            {decisionDetails(r)}
                           </div>
                           <Button
                             size="sm"
@@ -433,6 +452,19 @@ export default function ViewerPage() {
                 )}
 
                 {/* IN USE (inclui overdue: período terminou sem checkout) */}
+                {actorReservations.filter(r => r.status === "rejected").length > 0 && (
+                  <div>
+                    <div className="font-semibold mb-1">Rejected</div>
+                    {actorReservations.filter(r => r.status === "rejected").map(r => (
+                      <div key={r.id} className="border-b py-2 text-gray-500">
+                        <div>Asset ID: {r.asset_id}</div>
+                        <div>{formatDateTime(r.start_time)} → {formatDateTime(r.end_time)}</div>
+                        {decisionDetails(r)}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {actorReservations.filter(r => ["in_use", "overdue"].includes(r.status)).length > 0 && (
                   <div>
                     <div className="font-semibold mb-1">In Use</div>
@@ -487,6 +519,8 @@ export default function ViewerPage() {
                       )
                       .map(r => (
                         <div key={r.id} className="border-b py-2 text-gray-500">
+                          <div className="text-xs">Status: {r.status}</div>
+                          {decisionDetails(r)}
                           <div className="text-xs">
                             Asset ID: {r.asset_id}
                           </div>

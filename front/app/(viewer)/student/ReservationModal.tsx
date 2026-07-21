@@ -6,7 +6,8 @@ import { Button } from "@heroui/react";
 type Props = { asset: any; actorId: string; onClose: () => void };
 
 function diagnostic(json: any, fallback: string) {
-  return json?.message ?? json?.error ?? fallback;
+  const message = json?.message ?? json?.error ?? fallback;
+  return json?.layer ? `${json.layer}: ${message}` : message;
 }
 
 export default function ReservationModal({ asset, actorId, onClose }: Props) {
