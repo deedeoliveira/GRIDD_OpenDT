@@ -150,6 +150,27 @@
       "privacyClassification": "public_research_artifact",
       "activationAllowed": true,
       "testOnly": false
+    },
+    {
+      "artifactKey": "oswadt-model-rdf-structural-shapes-1.0.0",
+      "artifactType": "shacl_shapes",
+      "familyName": "OSWADT model RDF structural shapes",
+      "semanticVersion": "1.0.0",
+      "sourcePackageName": "OSWADT governed structural validation",
+      "sourcePackageVersion": "1.0.0",
+      "sourceReleaseStatus": "public_synthetic_demonstrator",
+      "sourceFilename": "oswadt-model-rdf-structural-shapes-v1.ttl",
+      "relativePath": "runtime/oswadt-model-rdf-structural-shapes/1.0.0/oswadt-model-rdf-structural-shapes-v1.ttl",
+      "sha256": "4e1d0360692cfb572b774608f5cdcbb014326500912807fe60ec1ef2919a314b",
+      "byteSize": 5833,
+      "tripleCount": 163,
+      "mediaType": "text/turtle",
+      "serialization": "turtle",
+      "storageMode": "graph_backed",
+      "semanticUri": "https://deedeoliveira.github.io/GRIDD_OpenDT/ontology/model-intake-v1#ModelRdfStructuralShapeSet_v1",
+      "privacyClassification": "public_research_artifact",
+      "activationAllowed": true,
+      "testOnly": false
     }
   ]
 }

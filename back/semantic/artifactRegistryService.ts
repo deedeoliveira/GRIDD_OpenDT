@@ -91,8 +91,14 @@ export class ArtifactRegistryService {
             semanticUri: input.entry.semanticUri,
             privacyPolicy: input.entry.privacyClassification,
         });
-        const proposedUuid = this.runtime.newUuid();
-        const proposedGraphUri = this.graphUri(input.entry, input.baseUri, proposedUuid, input.testRunUuid);
+        // Reuse the immutable identity when this governed semantic version is
+        // already registered. Generating a fresh graph URI before
+        // ensureArtifact would turn a safe retry after activation into a false
+        // metadata conflict.
+        const existing = await this.database.findArtifactByFamilyVersion(Number(family.id), input.entry.semanticVersion);
+        const proposedUuid = existing?.artifact_uuid ?? this.runtime.newUuid();
+        const proposedGraphUri = existing?.named_graph_uri
+            ?? this.graphUri(input.entry, input.baseUri, proposedUuid, input.testRunUuid);
         const artifact = await this.database.ensureArtifact({
             artifactUuid: proposedUuid,
             familyId: Number(family.id),
@@ -111,7 +117,8 @@ export class ArtifactRegistryService {
             sourcePackageVersion: input.entry.sourcePackageVersion,
             sourceReleaseStatus: input.entry.sourceReleaseStatus,
             privacyClassification: input.entry.privacyClassification,
-            predecessorArtifactId: family.current_artifact_id === null ? null : Number(family.current_artifact_id),
+            predecessorArtifactId: existing?.predecessor_artifact_id ??
+                (family.current_artifact_id === null ? null : Number(family.current_artifact_id)),
         });
         if (artifact.validation_status === "not_validated") {
             await this.database.markIntegrityValidated(Number(artifact.id), input.integrity);

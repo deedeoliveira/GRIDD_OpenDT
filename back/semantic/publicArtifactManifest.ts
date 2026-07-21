@@ -16,6 +16,7 @@ export const APPROVED_PUBLIC_SOURCE_FILENAMES = new Set([
     "uminho-test-data-negative-v1.1.ttl",
     "oswadt-ifc4-model-requirements-v1.ids",
     "oswadt-ifc4-minimal-rdf-mapping-v1.json",
+    "oswadt-model-rdf-structural-shapes-v1.ttl",
 ]);
 
 const PUBLIC_PRIVACY = new Set(["public_research_artifact", "synthetic_runtime_data", "synthetic_test_only"]);

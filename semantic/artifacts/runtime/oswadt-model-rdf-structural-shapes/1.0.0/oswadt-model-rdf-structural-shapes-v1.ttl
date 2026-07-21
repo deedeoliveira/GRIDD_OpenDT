@@ -1,0 +1,59 @@
+@prefix beo: <https://pi.pauwel.be/voc/buildingelement#> .
+@prefix bot: <https://w3id.org/bot#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix project: <https://deedeoliveira.github.io/GRIDD_OpenDT/ontology/model-intake-v1#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+project:ModelRdfStructuralShapeSet_v1 a prov:Entity ;
+    dcterms:title "OSWADT model RDF structural shapes"@en ;
+    dcterms:description "Structural graph-quality constraints for minimal versioned IFC-to-RDF materialisations."@en ;
+    dcterms:created "2026-07-20"^^xsd:date ;
+    dcterms:isVersionOf project:ModelRdfStructuralShapeSet ;
+    owl:versionInfo "1.0.0" ;
+    rdfs:comment "These shapes do not decide authentication, authorization, eligibility, reservability, availability, approval, temporal conflicts or reservation transactions."@en .
+
+project:ModelVersionShape a sh:NodeShape ;
+    sh:targetClass project:ModelVersion ;
+    sh:message "A model version must carry its stable UUID, IFC schema and materialisation activity."@en ;
+    sh:property [ sh:path project:versionUuid ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:Literal ; sh:severity sh:Violation ; sh:message "Exactly one model-version UUID is required."@en ],
+        [ sh:path project:ifcSchema ; sh:minCount 1 ; sh:maxCount 1 ; sh:pattern "^IFC4" ; sh:severity sh:Violation ; sh:message "Exactly one IFC4 schema identifier is required."@en ],
+        [ sh:path prov:wasGeneratedBy ; sh:minCount 1 ; sh:maxCount 1 ; sh:class prov:Activity ; sh:severity sh:Violation ; sh:message "The version must reference its materialisation activity."@en ] .
+
+project:SourceIfcShape a sh:NodeShape ;
+    sh:targetSubjectsOf project:fileSha256 ;
+    sh:property [ sh:path project:fileSha256 ; sh:minCount 1 ; sh:maxCount 1 ; sh:pattern "^[0-9a-f]{64}$" ; sh:severity sh:Violation ; sh:message "The source IFC must carry one lowercase SHA-256 hash."@en ],
+        [ sh:path dcterms:title ; sh:minCount 1 ; sh:maxCount 1 ; sh:severity sh:Violation ; sh:message "The source IFC filename is required."@en ] .
+
+project:MaterialisationActivityShape a sh:NodeShape ;
+    sh:targetSubjectsOf project:mappingProfileVersion ;
+    sh:property [ sh:path project:mappingProfileVersion ; sh:minCount 1 ; sh:maxCount 1 ; sh:severity sh:Violation ; sh:message "The governed mapping profile version is required."@en ],
+        [ sh:path project:idsProfileVersion ; sh:minCount 1 ; sh:maxCount 1 ; sh:severity sh:Violation ; sh:message "The IDS profile version used by materialisation is required."@en ],
+        [ sh:path prov:used ; sh:minCount 3 ; sh:severity sh:Violation ; sh:message "The activity must reference source IFC, mapping and IDS evidence."@en ],
+        [ sh:path prov:generated ; sh:minCount 1 ; sh:maxCount 1 ; sh:class prov:Entity ; sh:severity sh:Violation ; sh:message "The activity must identify the generated model-version graph entity."@en ],
+        [ sh:path prov:startedAtTime ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:dateTime ; sh:severity sh:Violation ; sh:message "The materialisation timestamp is required."@en ] .
+
+project:PersistentSpaceShape a sh:NodeShape ;
+    sh:targetClass bot:Space ;
+    sh:property [ sh:path project:persistentUuid ; sh:minCount 1 ; sh:maxCount 1 ; sh:severity sh:Violation ; sh:message "A persistent space UUID is required."@en ],
+        [ sh:path project:reference ; sh:minCount 1 ; sh:maxCount 1 ; sh:minLength 1 ; sh:severity sh:Violation ; sh:message "A persistent space Reference is required."@en ],
+        [ sh:path [ sh:inversePath prov:specializationOf ] ; sh:minCount 1 ; sh:class project:IfcManifestation ; sh:severity sh:Violation ; sh:message "The persistent space needs a version-specific IFC manifestation."@en ] .
+
+project:PersistentAssetShape a sh:NodeShape ;
+    sh:targetClass beo:Furnishing ;
+    sh:property [ sh:path project:persistentUuid ; sh:minCount 1 ; sh:maxCount 1 ; sh:severity sh:Violation ; sh:message "A persistent asset UUID is required."@en ],
+        [ sh:path project:tag ; sh:minCount 1 ; sh:maxCount 1 ; sh:minLength 1 ; sh:severity sh:Violation ; sh:message "A persistent asset Tag is required."@en ],
+        [ sh:path [ sh:inversePath prov:specializationOf ] ; sh:minCount 1 ; sh:class project:IfcManifestation ; sh:severity sh:Violation ; sh:message "The persistent asset needs a version-specific IFC manifestation."@en ] .
+
+project:IfcManifestationShape a sh:NodeShape ;
+    sh:targetClass project:IfcManifestation ;
+    sh:property [ sh:path project:ifcGuid ; sh:minCount 1 ; sh:maxCount 1 ; sh:minLength 1 ; sh:severity sh:Violation ; sh:message "Each manifestation requires exactly one IFC GUID."@en ],
+        [ sh:path project:ifcClass ; sh:minCount 1 ; sh:maxCount 1 ; sh:severity sh:Violation ; sh:message "Each manifestation requires exactly one IFC class."@en ],
+        [ sh:path project:modelVersion ; sh:minCount 1 ; sh:maxCount 1 ; sh:class project:ModelVersion ; sh:severity sh:Violation ; sh:message "Each manifestation must belong to one model version."@en ],
+        [ sh:path prov:specializationOf ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ; sh:severity sh:Violation ; sh:message "Each manifestation must specialize one persistent resource."@en ],
+        [ sh:path owl:sameAs ; sh:maxCount 0 ; sh:severity sh:Violation ; sh:message "Manifestations must not use owl:sameAs for persistent identity."@en ],
+        [ sh:path project:containedInSpace ; sh:maxCount 1 ; sh:class bot:Space ; sh:severity sh:Violation ; sh:message "When present, asset location must reference one persistent space."@en ] .
