@@ -1,0 +1,54 @@
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix ev: <https://deedeoliveira.github.io/GRIDD_OpenDT/ontology/semantic-evidence-v1#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ev:SemanticEvidenceVocabulary_v1 a owl:Ontology, prov:Entity ;
+    dcterms:title "OSWADT cross-domain semantic evidence vocabulary"@en ;
+    dcterms:description "Minimal public vocabulary for auditable, non-binding reservation evidence."@en ;
+    dcterms:created "2026-07-21"^^xsd:date ;
+    owl:versionInfo "1.0.0" ;
+    rdfs:comment "Evidence terms do not confer authentication, authorization, approval, availability or reservation authority."@en .
+
+ev:EvidenceRun a owl:Class ; rdfs:subClassOf prov:Activity .
+ev:ActorEvidence a owl:Class ; rdfs:subClassOf prov:Entity .
+ev:ResourceEvidence a owl:Class ; rdfs:subClassOf prov:Entity .
+ev:StructuralEvidence a owl:Class ; rdfs:subClassOf prov:Entity .
+ev:AvailabilityEvidence a owl:Class ; rdfs:subClassOf prov:Entity .
+ev:PolicyEvaluation a owl:Class ; rdfs:subClassOf prov:Entity .
+
+ev:hasEvidence a owl:ObjectProperty .
+ev:evaluatedActor a owl:ObjectProperty .
+ev:evaluatedActorRole a owl:ObjectProperty .
+ev:allowedActorRole a owl:ObjectProperty .
+ev:evaluatedResource a owl:ObjectProperty .
+ev:actorLink a owl:ObjectProperty .
+ev:modelVersion a owl:ObjectProperty .
+ev:manifestation a owl:ObjectProperty .
+ev:structuralValidationRun a owl:ObjectProperty .
+ev:usesArtifact a owl:ObjectProperty .
+ev:actorLinkStatus a owl:ObjectProperty .
+ev:institutionalDatasetStatus a owl:ObjectProperty .
+ev:structuralStatus a owl:ObjectProperty .
+ev:shadowOutcome a owl:ObjectProperty .
+ev:evidenceStatus a owl:ObjectProperty .
+
+ev:resourceTag a owl:DatatypeProperty .
+ev:requestedStart a owl:DatatypeProperty .
+ev:requestedEnd a owl:DatatypeProperty .
+
+ev:Verified a owl:NamedIndividual .
+ev:Revoked a owl:NamedIndividual .
+ev:Expired a owl:NamedIndividual .
+ev:Unavailable a owl:NamedIndividual .
+ev:Current a owl:NamedIndividual .
+ev:NotCurrent a owl:NamedIndividual .
+ev:Conforms a owl:NamedIndividual .
+ev:Nonconformant a owl:NamedIndividual .
+ev:Missing a owl:NamedIndividual .
+ev:Eligible a owl:NamedIndividual .
+ev:NotEligible a owl:NamedIndividual .
+ev:Indeterminate a owl:NamedIndividual .

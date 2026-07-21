@@ -17,6 +17,8 @@ export const APPROVED_PUBLIC_SOURCE_FILENAMES = new Set([
     "oswadt-ifc4-model-requirements-v1.ids",
     "oswadt-ifc4-minimal-rdf-mapping-v1.json",
     "oswadt-model-rdf-structural-shapes-v1.ttl",
+    "project-semantic-evidence-v1.ttl",
+    "project-reservation-eligibility-shadow-v1.ttl",
 ]);
 
 const PUBLIC_PRIVACY = new Set(["public_research_artifact", "synthetic_runtime_data", "synthetic_test_only"]);
@@ -90,6 +92,13 @@ function parseEntry(value: unknown, index: number): PublicArtifactManifestEntry 
     } else if (raw.testOnly === true) {
         throw new SemanticArtifactError("manifest_invalid", `only test_fixture may set testOnly=true`);
     }
+    if (artifactType === "semantic_policy") {
+        if (raw.policyLanguage !== "SHACL" || raw.policyScope !== "reservation_eligibility_shadow") {
+            throw new SemanticArtifactError("manifest_invalid", `semantic policy '${sourceFilename}' must declare the governed SHACL shadow scope`);
+        }
+    } else if (raw.policyLanguage !== undefined || raw.policyScope !== undefined) {
+        throw new SemanticArtifactError("manifest_invalid", `policy metadata is only allowed for semantic_policy artifacts`);
+    }
 
     return {
         artifactKey: requiredString(raw.artifactKey, `artifacts[${index}].artifactKey`),
@@ -111,6 +120,10 @@ function parseEntry(value: unknown, index: number): PublicArtifactManifestEntry 
         privacyClassification: privacy as PublicArtifactManifestEntry["privacyClassification"],
         activationAllowed: raw.activationAllowed,
         testOnly: raw.testOnly,
+        ...(artifactType === "semantic_policy" ? {
+            policyLanguage: "SHACL" as const,
+            policyScope: "reservation_eligibility_shadow" as const,
+        } : {}),
     };
 }
 

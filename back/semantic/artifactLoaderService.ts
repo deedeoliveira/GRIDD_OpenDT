@@ -6,6 +6,8 @@ import {
     isTestGraphUri,
     projectInstitutionalBridgeGraphUri,
     structuralShapesGraphUri,
+    semanticEvidenceVocabularyGraphUri,
+    semanticPolicyGraphUri,
 } from "../graph/namedGraphs.ts";
 import { iri } from "../graph/sparqlText.ts";
 import type { SemanticArtifactDatabasePort } from "../utils/semanticArtifactDatabase.ts";
@@ -186,8 +188,11 @@ export class ArtifactLoaderService {
         let expected: string | null = null;
         switch (entry.artifactType) {
             case "ontology": expected = institutionalOntologyGraphUri(base, artifact.artifact_uuid); break;
-            case "bridge_vocabulary": expected = projectInstitutionalBridgeGraphUri(base, artifact.artifact_uuid); break;
+            case "bridge_vocabulary": expected = entry.sourceFilename === "project-semantic-evidence-v1.ttl"
+                ? semanticEvidenceVocabularyGraphUri(base, artifact.artifact_uuid)
+                : projectInstitutionalBridgeGraphUri(base, artifact.artifact_uuid); break;
             case "shacl_shapes": expected = structuralShapesGraphUri(base, artifact.artifact_uuid); break;
+            case "semantic_policy": expected = semanticPolicyGraphUri(base, artifact.artifact_uuid); break;
             case "institutional_dataset": expected = institutionalSyntheticDataGraphUri(base, artifact.artifact_uuid); break;
             case "test_fixture":
                 if (!isTestGraphUri(artifact.named_graph_uri)
@@ -221,7 +226,7 @@ export class ArtifactLoaderService {
                 `post-load triple count mismatch for '${entry.artifactKey}' (expected ${entry.tripleCount}, got ${Number.isNaN(count) ? "invalid" : count})`
             );
         }
-        if (!new Set(["ontology", "bridge_vocabulary", "shacl_shapes"]).has(entry.artifactType)) {
+        if (!new Set(["ontology", "bridge_vocabulary", "shacl_shapes", "semantic_policy"]).has(entry.artifactType)) {
             return { count, resourcePresent: null };
         }
         const expected = await this.graphClient.query(`ASK { GRAPH ${graphIri} { ${iri(entry.semanticUri)} ?p ?o } }`);

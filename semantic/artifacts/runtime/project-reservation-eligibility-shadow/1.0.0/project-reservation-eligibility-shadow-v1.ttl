@@ -1,0 +1,37 @@
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix ev: <https://deedeoliveira.github.io/GRIDD_OpenDT/ontology/semantic-evidence-v1#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ev:ReservationEligibilityShadowPolicy_v1 a prov:Entity ;
+    dcterms:title "OSWADT reservation eligibility shadow policy"@en ;
+    dcterms:description "Project-specific SHACL policy over minimal cross-domain evidence."@en ;
+    dcterms:created "2026-07-21"^^xsd:date ;
+    dcterms:isVersionOf ev:ReservationEligibilityShadowPolicy ;
+    owl:versionInfo "1.0.0" ;
+    sh:deactivated false .
+
+ev:ReservationEligibilityEvidenceShape a sh:NodeShape ;
+    sh:targetClass ev:EvidenceRun ;
+    sh:severity sh:Violation ;
+    sh:property
+        [ sh:path ev:actorLinkStatus ; sh:minCount 1 ; sh:maxCount 1 ; sh:hasValue ev:Verified ;
+          sh:message "The actor must have one current verified institutional link."@en ],
+        [ sh:path ev:institutionalDatasetStatus ; sh:minCount 1 ; sh:maxCount 1 ; sh:hasValue ev:Current ;
+          sh:message "The actor link must reference the current institutional dataset."@en ],
+        [ sh:path ev:evaluatedActor ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ;
+          sh:message "The linked institutional agent must be present."@en ],
+        [ sh:path ev:allowedActorRole ; sh:minCount 1 ; sh:nodeKind sh:IRI ;
+          sh:message "At least one governed institutional role must be allowed by the shadow policy."@en ],
+        [ sh:path ev:evaluatedResource ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ;
+          sh:message "A persistent asset must be resolved."@en ],
+        [ sh:path ev:resourceTag ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:string ; sh:minLength 1 ;
+          sh:message "The persistent asset must have a Tag."@en ],
+        [ sh:path ev:modelVersion ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ;
+          sh:message "The current model version must be resolved."@en ],
+        [ sh:path ev:manifestation ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ;
+          sh:message "The current IFC manifestation must be resolved."@en ],
+        [ sh:path ev:structuralStatus ; sh:minCount 1 ; sh:maxCount 1 ; sh:hasValue ev:Conforms ;
+          sh:message "The model materialisation used by the evidence must have a conforming structural SHACL run."@en ] .

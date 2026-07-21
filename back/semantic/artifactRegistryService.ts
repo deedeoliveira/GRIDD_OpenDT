@@ -5,6 +5,8 @@ import {
     negativeFixtureGraphUri,
     projectInstitutionalBridgeGraphUri,
     structuralShapesGraphUri,
+    semanticEvidenceVocabularyGraphUri,
+    semanticPolicyGraphUri,
 } from "../graph/namedGraphs.ts";
 import type {
     EnsureLoadOperationInput,
@@ -64,8 +66,11 @@ export class ArtifactRegistryService {
         if (entry.storageMode === "file_executed") return null;
         switch (entry.artifactType) {
             case "ontology": return institutionalOntologyGraphUri(baseUri, artifactUuid);
-            case "bridge_vocabulary": return projectInstitutionalBridgeGraphUri(baseUri, artifactUuid);
+            case "bridge_vocabulary": return entry.sourceFilename === "project-semantic-evidence-v1.ttl"
+                ? semanticEvidenceVocabularyGraphUri(baseUri, artifactUuid)
+                : projectInstitutionalBridgeGraphUri(baseUri, artifactUuid);
             case "shacl_shapes": return structuralShapesGraphUri(baseUri, artifactUuid);
+            case "semantic_policy": return semanticPolicyGraphUri(baseUri, artifactUuid);
             case "institutional_dataset": return institutionalSyntheticDataGraphUri(baseUri, artifactUuid);
             case "test_fixture":
                 if (!testRunUuid) throw new SemanticArtifactError("graph_namespace_rejected", "test fixture loading requires a unique testRunUuid");

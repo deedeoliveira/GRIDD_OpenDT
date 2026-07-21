@@ -9,6 +9,7 @@ export const ARTIFACT_TYPES = [
     "ids_profile",
     "ifc_rdf_mapping",
     "validation_report",
+    "semantic_policy",
 ] as const;
 
 export type SemanticArtifactType = (typeof ARTIFACT_TYPES)[number];
@@ -62,6 +63,8 @@ export interface PublicArtifactManifestEntry {
     privacyClassification: PublicPrivacyClassification;
     activationAllowed: boolean;
     testOnly: boolean;
+    policyLanguage?: "SHACL";
+    policyScope?: "reservation_eligibility_shadow";
 }
 
 export interface PublicArtifactManifest {
