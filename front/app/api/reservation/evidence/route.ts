@@ -11,4 +11,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Semantic evidence service is unavailable." }, { status: 503 });
   }
 }
-

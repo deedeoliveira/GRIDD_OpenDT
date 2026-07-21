@@ -57,13 +57,13 @@ function realSetup() {
     return { database, graph, loader };
 }
 
-test("load-public loads and activates exactly the five graph-backed runtime artifacts", async () => {
+test("load-public loads and activates exactly the seven graph-backed runtime artifacts", async () => {
     const { database, graph, loader } = realSetup();
     const results = await loader.loadPublic();
 
-    assert.equal(results.length, 5);
-    assert.equal(graph.putCalls.length, 5);
-    assert.equal(database.families.filter((family) => family.current_artifact_id !== null).length, 5);
+    assert.equal(results.length, 7);
+    assert.equal(graph.putCalls.length, 7);
+    assert.equal(database.families.filter((family) => family.current_artifact_id !== null).length, 7);
     assert.ok(results.every((result) => result.status === "completed"));
     assert.ok(graph.putCalls.every((call) => !call.graphUri.includes("/graph/operational")));
     assert.ok(graph.putCalls.every((call) => !call.graphUri.includes("/graph/test/")));
