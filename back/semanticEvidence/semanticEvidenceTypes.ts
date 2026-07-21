@@ -10,6 +10,13 @@ export interface SemanticEvidenceInputs {
     assetId: number;
     start: string;
     end: string;
+    /** Resolved only by the backend middleware; never supplied by a browser form. */
+    applicationIdentity?: {
+        accountId: number;
+        accountUuid: string;
+        provider: string;
+        assurance: string;
+    };
 }
 
 export interface ActorEvidenceView {

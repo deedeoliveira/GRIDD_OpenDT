@@ -83,7 +83,8 @@ class ReservationDatabase {
     assetId: number,
     actorId: string,
     start: Date,
-    end: Date
+    end: Date,
+    applicationAccountId: number | null = null
   ) {
     await this.markExpiredReservationsAsNoShow();
     await this.db.checkConnection();
@@ -213,7 +214,7 @@ class ReservationDatabase {
       }
 
       // 3️⃣ Insert pending reservation (mesma transação — commit liberta o lock)
-      const [result]: any = await conn.execute(`
+      const query = applicationAccountId === null ? `
         INSERT INTO res_reservations (
           asset_id,
           actor_id,
@@ -228,9 +229,14 @@ class ReservationDatabase {
         )
         VALUES (:assetId, :actorId, :start, :end, 'pending',
                 :bindingId, :versionId, :assetName, :spaceId, :spaceCode)
-      `, {
+      ` : `
+        INSERT INTO res_reservations (asset_id,actor_id,application_account_id,start_time,end_time,status,asset_binding_id_at_booking,model_version_id_at_booking,asset_name_snapshot,space_id_at_booking,space_code_snapshot)
+        VALUES (:assetId,:actorId,:applicationAccountId,:start,:end,'pending',:bindingId,:versionId,:assetName,:spaceId,:spaceCode)
+      `;
+      const params = {
         assetId,
         actorId,
+        applicationAccountId,
         start,
         end,
         bindingId: snap?.binding_id ?? null,
@@ -238,7 +244,8 @@ class ReservationDatabase {
         assetName: snap?.asset_name ?? null,
         spaceId: snap?.space_id ?? null,
         spaceCode: snap?.space_code ?? null
-      });
+      };
+      const [result]: any = await conn.execute(query, params);
 
       logConcurrencyEvent("reservation_created", { assetId, reservationId: result.insertId, correlationId });
       return result.insertId;

@@ -5,25 +5,38 @@ import { loadSemanticEvidenceConfig } from '../semanticEvidence/semanticEvidence
 import { getReservationSemanticEvidenceService } from '../semanticEvidence/semanticEvidenceRuntime.ts';
 import { SemanticEvidenceError, sanitizedSemanticEvidenceError } from '../semanticEvidence/semanticEvidenceTypes.ts';
 import { assertCurrentApplicationActor, resolveCurrentApplicationActor } from "../reservation/currentApplicationActor.ts";
+import { applicationIdentityRuntime } from "../applicationIdentity/applicationIdentityMiddleware.ts";
+import { ApplicationIdentityDatabase } from "../applicationIdentity/applicationIdentityDatabase.ts";
 
 const app = express();
 
 app.use(express.json());
 
-app.get('/current-actor', (_req, res) => buildSuccessResponse(res, 200, {
-  actorKey: resolveCurrentApplicationActor(),
-  authenticated: false,
-  caveat: 'development_identity_not_authenticated',
-}));
+function currentActor(req: express.Request) { return req.applicationIdentity?.accountKey ?? resolveCurrentApplicationActor(); }
+function currentAccountId(req: express.Request) { return req.applicationIdentity?.accountId ?? null; }
+function rejectSpoof(req: express.Request, supplied: unknown) { const {config}=applicationIdentityRuntime(); return config.mode==='local_session' ? currentActor(req) : assertCurrentApplicationActor(supplied); }
+function requiresLocalIdentity(req: express.Request, res: express.Response) {
+  if (applicationIdentityRuntime().config.mode === 'local_session' && !req.applicationIdentity) {
+    buildErrorResponse(res, 401, 'A local development session is required.'); return true;
+  }
+  return false;
+}
+app.get('/current-actor', (req, res) => buildSuccessResponse(res, 200, req.applicationIdentity ? { actorKey: currentActor(req), accountUuid:req.applicationIdentity.accountUuid, authenticated:false, assurance:'development_only' } : {actorKey:currentActor(req),authenticated:false,caveat:'legacy_development_fallback'}));
 
 app.post('/evidence', async (req, res) => {
   try {
-    const actorKey = assertCurrentApplicationActor(req.body?.actorKey);
+    if (requiresLocalIdentity(req, res)) return;
+    const actorKey = rejectSpoof(req, req.body?.actorKey);
+    if (req.applicationIdentity) await new ApplicationIdentityDatabase().assertLinkedAccount(req.applicationIdentity.accountId, actorKey);
     const evidence = await getReservationSemanticEvidenceService().evaluate({
       actorKey,
       assetId: Number(req.body?.assetId),
       start: String(req.body?.start ?? ''),
       end: String(req.body?.end ?? ''),
+      ...(req.applicationIdentity ? { applicationIdentity: {
+        accountId: req.applicationIdentity.accountId, accountUuid: req.applicationIdentity.accountUuid,
+        provider: req.applicationIdentity.provider, assurance: req.applicationIdentity.authenticationAssurance,
+      } } : {}),
     });
     return buildSuccessResponse(res, 201, evidence);
   } catch (error) {
@@ -49,7 +62,8 @@ app.get('/asset/:assetId', async (req, res) => {
 });
 
 app.get("/actor/:actorId", async (req, res) => {
-  const { actorId } = req.params;
+  if (requiresLocalIdentity(req, res)) return;
+  const actorId = rejectSpoof(req, req.params.actorId);
 
   try {
     const rows = await reservationDb.getReservationsByActor(actorId);
@@ -68,20 +82,23 @@ app.post('/request', async (req, res) => {
   }
 
   try {
-    const currentActor = assertCurrentApplicationActor(actorId);
+    if (requiresLocalIdentity(req, res)) return;
+    const currentActor = rejectSpoof(req, actorId);
     const evidenceConfig = loadSemanticEvidenceConfig();
     const start = new Date(startTime);
     const end = new Date(endTime);
     if (semanticEvidenceRunUuid && evidenceConfig.enabled && evidenceConfig.mode === 'shadow') {
       await getReservationSemanticEvidenceService().assertMatchesAndLink({
         runUuid: String(semanticEvidenceRunUuid), actorKey: currentActor, assetId: Number(assetId), start, end,
+        applicationAccountId: currentAccountId(req) ?? undefined,
       });
     }
     const reservationId = await reservationDb.createReservation(
       Number(assetId),
       currentActor,
       start,
-      end
+      end,
+      currentAccountId(req)
     );
 
     let evidenceLinked = false;
@@ -89,6 +106,7 @@ app.post('/request', async (req, res) => {
       try {
         await getReservationSemanticEvidenceService().assertMatchesAndLink({
           runUuid: String(semanticEvidenceRunUuid), actorKey: currentActor, assetId: Number(assetId), start, end, reservationId,
+          applicationAccountId: currentAccountId(req) ?? undefined,
         });
         evidenceLinked = true;
       } catch (linkError) {
@@ -111,9 +129,11 @@ app.post('/request', async (req, res) => {
 });
 
 app.post('/checkin', async (req, res) => {
-  const { reservationId, actorId } = req.body;
+  const { reservationId } = req.body;
+  if (requiresLocalIdentity(req, res)) return;
+  const actorId = rejectSpoof(req, req.body?.actorId);
 
-  if (!reservationId || !actorId) {
+  if (!reservationId) {
     return buildErrorResponse(res, 400, 'Missing reservationId or actorId');
   }
 
@@ -132,12 +152,14 @@ app.post('/checkin', async (req, res) => {
 
 
 app.post('/checkout', async (req, res) => {
-  const { reservationId, actorId } = req.body;
+  const { reservationId } = req.body;
+  if (requiresLocalIdentity(req, res)) return;
+  const actorId = rejectSpoof(req, req.body?.actorId);
 
   console.log("checkout em routes - reservationID:", reservationId);
   console.log("checkout em routes - actorId:", actorId);
 
-  if (!reservationId || !actorId) {
+  if (!reservationId) {
     return buildErrorResponse(res, 400, 'Missing reservationId or actorId');
   }
 
@@ -157,9 +179,11 @@ app.post('/checkout', async (req, res) => {
 
 
 app.post('/cancel', async (req, res) => {
-  const { reservationId, actorId } = req.body;
+  const { reservationId } = req.body;
+  if (requiresLocalIdentity(req, res)) return;
+  const actorId = rejectSpoof(req, req.body?.actorId);
 
-  if (!reservationId || !actorId) {
+  if (!reservationId) {
     return buildErrorResponse(res, 400, 'Missing reservationId or actorId');
   }
 

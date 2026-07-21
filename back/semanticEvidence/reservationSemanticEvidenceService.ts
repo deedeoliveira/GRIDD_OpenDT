@@ -158,7 +158,8 @@ export class ReservationSemanticEvidenceService {
             };
             await this.database.persistCompleted({ ...response, actorKeyNormalized: normalized.normalized,
                 actorLinkId: actor.linkId, institutionalArtifactId: actor.institutionalArtifactId,
-                policyArtifactId: policy.artifactId });
+                policyArtifactId: policy.artifactId,
+                ...(raw.applicationIdentity ? { applicationIdentity: raw.applicationIdentity } : {}) });
             console.log(JSON.stringify({ type: "semantic_evidence_completed", correlationId, runUuid,
                 actorReference: actorReference(normalized.original), assetUuid: resource.assetUuid,
                 shadowOutcome: outcome, sqlAvailability: response.availability.status,
@@ -186,12 +187,13 @@ export class ReservationSemanticEvidenceService {
         return this.graph.getGraph(uri);
     }
 
-    async assertMatchesAndLink(input: { runUuid: string; actorKey: string; assetId: number; start: Date; end: Date; reservationId?: number }) {
+    async assertMatchesAndLink(input: { runUuid: string; actorKey: string; assetId: number; start: Date; end: Date; reservationId?: number; applicationAccountId?: number }) {
         const run = await this.getRun(input.runUuid);
         const normalized = normalizeActorKey(input.actorKey);
         const mismatch = run.row.actor_key_normalized !== normalized.normalized || Number(run.row.asset_id) !== input.assetId
             || new Date(run.row.requested_start).getTime() !== input.start.getTime()
-            || new Date(run.row.requested_end).getTime() !== input.end.getTime();
+            || new Date(run.row.requested_end).getTime() !== input.end.getTime()
+            || (input.applicationAccountId !== undefined && Number(run.row.application_account_id) !== input.applicationAccountId);
         if (mismatch) {
             console.warn(JSON.stringify({ type: "reservation_evidence_mismatch", runUuid: input.runUuid,
                 actorReference: actorReference(normalized.original), assetId: input.assetId, at: this.now().toISOString() }));

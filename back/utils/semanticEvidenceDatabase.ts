@@ -11,7 +11,9 @@ function parsed(value: unknown): any {
 export interface SemanticEvidenceDatabasePort {
     resolveResource(assetId: number): Promise<ResourceSemanticRow | null>;
     persistCompleted(response: SemanticEvidenceResponse & { actorKeyNormalized: string; actorLinkId: number | null;
-        institutionalArtifactId: number | null; policyArtifactId: number }): Promise<{ id: number }>;
+        institutionalArtifactId: number | null; policyArtifactId: number; applicationIdentity?: {
+            accountId: number; accountUuid: string; provider: string; assurance: string;
+        } }): Promise<{ id: number }>;
     getRun(runUuid: string): Promise<{ id: number; row: any; response: SemanticEvidenceResponse } | null>;
     linkReservation(runId: number, reservationId: number, snapshotSha256: string): Promise<void>;
     tablesReady(): Promise<boolean>;
@@ -49,21 +51,27 @@ export class SemanticEvidenceDatabase implements SemanticEvidenceDatabasePort {
     }
 
     async persistCompleted(input: SemanticEvidenceResponse & { actorKeyNormalized: string; actorLinkId: number | null;
-        institutionalArtifactId: number | null; policyArtifactId: number }): Promise<{ id: number }> {
+        institutionalArtifactId: number | null; policyArtifactId: number; applicationIdentity?: {
+            accountId: number; accountUuid: string; provider: string; assurance: string;
+        } }): Promise<{ id: number }> {
         return this.db.withTransaction(async (connection) => {
+            const identityColumns = input.applicationIdentity
+                ? ", application_account_id, account_uuid_snapshot, identity_provider, identity_assurance" : "";
+            const identityValues = input.applicationIdentity
+                ? ", :applicationAccountId, :accountUuidSnapshot, :identityProvider, :identityAssurance" : "";
             const [result]: any = await connection.execute(`INSERT INTO semantic_evidence_runs
                 (run_uuid, actor_key_normalized, asset_id, asset_uuid, requested_start, requested_end,
                  actor_link_id, institutional_artifact_id, model_version_id, materialisation_id,
                  structural_validation_run_id, policy_artifact_id, evidence_graph_uri, policy_report_graph_uri,
                  evidence_graph_sha256, policy_report_sha256, actor_evidence_status, resource_evidence_status,
                  structural_status, shadow_eligibility_outcome, sql_availability_status, status, response_json,
-                 created_at, completed_at, expires_at)
+                 created_at, completed_at, expires_at${identityColumns})
                 VALUES (:runUuid,:actorKeyNormalized,:assetId,:assetUuid,:start,:end,
                         :actorLinkId,:institutionalArtifactId,:modelVersionId,:materialisationId,
                         :structuralValidationRunId,:policyArtifactId,:evidenceGraphUri,:policyReportGraphUri,
                         :evidenceGraphSha256,:policyReportSha256,:actorStatus,:resourceStatus,
                         :structuralStatus,:shadowOutcome,:availabilityStatus,'completed',:responseJson,
-                        :createdAt,:createdAt,:expiresAt)`, {
+                        :createdAt,:createdAt,:expiresAt${identityValues})`, {
                 runUuid: input.runUuid, actorKeyNormalized: input.actorKeyNormalized, assetId: input.inputs.assetId,
                 assetUuid: input.inputs.assetUuid, start: new Date(input.inputs.start), end: new Date(input.inputs.end),
                 actorLinkId: input.actorLinkId, institutionalArtifactId: input.institutionalArtifactId,
@@ -75,6 +83,10 @@ export class SemanticEvidenceDatabase implements SemanticEvidenceDatabasePort {
                 structuralStatus: input.structuralEvidence.status, shadowOutcome: input.semanticEligibility.outcome,
                 availabilityStatus: input.availability.status, responseJson: JSON.stringify(input),
                 createdAt: new Date(input.createdAt), expiresAt: new Date(input.expiresAt),
+                applicationAccountId: input.applicationIdentity?.accountId ?? null,
+                accountUuidSnapshot: input.applicationIdentity?.accountUuid ?? null,
+                identityProvider: input.applicationIdentity?.provider ?? null,
+                identityAssurance: input.applicationIdentity?.assurance ?? null,
             });
             const id = Number(result.insertId);
             for (const finding of input.semanticEligibility.findings) {
