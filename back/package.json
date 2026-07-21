@@ -15,9 +15,10 @@
     "semantic:artifacts:status": "tsx scripts/semanticArtifactsCli.ts status",
     "semantic:institutional:seed-synthetic-links": "tsx scripts/seedSyntheticInstitutionalLinks.ts",
     "semantic:institutional:demo": "tsx scripts/institutionalContextDemo.ts",
-    "semantic:institutional:demo-setup": "tsx scripts/institutionalDemoSetup.ts"
-    ,"ids:demo": "tsx scripts/idsDemo.ts"
-    ,"ids:demo:setup": "tsx scripts/idsDemoSetup.ts"
+    "semantic:institutional:demo-setup": "tsx scripts/institutionalDemoSetup.ts",
+    "ids:demo": "tsx scripts/idsDemo.ts",
+    "ids:demo:setup": "tsx scripts/idsDemoSetup.ts",
+    "model-intake:setup": "tsx scripts/modelIntakeSetup.ts"
   },
   "keywords": [],
   "author": "",
@@ -29,12 +30,14 @@
     "express": "^5.1.0",
     "multer": "^2.0.2",
     "mysql2": "^3.14.3",
+    "n3": "^2.1.1",
     "tsx": "^4.20.3"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "@types/multer": "^2.0.0",
+    "@types/n3": "^1.26.1",
     "@types/node": "^24.2.0",
     "typescript": "^5.9.2"
   },

@@ -3,6 +3,7 @@ import fs from 'fs';
 import type { IModelDatabase } from "../types/database.ts";
 import type { LinkedModel, Model } from "../types/models.ts";
 import path from "path";
+import crypto from "node:crypto";
 import { resolveStorageKey } from "./storage.ts";
 
 const MODELS_ROOT_PATH = path.join(import.meta.dirname, '../cdn_resources/models');
@@ -55,6 +56,7 @@ class ModelDatabase implements IModelDatabase {
         try {
             const [rows]: any = await this.db.connection.query(`
                     SELECT  id,
+                            model_uuid,
                             name,
                             linked_parent_id
                     FROM models
@@ -134,9 +136,10 @@ class ModelDatabase implements IModelDatabase {
 
         try {
             const [modelRows] = await this.db.connection.query(`
-                INSERT INTO models (name, linked_parent_id)
-                VALUES (:name, :linkedParentId)
+                INSERT INTO models (model_uuid, name, linked_parent_id)
+                VALUES (:modelUuid, :name, :linkedParentId)
             `, {
+                modelUuid: crypto.randomUUID(),
                 name,
                 linkedParentId
             });
@@ -203,6 +206,7 @@ class ModelDatabase implements IModelDatabase {
 
         const [rows]: any = await this.db.connection.query(`
             SELECT id,
+                    model_uuid AS modelUuid,
                     name,
                     linked_parent_id AS linkedParentId
             FROM models

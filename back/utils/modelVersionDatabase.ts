@@ -1,5 +1,6 @@
 import MySQLDatabase from "./mysqlDatabase.ts";
 import { logConcurrencyEvent } from "./concurrencyControl.ts";
+import crypto from "node:crypto";
 
 /**
  * Operações sobre model_versions e a versão corrente (Prompt 2).
@@ -37,7 +38,7 @@ class ModelVersionDatabase {
      * o UNIQUE(model_id, version_number) é a proteção de último recurso
      * (uma tentativa de retry em conflito).
      */
-    async reserveVersion(input: ReserveVersionInput, retry = true): Promise<{ versionId: number; versionNumber: number }> {
+    async reserveVersion(input: ReserveVersionInput, retry = true): Promise<{ versionId: number; versionNumber: number; versionUuid: string }> {
         try {
             return await this.db.withTransaction(async (conn) => {
                 const [modelRows]: any = await conn.execute(
@@ -55,13 +56,15 @@ class ModelVersionDatabase {
                 );
 
                 const versionNumber = Number(maxRows[0].next);
+                const versionUuid = crypto.randomUUID();
 
                 const [result]: any = await conn.execute(`
                     INSERT INTO model_versions
-                        (model_id, version_number, status, original_filename, file_hash, file_size, description, created_by)
+                        (version_uuid, model_id, version_number, status, original_filename, file_hash, file_size, description, created_by)
                     VALUES
-                        (:modelId, :versionNumber, 'processing', :originalFilename, :fileHash, :fileSize, :description, :createdBy)
+                        (:versionUuid, :modelId, :versionNumber, 'processing', :originalFilename, :fileHash, :fileSize, :description, :createdBy)
                 `, {
+                    versionUuid,
                     modelId: input.modelId,
                     versionNumber,
                     originalFilename: input.originalFilename,
@@ -71,7 +74,7 @@ class ModelVersionDatabase {
                     createdBy: input.createdBy ?? null,
                 });
 
-                return { versionId: result.insertId, versionNumber };
+                return { versionId: result.insertId, versionNumber, versionUuid };
             });
         } catch (error: any) {
             // Backstop de concorrência: colisão no UNIQUE(model_id, version_number)
@@ -154,7 +157,7 @@ class ModelVersionDatabase {
     async getVersionsByModel(modelId: number): Promise<any[]> {
         await this.db.checkConnection();
         const [rows]: any = await this.db.connection.execute(`
-            SELECT v.id, v.model_id, v.version_number, v.status, v.storage_key,
+            SELECT v.id, v.version_uuid, v.model_id, v.version_number, v.status, v.storage_key,
                    v.original_filename, v.file_hash, v.file_size, v.description,
                    v.created_at, v.created_by, v.activated_at, v.failure_reason,
                    (v.id = m.current_version_id) AS is_current
@@ -169,7 +172,7 @@ class ModelVersionDatabase {
     async getVersionById(versionId: number): Promise<any | null> {
         await this.db.checkConnection();
         const [rows]: any = await this.db.connection.execute(`
-            SELECT v.id, v.model_id, v.version_number, v.status, v.storage_key,
+            SELECT v.id, v.version_uuid, v.model_id, v.version_number, v.status, v.storage_key,
                    v.original_filename, v.file_hash, v.file_size, v.description,
                    v.created_at, v.created_by, v.activated_at, v.failure_reason,
                    (v.id = m.current_version_id) AS is_current
@@ -188,7 +191,7 @@ class ModelVersionDatabase {
     async getCurrentVersion(modelId: number): Promise<any | null> {
         await this.db.checkConnection();
         const [rows]: any = await this.db.connection.execute(`
-            SELECT v.id, v.model_id, v.version_number, v.status, v.storage_key,
+            SELECT v.id, v.version_uuid, v.model_id, v.version_number, v.status, v.storage_key,
                    v.original_filename, v.file_hash, v.file_size, v.description,
                    v.created_at, v.created_by, v.activated_at, v.failure_reason,
                    TRUE AS is_current

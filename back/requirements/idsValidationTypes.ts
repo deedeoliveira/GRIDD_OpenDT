@@ -55,6 +55,15 @@ export interface IdsValidationProvider {
         executorName: string;
         executorVersion: string;
         specificationCount: number;
+        requirementCount?: number;
+        requirements?: Array<{
+            requirementId: string;
+            specification: string;
+            appliesTo: string;
+            requires: string;
+            cardinality: string;
+            expectedPattern: string | null;
+        }>;
     }>;
 }
 

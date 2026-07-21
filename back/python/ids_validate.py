@@ -10,6 +10,7 @@ import importlib.metadata
 import json
 import sys
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 import ifcopenshell
 from ifctester import ids, reporter
@@ -17,6 +18,49 @@ from ifctester import ids, reporter
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def secure_profile_bytes(path: Path) -> bytes:
+    payload = path.read_bytes()
+    upper = payload.upper()
+    if b"<!DOCTYPE" in upper or b"<!ENTITY" in upper:
+        raise ValueError("DTD and XML entity declarations are not allowed in IDS uploads")
+    return payload
+
+
+def xml_text(element, local_name):
+    found = element.find(f".//{{*}}{local_name}/{{*}}simpleValue")
+    return found.text.strip() if found is not None and found.text else None
+
+
+def extract_requirements(payload: bytes):
+    root = ET.fromstring(payload)
+    normalized = []
+    for spec_index, specification in enumerate(root.findall(".//{*}specification"), start=1):
+        applies = xml_text(specification.find("{*}applicability"), "name") or "IFC entity"
+        requirements = specification.find("{*}requirements")
+        if requirements is None:
+            continue
+        for req_index, requirement in enumerate(list(requirements), start=1):
+            facet = requirement.tag.split("}")[-1]
+            if facet == "property":
+                property_set = xml_text(requirement, "propertySet") or "property set"
+                base_name = xml_text(requirement, "baseName") or "property"
+                required_value = f"{property_set}.{base_name}"
+            elif facet == "attribute":
+                required_value = xml_text(requirement, "name") or "attribute"
+            else:
+                required_value = facet
+            pattern = requirement.find(".//{*}pattern")
+            normalized.append({
+                "requirementId": specification.get("identifier") or f"IDS-{spec_index:02d}-{req_index:02d}",
+                "specification": specification.get("name") or f"Specification {spec_index}",
+                "appliesTo": applies,
+                "requires": required_value,
+                "cardinality": requirement.get("cardinality") or "required",
+                "expectedPattern": pattern.get("value") if pattern is not None else None,
+            })
+    return normalized
 
 
 def simple_value(value):
@@ -100,7 +144,9 @@ def main():
     args = parser.parse_args()
 
     profile_path = Path(args.ids).resolve()
+    profile_bytes = secure_profile_bytes(profile_path)
     profile = ids.open(str(profile_path), validate=True)
+    visible_requirements = extract_requirements(profile_bytes)
     common = {
         "correlationId": args.correlation_id,
         "profileVersion": str(profile.info.get("version") or "unknown"),
@@ -109,7 +155,13 @@ def main():
         "executorVersion": importlib.metadata.version("ifctester"),
     }
     if args.validate_profile_only:
-        print(json.dumps({**common, "profileValid": True, "specificationCount": len(profile.specifications)}))
+        print(json.dumps({
+            **common,
+            "profileValid": True,
+            "specificationCount": len(profile.specifications),
+            "requirementCount": len(visible_requirements),
+            "requirements": visible_requirements,
+        }))
         return
     if not args.ifc:
         raise ValueError("--ifc is required for model validation")

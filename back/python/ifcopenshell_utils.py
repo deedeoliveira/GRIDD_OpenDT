@@ -40,10 +40,17 @@ def _space_entry(sp):
     except Exception:
         psets = {}
 
+    try:
+        container = ifcopenshell.util.element.get_aggregate(sp)
+        storey_name = getattr(container, "Name", None) if container and container.is_a("IfcBuildingStorey") else None
+    except Exception:
+        storey_name = None
+
     return {
         "spaceGuid": sp.GlobalId,
         "spaceName": getattr(sp, "Name", None),
         "spaceLongName": getattr(sp, "LongName", None),
+        "storeyName": storey_name,
         "psets": psets,
         "elements": []
     }

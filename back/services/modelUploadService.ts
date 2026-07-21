@@ -11,6 +11,10 @@ import { persistSpaceIdentities, reconcileSpaceStatusesAfterActivation, type Spa
 import { persistAssetsForVersion, reconcileAssetLifecycleAfterActivation } from "./assetInventoryService.ts";
 import persistentAssetDb from "../utils/persistentAssetDatabase.ts";
 import { hashFile, promoteFile, removeTempFile, removeVersionDir, resolveStorageKey, versionStorageKey } from "../utils/storage.ts";
+import { extractIfcModelFromFile } from "../requirements/ifcFileExtraction.ts";
+import type { IntakeProfile } from "../modelIntake/modelIntakeTypes.ts";
+import { loadModelIntakeConfig } from "../modelIntake/modelIntakeConfig.ts";
+import { SemanticMaterialisationService } from "../modelIntake/semanticMaterialisationService.ts";
 
 /**
  * Fluxo de upload por etapas (Prompt 2).
@@ -50,6 +54,7 @@ export interface UploadInput {
     linkedParentId?: number | undefined;
     description?: string | null;
     createdBy?: string | null;
+    controlledIntake?: { idsProfile: IntakeProfile };
 }
 
 export interface UploadResult {
@@ -60,6 +65,9 @@ export interface UploadResult {
     fileHash: string;
     fileSize: number;
     isNewModel: boolean;
+    versionUuid: string;
+    previousCurrentVersionId: number | null;
+    semanticMaterialisation: any | null;
 }
 
 function selfApiBase(): string {
@@ -85,6 +93,8 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
     let isNewModel = false;
     let createdSpaceIds: number[] = [];
     let createdAssetIds: number[] = [];
+    let previousCurrentVersionId: number | null = null;
+    let semanticMaterialisation: any | null = null;
 
     try {
         /* -------- modelo lógico: reutilizar ou criar -------- */
@@ -94,6 +104,7 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
                 throw new Error(`Model with id ${modelId} not found`);
             }
             linkedParentId = existing.linked_parent_id ?? null;
+            previousCurrentVersionId = (await versionDb.getCurrentVersion(modelId))?.id ?? null;
         } else {
             const name = input.name || input.originalFilename.split(".")[0];
             const model = await modelDb.uploadModel(name!, null as any, input.linkedParentId as any) as any;
@@ -129,7 +140,9 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
         /* -------- 4. processamento Python (extração, sem persistência) -------- */
         stage = "processing";
         const versionFileUrl = `${selfApiBase()}/api/model/versions/${versionId}/download`;
-        const extracted = await fetchInventory(modelId, versionFileUrl);
+        const extracted = input.controlledIntake
+            ? await extractIfcModelFromFile(resolveStorageKey(storageKey))
+            : await fetchInventory(modelId, versionFileUrl);
         const inventoryData = extracted.inventoryData;
 
         /* -------- 5. model_requirements_preflight: requisitos de informação
@@ -144,6 +157,7 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
             context: { linkedModelId: linkedParentId, modelId, modelVersionId: versionId },
             projectValidator: getModelRequirementsValidator(),
             sourceKind: "upload",
+            ...(input.controlledIntake ? { profileOverride: input.controlledIntake.idsProfile } : {}),
         });
 
         if (requirements.blocking) {
@@ -222,7 +236,26 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
             createdAssetIds = assetOutcome.createdAssetIds;
         }
 
-        /* -------- 9. ativação e troca da versão corrente -------- */
+        /* -------- 9. materialização semântica controlada (Prompt 7D) -------- */
+        if (input.controlledIntake) {
+            stage = "semantic_materialisation";
+            const intakeConfig = loadModelIntakeConfig();
+            try {
+                semanticMaterialisation = await new SemanticMaterialisationService().materialise({
+                    versionId,
+                    extractedModel: extracted,
+                    ids: input.controlledIntake.idsProfile,
+                });
+            } catch (error) {
+                if (intakeConfig.mode === "required") throw error;
+                semanticMaterialisation = {
+                    status: "failed_retryable",
+                    message: "Semantic materialisation failed; IFC version continued in best_effort mode.",
+                };
+            }
+        }
+
+        /* -------- 10. ativação e troca da versão corrente -------- */
         stage = "activation";
         await versionDb.activateVersion(modelId, versionId);
 
@@ -249,6 +282,9 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
             fileHash,
             fileSize,
             isNewModel,
+            versionUuid: reserved.versionUuid,
+            previousCurrentVersionId,
+            semanticMaterialisation,
         };
 
     } catch (error: any) {

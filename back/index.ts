@@ -16,6 +16,7 @@ import spaceRoutes from "./routes/space.ts";
 import semanticRoutes from "./routes/semantic.ts";
 import institutionalRoutes from "./routes/institutional.ts";
 import modelRequirementsRoutes from "./routes/modelRequirements.ts";
+import modelIntakeRoutes from "./routes/modelIntake.ts";
 
 app.use(cors());
 app.use(express.json());
@@ -30,6 +31,7 @@ app.use("/api/space", spaceRoutes);
 app.use("/api/semantic", semanticRoutes);
 app.use("/api/institutional", institutionalRoutes);
 app.use("/api/model-requirements", modelRequirementsRoutes);
+app.use("/api/model-intake", modelIntakeRoutes);
 
 app.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);

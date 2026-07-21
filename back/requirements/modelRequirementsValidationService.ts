@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { loadIdsValidationConfig, type IdsValidationConfig } from "./idsValidationConfig.ts";
 import { IfcOpenShellIdsValidationProvider } from "./ifcOpenShellIdsValidationProvider.ts";
 import { IdsProfileResolver, type ActiveIdsProfileResolver } from "./idsProfileResolver.ts";
-import type { IdsValidationProvider, NormalizedRequirementFinding } from "./idsValidationTypes.ts";
+import type { IdsProfileMetadata, IdsValidationProvider, NormalizedRequirementFinding } from "./idsValidationTypes.ts";
 import type { ExtractedIfcModel, ModelInformationRequirementsValidator, ModelRequirementsContext } from "./modelRequirementsTypes.ts";
 import type { ModelRequirementsValidationReport } from "./modelRequirementsValidationReport.ts";
 import { ModelRequirementValidationDatabase, type ModelRequirementValidationDatabasePort } from "../utils/modelRequirementValidationDatabase.ts";
@@ -16,6 +16,8 @@ export interface ComposedValidationInput {
     projectFindings?: NormalizedRequirementFinding[];
     sourceKind: "upload" | "demo" | "cli" | "automated_test";
     correlationId?: string;
+    /** Perfil já verificado pelo executor (upload IDS temporário ou seleção governada explícita). */
+    profileOverride?: IdsProfileMetadata;
 }
 
 function normalizeProject(findings: any[]): NormalizedRequirementFinding[] {
@@ -67,7 +69,7 @@ export class ModelRequirementsValidationService {
             };
         }
 
-        const profile = await this.profiles.resolveActive(this.config.familyKey);
+        const profile = input.profileOverride ?? await this.profiles.resolveActive(this.config.familyKey);
         console.log(JSON.stringify({ type: "ids_validation_started", correlationId, profileArtifactUuid: profile.artifactUuid,
             profileVersion: profile.version, fileHash: fileSha256, modelVersionId: input.context.modelVersionId || null,
             mode: this.config.mode, at: started.toISOString() }));

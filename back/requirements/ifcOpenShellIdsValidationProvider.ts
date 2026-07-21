@@ -11,6 +11,15 @@ interface PythonResult extends Partial<IdsValidationResult> {
     errorType?: string;
     profileValid?: boolean;
     specificationCount?: number;
+    requirementCount?: number;
+    requirements?: Array<{
+        requirementId: string;
+        specification: string;
+        appliesTo: string;
+        requires: string;
+        cardinality: string;
+        expectedPattern: string | null;
+    }>;
 }
 
 export class IfcOpenShellIdsValidationProvider implements IdsValidationProvider {
@@ -61,7 +70,7 @@ export class IfcOpenShellIdsValidationProvider implements IdsValidationProvider 
             "--correlation-id", correlationId,
             "--validate-profile-only",
         ], timeoutMs);
-        if (result.profileValid !== true || typeof result.specificationCount !== "number") {
+        if (result.profileValid !== true || typeof result.specificationCount !== "number" || !Array.isArray(result.requirements)) {
             throw new IdsValidationError("ids_profile_invalid", "The IDS executor did not accept the governed profile.");
         }
         return {
@@ -70,6 +79,8 @@ export class IfcOpenShellIdsValidationProvider implements IdsValidationProvider 
             executorName: String(result.executorName),
             executorVersion: String(result.executorVersion),
             specificationCount: result.specificationCount,
+            requirementCount: result.requirements.length,
+            requirements: result.requirements,
         };
     }
 }
