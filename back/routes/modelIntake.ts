@@ -8,13 +8,17 @@ import { removeTempFile, resolveStorageKey } from "../utils/storage.ts";
 import { IntakeError, ModelIntakeService } from "../modelIntake/modelIntakeService.ts";
 import { getPreflightRun } from "../modelIntake/modelIntakeRunStore.ts";
 import { loadModelIntakeConfig } from "../modelIntake/modelIntakeConfig.ts";
+import { SemanticValidationService, publicShapes, publicValidation } from "../semanticValidation/semanticValidationService.ts";
+import { SemanticValidationError } from "../semanticValidation/semanticValidationTypes.ts";
 
 const app = express.Router();
 const service = new ModelIntakeService();
 const database = new ModelIntakeDatabase();
+const semanticValidation = new SemanticValidationService();
 const tempRoot = path.resolve(import.meta.dirname, "../cdn_resources/models/temp");
 fs.mkdirSync(tempRoot, { recursive: true });
 const upload = multer({ dest: tempRoot, limits: { files: 2, fileSize: 50 * 1024 * 1024, fields: 8 } });
+const shapesUpload = multer({ dest: tempRoot, limits: { files: 1, fileSize: 2 * 1024 * 1024, fields: 8 } });
 
 function files(req: express.Request): { ifcFile: Express.Multer.File | undefined; idsFile: Express.Multer.File | undefined } {
     const value = req.files as Record<string, Express.Multer.File[]> | undefined;
@@ -22,8 +26,8 @@ function files(req: express.Request): { ifcFile: Express.Multer.File | undefined
 }
 
 function removeUploadedFiles(req: express.Request) {
-    const selected = files(req);
-    for (const file of [selected.ifcFile, selected.idsFile]) {
+    const groups = req.files as Record<string, Express.Multer.File[]> | undefined;
+    for (const file of Object.values(groups ?? {}).flat()) {
         if (file && fs.existsSync(file.path)) removeTempFile(file.path);
     }
 }
@@ -41,17 +45,63 @@ function modelId(value: unknown): number {
 
 function safeRun(run: NonNullable<ReturnType<typeof getPreflightRun>>) {
     const { extractedModel: _extracted, rdfPreview, ...base } = run;
-    return { ...base, rdfPreview: { ...rdfPreview, turtle: undefined } };
+    return { ...base,
+        ...(base.shaclValidation ? { shaclValidation: publicValidation(base.shaclValidation) } : {}),
+        rdfPreview: { ...rdfPreview, turtle: undefined } };
 }
 
 function failure(res: express.Response, error: any) {
-    const status = error instanceof IntakeError ? error.statusCode : 500;
-    return buildErrorResponse(res, status, error instanceof IntakeError ? error.message : "Controlled model intake could not be completed.");
+    const status = error instanceof IntakeError ? error.statusCode : error instanceof SemanticValidationError ? 400 : 500;
+    return buildErrorResponse(res, status, error instanceof IntakeError || error instanceof SemanticValidationError
+        ? error.message : "Controlled model intake could not be completed.");
 }
 
 app.get("/context", async (_req, res) => {
-    try { return buildSuccessResponse(res, 200, await service.context()); }
+    try { return buildSuccessResponse(res, 200, { ...(await service.context()), shacl: await semanticValidation.governedContext() }); }
     catch (error) { return failure(res, error); }
+});
+
+function assertShaclFields(body: any) {
+    for (const forbidden of ["graphUri", "dataGraphUri", "path", "url", "sparql", "query", "command"]) {
+        if (body?.[forbidden] !== undefined) throw new SemanticValidationError("shacl_client_input_forbidden", `Client field '${forbidden}' is not allowed.`);
+    }
+}
+
+function shapesMode(value: unknown): "governed" | "temporary" {
+    if (value !== "governed" && value !== "temporary") throw new SemanticValidationError("invalid_shapes_mode", "shapesMode must be governed or temporary.");
+    return value;
+}
+
+app.post("/shacl/inspect", shapesUpload.fields([{ name: "shapesFile", maxCount: 1 }]), async (req, res) => {
+    try {
+        assertShaclFields(req.body);
+        const mode = shapesMode(req.body.shapesMode);
+        const shapeFile = (req.files as Record<string, Express.Multer.File[]> | undefined)?.shapesFile?.[0];
+        if (mode === "temporary" && !shapeFile) throw new SemanticValidationError("temporary_shapes_required", "Select a temporary .ttl shapes file.");
+        if (mode === "governed" && shapeFile) throw new SemanticValidationError("unexpected_shapes_file", "Do not upload a file when governed shapes are selected.");
+        const selection = mode === "governed" ? await semanticValidation.inspectGoverned()
+            : await semanticValidation.inspectTemporary(shapeFile!, tempRoot, crypto.randomUUID());
+        return buildSuccessResponse(res, 200, publicShapes(selection));
+    } catch (error) { return failure(res, error); }
+    finally { removeUploadedFiles(req); }
+});
+
+app.post("/shacl/validate", shapesUpload.fields([{ name: "shapesFile", maxCount: 1 }]), async (req, res) => {
+    try {
+        assertShaclFields(req.body);
+        const mode = shapesMode(req.body.shapesMode);
+        const shapeFile = (req.files as Record<string, Express.Multer.File[]> | undefined)?.shapesFile?.[0];
+        if (typeof req.body.preflightRunUuid !== "string" || !/^[0-9a-f-]{36}$/i.test(req.body.preflightRunUuid)) {
+            throw new SemanticValidationError("invalid_preflight_run", "A valid preflightRunUuid is required.");
+        }
+        if (mode === "temporary" && !shapeFile) throw new SemanticValidationError("temporary_shapes_required", "Select a temporary .ttl shapes file.");
+        if (mode === "governed" && shapeFile) throw new SemanticValidationError("unexpected_shapes_file", "Do not upload a file when governed shapes are selected.");
+        const selection = mode === "governed" ? await semanticValidation.inspectGoverned()
+            : await semanticValidation.inspectTemporary(shapeFile!, tempRoot, req.body.preflightRunUuid);
+        const report = await semanticValidation.validatePreview(req.body.preflightRunUuid, selection);
+        return buildSuccessResponse(res, 200, { shapes: publicShapes(selection), report: publicValidation(report) });
+    } catch (error) { return failure(res, error); }
+    finally { removeUploadedFiles(req); }
 });
 
 app.post("/preflight", upload.fields([{ name: "ifcFile", maxCount: 1 }, { name: "idsFile", maxCount: 1 }]), async (req, res) => {

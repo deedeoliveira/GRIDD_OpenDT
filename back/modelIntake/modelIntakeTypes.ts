@@ -1,5 +1,6 @@
 import type { ExtractedIfcModel } from "../requirements/modelRequirementsTypes.ts";
 import type { IdsProfileMetadata, NormalizedRequirementFinding } from "../requirements/idsValidationTypes.ts";
+import type { SemanticValidationReport } from "../semanticValidation/semanticValidationTypes.ts";
 
 export type MaterialisationMode = "disabled" | "best_effort" | "required";
 
@@ -82,6 +83,7 @@ export interface PreflightRun {
         findings: NormalizedRequirementFinding[];
     };
     rdfPreview: RdfPreview;
+    shaclValidation?: SemanticValidationReport;
     extractedModel: ExtractedIfcModel;
 }
 

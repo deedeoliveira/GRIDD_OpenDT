@@ -18,6 +18,7 @@ import { getPreflightRun, storePreflightRun } from "./modelIntakeRunStore.ts";
 import { MappingProfileService } from "./mappingProfileService.ts";
 import { buildMinimalRdf } from "./rdfMaterialiser.ts";
 import type { IntakeProfile, PreflightRun, PreviewAsset, PreviewSpace } from "./modelIntakeTypes.ts";
+import { loadSemanticValidationConfig } from "../semanticValidation/semanticValidationConfig.ts";
 
 interface UploadedFile { path: string; originalname: string; size: number; }
 
@@ -215,6 +216,12 @@ export class ModelIntakeService {
         const previous = getPreflightRun(input.preflightRunUuid);
         if (!previous) throw new IntakeError("preflight_expired", "Run Validate and preview again before creating a version.", 409);
         if (previous.modelId !== input.modelId) throw new IntakeError("model_context_changed", "The selected model differs from the preflight context.", 409);
+        const shaclConfig = loadSemanticValidationConfig();
+        if (shaclConfig.mode === "required" && (!previous.shaclValidation?.conforms
+            || previous.shaclValidation.shapesSource !== "governed_active_shapes")) {
+            throw new IntakeError("governed_shacl_required",
+                "Run SHACL with the active governed shapes and obtain conforms=true before creating a model version.", 422);
+        }
         let current: PreflightRun | null = null;
         try {
             current = await this.preflight(input, false);

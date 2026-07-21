@@ -12,6 +12,9 @@ import { loadModelIntakeConfig } from "./modelIntakeConfig.ts";
 import { MappingProfileService } from "./mappingProfileService.ts";
 import { buildMinimalRdf } from "./rdfMaterialiser.ts";
 import type { IntakeProfile, PreviewAsset, PreviewSpace } from "./modelIntakeTypes.ts";
+import { loadSemanticValidationConfig } from "../semanticValidation/semanticValidationConfig.ts";
+import { SemanticValidationService, publicValidation } from "../semanticValidation/semanticValidationService.ts";
+import { SemanticValidationError } from "../semanticValidation/semanticValidationTypes.ts";
 
 export interface SemanticMaterialisationDatabasePort {
     getVersionSnapshot(versionId: number): Promise<{ version: any; spaces: any[]; assets: any[] } | null>;
@@ -43,6 +46,7 @@ export class SemanticMaterialisationService {
         private readonly clientFactory: () => GraphClient = () => getGraphClient(),
         private readonly now: () => Date = () => new Date(),
         private readonly newUuid: () => string = () => crypto.randomUUID(),
+        private readonly validation?: SemanticValidationService,
     ) {}
 
     async materialise(input: { versionId: number; extractedModel: ExtractedIfcModel; ids: IntakeProfile }) {
@@ -124,6 +128,28 @@ export class SemanticMaterialisationService {
             assets,
         });
 
+        const validationConfig = loadSemanticValidationConfig();
+        let shaclReport: any | null = null;
+        let shaclFailure: { status: "failed"; message: string } | null = null;
+        if (validationConfig.enabled && validationConfig.mode !== "disabled") {
+            try {
+                const validation = this.validation ?? new SemanticValidationService();
+                const governedShapes = await validation.inspectGoverned();
+                shaclReport = await validation.execute(rdf.turtle, governedShapes, {
+                    validationKind: "model_rdf_structural", modelVersionId: input.versionId,
+                    materialisationId: Number(record.id), reportGraphUri: null,
+                    shapesSource: "governed_active_shapes",
+                });
+                if (!shaclReport.conforms && validationConfig.mode === "required") {
+                    throw new SemanticValidationError("shacl_required_nonconformant",
+                        "The generated model RDF does not conform to the active governed structural shapes.");
+                }
+            } catch (error: any) {
+                if (validationConfig.mode === "required") throw error;
+                shaclFailure = { status: "failed", message: "SHACL validation failed in report_only mode; model RDF materialisation continued." };
+            }
+        }
+
         const client = this.clientFactory();
         const started = Date.now();
         console.log(JSON.stringify({ type: "ifc_rdf_materialisation_started", modelVersionUuid: versionUuid,
@@ -142,6 +168,10 @@ export class SemanticMaterialisationService {
             if (remoteCount !== rdf.tripleCount) throw new Error(`Remote graph verification count mismatch (${remoteCount} != ${rdf.tripleCount}).`);
             const versionPresent = await client.query(`ASK { GRAPH <${graphUri}> { <${iri(graphConfig.config.baseUri, `model-version/${versionUuid}`)}> ?p ?o } }`);
             if (versionPresent.boolean !== true) throw new Error("Remote graph does not contain the expected model-version resource.");
+            if (shaclReport) {
+                const validation = this.validation ?? new SemanticValidationService();
+                shaclReport = await validation.persistModelReport(shaclReport, graphUri, input.versionId, Number(record.id));
+            }
             const semanticDir = path.dirname(resolveStorageKey(snapshot.version.storage_key));
             const turtlePath = path.join(semanticDir, "model-version.ttl");
             if (fs.existsSync(turtlePath)) {
@@ -164,7 +194,8 @@ export class SemanticMaterialisationService {
                 materialisationUuid, tripleCount: rdf.tripleCount, spaceCount: rdf.spaceCount, assetCount: rdf.assetCount,
                 durationMs: Date.now() - started, at: this.now().toISOString() }));
             return { status: "completed" as const, materialisationUuid, modelVersionUuid: versionUuid,
-                namedGraphUri: graphUri, ...rdf };
+                namedGraphUri: graphUri, ...rdf,
+                shaclValidation: shaclReport ? publicValidation(shaclReport) : shaclFailure ?? { status: "disabled" } };
         } catch (error: any) {
             await this.database.markFailed(Number(record.id), "ifc_rdf_materialisation_failed", String(error?.message ?? error), true);
             console.error(JSON.stringify({ type: "ifc_rdf_materialisation_failed", modelVersionUuid: versionUuid,
