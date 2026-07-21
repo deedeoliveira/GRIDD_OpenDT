@@ -15,6 +15,10 @@
 - Do not commit before the researcher's functional walkthrough unless an explicit later instruction authorizes it.
 - Manual tests for the researcher must be functional and observable; technical setup is the executor's responsibility.
 - Every test list must explain in plain language what is being tested, not only name files or suites.
+- Researcher manual evidence must use researcher-selected inputs; preset-only pages are insufficient.
+- Backend-computed hashes identify uploaded evidence. The frontend must not simulate hashes, requirements, RDF or validation results.
+- Model-intake preview must not persist a model version; creation is always a separate explicit action.
+- Test harness pages are not a substitute for integration into the real management UX.
 - Never call a custom validator IDS; IDS claims require a genuine standard-compatible executor.
 - Loading a shapes graph is not SHACL execution.
 - Keep IDS results, project rules, eligibility decisions, and reservation decisions as separate layers.

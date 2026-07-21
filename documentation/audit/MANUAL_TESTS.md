@@ -35,8 +35,10 @@ cd front
 npm run dev            # esperado: "Ready" em http://localhost:3000
 ```
 
-Páginas úteis: `http://localhost:3000/viewer` (viewer original com sensores) e
-`http://localhost:3000/student` (viewer de reservas). A raiz `/` é o boilerplate Next (comportamento atual).
+Páginas úteis: `http://localhost:3000/viewer` (viewer original com sensores),
+`http://localhost:3000/student` (viewer de reservas) e `/dashboard` (gestão e
+controlled model intake quando a feature está habilitada). A raiz `/` permanece
+o boilerplate Next.
 
 ## 2. Upload de um primeiro IFC (Bruno ou curl)
 
@@ -1086,3 +1088,23 @@ o executor e **Not intended as a required manual test for the researcher.**
 
 A investigadora não executa migrations, SQL, SPARQL, hashes, locks, instalação
 de dependências, seeds, preparação de fixtures nem inspeção de tabelas.
+
+## 25. Prompt 7D — controlled model intake
+
+Manual evidence now requires inputs selected by the researcher. Preset-only
+scenario pages are not sufficient. The technical executor prepares migrations,
+mapping/IDS activation, services and flags; the researcher performs only the
+functional steps in `MODEL_INTAKE_WALKTHROUGH.md`.
+
+| Teste ou grupo | O que está sendo testado em linguagem comum | Resultado |
+|---|---|---|
+| Controlar IFC e IDS | Os ficheiros escolhidos são realmente processados e os hashes/requisitos apresentados vêm do backend. | Pendente do walkthrough |
+| Alterar somente IDS | Mudar o perfil, sem mudar IFC, altera requisitos e findings. | Pendente do walkthrough |
+| Preview sem persistência | Rever validação e RDF não cria versão, graph ou reserva. | Pendente do walkthrough |
+| Criar V1 explicitamente | O botão separado cria versão e graph apenas após as verificações. | Pendente do walkthrough |
+| Criar V2 | Nova manifestação/graph preserva identidades persistentes e V1 histórica. | Pendente do walkthrough |
+| Isolamento | Nenhuma decisão ou alteração de reserva é produzida pelo intake semântico. | Pendente do walkthrough |
+
+Future manual verification intended for the researcher must use observable
+functional scenarios with researcher-controlled inputs, never SQL, SPARQL,
+migrations, hashes computed by hand, locks, retries or internal tables.

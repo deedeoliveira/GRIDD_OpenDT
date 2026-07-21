@@ -1,7 +1,7 @@
-# OSWADT — Arquitetura Consolidada (Prompt 7B2, 2026-07-20)
+# OSWADT — Arquitetura Consolidada (Prompt 7D, 2026-07-20)
 
 Visão viva do protótipo após os Prompts 0–6, 7B1 e 7B2. Fontes de verdade: código,
-migrations, testes, ADRs (0001–0035), MANUAL_TESTS.md. Secção final descreve
+migrations, testes, ADRs (0001–0039), MANUAL_TESTS.md. Secção final descreve
 o trabalho semântico FUTURO — nada aí está implementado.
 
 ## Arquitetura geral
@@ -287,12 +287,32 @@ flowchart TD
   reservability, eligibility, approval and reservation transactions remain
   outside IDS.
 
-## 15.13 Future Semantic Extension
+## 15.13 Controlled model intake and minimal IFC-to-RDF (Prompt 7D; ADR-0038/0039)
 
-Trabalho futuro, por ordem provável: seleção ontológica (IFC-OWL/BOT/Brick/
-SAREF — decisão da tese) → IFC-to-RDF (materialização por model_version em
-named graph próprio `graph/model-version/{id}`, convenções já reservadas em
-namedGraphs.ts) → migração do vocabulário operational-v1 para a ontologia
+- `/dashboard` is the real management workspace: researcher-selected IFC and
+  active/uploaded IDS → backend hashes → genuine IDS + separate project rules
+  → read-only candidate identities → backend Turtle preview.
+- Preview cleans uploaded files and creates no `model_version`, identity,
+  binding, named graph or reservation. Creation is a second explicit action
+  that receives files again and confirms both hashes.
+- `models.model_uuid` and `model_versions.version_uuid` provide stable internal
+  identity. `spaces.space_uuid`/`assets.asset_uuid` identify persistent
+  resources; IFC GUIDs identify version manifestations only.
+- A governed `ifc_rdf_mapping` JSON allowlist selects BOT, BEO, PROV-O,
+  DCTerms and minimal project terms. It is `file_executed`, not a graph and not
+  executable code.
+- Each completed version has one immutable
+  `graph/model-version/{modelVersionUuid}`. In required mode local Turtle parse,
+  graph PUT, remote triple count and expected version-resource ASK all precede
+  SQL activation. SQL current pointers select the active version; historical
+  graphs remain intact.
+- No geometry, full ifcOWL, SHACL, eligibility, institutional context,
+  non-modelled operational data or reservations are materialised.
+
+## 15.14 Future Semantic Extension
+
+Trabalho futuro, por ordem provável: avaliação de extensão além do mapping
+mínimo BOT/BEO implementado → migração do vocabulário operational-v1 para a ontologia
 escolhida → SHACL (validação de shapes) → ingestão de sensores (fonte sensor_inference nas
 atribuições de localização, com confidence/observed_at já previstos no
 esquema) → regras institucionais como provider de política semântico →

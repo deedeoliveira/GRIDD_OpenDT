@@ -5,6 +5,11 @@
 > immutable hash, version, lifecycle and SQL current pointer, but no named graph
 > and is never sent to Fuseki.
 
+> Prompt 7D adds the feature-gated `/dashboard` controlled model intake. A
+> researcher selects real IFC/IDS files, reviews backend-computed hashes,
+> genuine IDS/project-rule results and backend-generated RDF, then may
+> explicitly create an immutable version and verified version named graph.
+
 ## Getting started
 
 ### Prerequisites
@@ -177,6 +182,31 @@ scenario and reads the separate IDS/project-rule report. The demonstrator does
 not decide reservability, eligibility, authorization or approval and does not
 create or alter reservations.
 
+## Controlled model intake
+
+The management workspace is disabled by default. After applying the Prompt 7D
+migration locally, technical preparation enables the exact flags documented in
+`back/.env.example`, uses `IFC_RDF_MATERIALISATION_MODE=required`, and runs:
+
+```bash
+cd back
+npm run model-intake:setup
+npm run model-intake:setup -- --execute
+```
+
+Setup never applies migrations, selects/uploads an IFC, creates a model
+version, resets data or deletes graphs. The researcher opens
+`http://localhost:3000/dashboard` and controls the file pickers. **Validate and
+preview** is read-only with respect to models, identities, graphs and
+reservations; **Create model version** is a separate explicit action. See
+`documentation/audit/MODEL_INTAKE_WALKTHROUGH.md` and ADR-0038/0039.
+
+This workspace deliberately starts from an already registered building/model
+line and is not the final management-interface design. Future product work is
+to add the building list and registration, creation of the persistent building
+identity and initial logical model line, first IFC/version onboarding, and
+subsequent version management from the building page.
+
 ## Documentation
 
 The documentation is available in the [documentation directory](./documentation/Documentation.md)].
@@ -190,4 +220,4 @@ The documentation is available in the [documentation directory](./documentation/
 - Demo walkthrough (10–15 min): [documentation/audit/DEMO_SCRIPT.md](./documentation/audit/DEMO_SCRIPT.md)
 - Institutional functional demonstration:
   [documentation/audit/DEMO_INSTITUTIONAL_CONTEXT.md](./documentation/audit/DEMO_INSTITUTIONAL_CONTEXT.md)
-- Architecture decision records: [documentation/adr/](./documentation/adr/) (ADR-0001…ADR-0035)
+- Architecture decision records: [documentation/adr/](./documentation/adr/) (ADR-0001…ADR-0039)
