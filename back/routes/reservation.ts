@@ -40,9 +40,18 @@ app.post('/evidence', async (req, res) => {
     });
     return buildSuccessResponse(res, 201, evidence);
   } catch (error) {
-    if ((error as any)?.httpStatus) return buildErrorResponse(res, (error as any).httpStatus, (error as Error).message);
+    const code = String((error as any)?.code ?? 'semantic_evidence_failed');
+    const layer = code.startsWith('account_') || code.includes('identity') ? 'account/session'
+      : code.startsWith('actor_link') ? 'institutional link'
+      : code.startsWith('institutional_') ? 'institutional dataset'
+      : code.includes('resource') ? 'resource/model'
+      : code.includes('structural') ? 'structural evidence'
+      : code.includes('shacl') || code.includes('policy') ? 'policy execution' : 'technical error';
+    if ((error as any)?.httpStatus) return res.status((error as any).httpStatus).json({ status:(error as any).httpStatus,
+      code, layer, message:(error as Error).message, error:(error as Error).message });
     const safe = sanitizedSemanticEvidenceError(error);
-    return buildErrorResponse(res, error instanceof SemanticEvidenceError ? error.httpStatus : 500, safe.message);
+    return res.status(error instanceof SemanticEvidenceError ? error.httpStatus : 500).json({ status:error instanceof SemanticEvidenceError ? error.httpStatus : 500,
+      code:safe.code, layer, message:safe.message, error:safe.message });
   }
 });
 

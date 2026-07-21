@@ -10,11 +10,20 @@ export function buildSuccessResponse<T>(res: Response, status: number, data: T, 
     });
 }
 
-export function buildErrorResponse(res: Response, status: number, message: string): void {
+export function buildErrorResponse(
+    res: Response,
+    status: number,
+    message: string,
+    code = 'request_failed',
+    details: unknown = null
+): void {
     res.status(status);
     res.json({
+        ok: false,
         status,
+        code,
         message,
+        details,
         error: message
     });
 }

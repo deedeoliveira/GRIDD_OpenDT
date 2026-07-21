@@ -21,6 +21,8 @@ import semanticValidationRoutes from "./routes/semanticValidation.ts";
 import semanticEvidenceRoutes from "./routes/semanticEvidence.ts";
 import applicationAuthRoutes from "./routes/applicationAuth.ts";
 import { resolveApplicationIdentity } from "./applicationIdentity/applicationIdentityMiddleware.ts";
+import managerReservationRoutes from "./routes/managerReservations.ts";
+import reservationsMineRoutes from "./routes/reservationsMine.ts";
 
 app.use(cors());
 app.use(express.json());
@@ -40,6 +42,8 @@ app.use("/api/model-intake", modelIntakeRoutes);
 app.use("/api/semantic-validation", semanticValidationRoutes);
 app.use("/api/semantic-evidence", semanticEvidenceRoutes);
 app.use("/api/auth", applicationAuthRoutes);
+app.use("/api/manager", managerReservationRoutes);
+app.use("/api/reservations", reservationsMineRoutes);
 
 app.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
