@@ -344,6 +344,13 @@ flowchart TD
   production. Manager authorization/approval is future 7H; final interface and
   building onboarding are future 7I.
 
+## 15.18 Reservation approval (Prompt 7H; ADR-0046/0047)
+
+- `reservation_manager` and asset scopes are application authorization, never
+  institutional roles or semantic policy results.
+- Pending requests can coexist across actors. Approval locks and rechecks SQL
+  availability, appends an audit record, and remains a human decision.
+
 ## 15.15 Future semantic extension and building onboarding
 
 Future semantic scope includes evaluation beyond the minimal BOT/BEO mapping,

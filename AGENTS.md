@@ -38,3 +38,5 @@
 - Application accounts are distinct from institutional agents, roles and actor
   links. In local-session mode, identity must be resolved server-side from the
   opaque cookie; frontend actor fields are never authority.
+- Application roles and management scopes authorize managers; institutional
+  roles and semantic evidence never approve, reject or authorize reservations.

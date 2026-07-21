@@ -262,6 +262,12 @@ accept an actor selected in the reservation form. Account, institutional link,
 semantic evidence and new reservation retain separate, linked records. See
 `documentation/audit/APPLICATION_IDENTITY_WALKTHROUGH.md` and ADR-0044/0045.
 
+## Prompt 7H reservation approval
+
+Scoped application managers review pending requests at `/dashboard/reservations`.
+Approval is an explicit audited operational decision with a transactional SQL
+conflict recheck; semantic evidence remains shadow-only.
+
 ## Documentation
 
 The documentation is available in the [documentation directory](./documentation/Documentation.md)].

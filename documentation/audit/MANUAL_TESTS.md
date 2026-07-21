@@ -1149,7 +1149,21 @@ services. The researcher uses only `APPLICATION_IDENTITY_WALKTHROUGH.md`.
 | Conta disabled | Uma conta desativada recebe uma mensagem compreensível e não entra na área student. | Pendente do walkthrough |
 | Evidência e pedido | O mesmo contexto de sessão é usado pelo Check evidence e pelo pedido explícito. | Pendente do walkthrough |
 
+## 29. Prompt 7H — reservation approval
+
+| Teste ou grupo | O que está sendo testado em linguagem comum | Resultado |
+|---|---|---|
+| Gestor com scope | Só um gestor autenticado com scope pode decidir o pedido. | Pendente do walkthrough |
+| Recheck SQL | A aprovação consulta novamente conflitos reais antes da decisão. | Pendente do walkthrough |
+| Evidência shadow | A evidência informa o gestor, mas não decide automaticamente. | Pendente do walkthrough |
+
 Correction: the researcher controls only asset and interval. The current development actor is read-only, unauthenticated and cannot be impersonated. The revoked actor is automated and executor-level only.
+
+Approved walkthrough record: the researcher confirmed scoped approval, SQL
+conflict protection, the shadow-not-eligible decision paths, and cancellation
+with the recorded reason visible to the student. The pending labels above are
+kept as the original preparation record and are superseded by that approved
+walkthrough outcome.
 
 Technical preparation belongs to the executor. The researcher controls actor
 key, asset and interval in the real reservation form and follows only
