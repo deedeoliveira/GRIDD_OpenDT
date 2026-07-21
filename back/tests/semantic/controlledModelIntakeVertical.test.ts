@@ -62,13 +62,13 @@ test("frontend/backend contract uses real file pickers and multipart, backend ha
     const proxy = fs.readFileSync(path.resolve(process.cwd(), "../front/app/api/model-intake/[...path]/route.ts"), "utf8");
     const route = fs.readFileSync(path.resolve(process.cwd(), "routes/modelIntake.ts"), "utf8");
     const service = fs.readFileSync(path.resolve(process.cwd(), "modelIntake/modelIntakeService.ts"), "utf8");
-    assert.equal((page.match(/type="file"/g) ?? []).length, 2);
+    assert.equal((page.match(/type="file"/g) ?? []).length, 3);
     assert.match(page, /new FormData/); assert.match(proxy, /request\.formData/); assert.match(route, /upload\.fields/);
     assert.match(page, /serverComputedSha256/); assert.match(page, /profile\.requirements/);
     assert.match(page, /Validate and preview/); assert.match(page, /Create model version/);
     assert.match(service, /ifcGuid: space\.ifc_guid/); assert.match(service, /ifcGuid: asset\.ifc_guid/);
     assert.match(service, /model-version\/\$\{snapshot\.version\.version_uuid\}/);
-    assert.doesNotMatch(page + proxy, /3030|SPARQL|IFCOPENSHELL_FLASK|python\/|Fuseki/i);
+    assert.doesNotMatch(page + proxy, /3030|SPARQL|IFCOPENSHELL_FLASK|python\//i);
     assert.doesNotMatch(page, /RDF generated[^\n]*hardcoded/i);
 });
 

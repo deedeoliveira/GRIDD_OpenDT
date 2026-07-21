@@ -1,0 +1,13 @@
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix project: <https://deedeoliveira.github.io/GRIDD_OpenDT/ontology/model-intake-v1#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+project:TemporaryManifestationDescriptionShape a sh:NodeShape ;
+    sh:targetClass project:IfcManifestation ;
+    sh:property [
+        sh:path dcterms:description ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:severity sh:Violation ;
+        sh:message "Each IFC manifestation must have a dcterms:description in this temporary walkthrough shape set."@en
+    ] .

@@ -74,6 +74,23 @@ test("same family, version, hash, and idempotency payload converge", async () =>
     assert.equal(database.artifacts.length, 1);
 });
 
+test("same load converges after the immutable revision has become current", async () => {
+    const { database, registry } = setup();
+    const first = await register(registry);
+    await database.markGraphVerified(first.operation.operation_uuid, Number(first.artifact.id), {
+        integrity: integrity(ontology),
+        fusekiLoading: { kind: "fuseki_parsing_loading_validation", accepted: true, graphUri: first.artifact.named_graph_uri! },
+        postLoad: { kind: "post_load_graph_verification", tripleCount: ontology.tripleCount, expectedResourcePresent: true },
+    });
+    await database.activateArtifact({ operationUuid: first.operation.operation_uuid, familyId: Number(first.family.id),
+        artifactId: Number(first.artifact.id), expectedCurrentArtifactId: null });
+    const second = await register(registry);
+    assert.equal(second.artifact.artifact_uuid, first.artifact.artifact_uuid);
+    assert.equal(second.artifact.named_graph_uri, first.artifact.named_graph_uri);
+    assert.equal(second.operation.id, first.operation.id);
+    assert.equal(database.artifacts.length, 1);
+});
+
 test("same family/version with a different hash fails terminally", async () => {
     const { registry } = setup();
     await register(registry);

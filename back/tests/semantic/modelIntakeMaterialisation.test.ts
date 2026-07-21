@@ -71,6 +71,32 @@ const ids: any = { artifactId: null, artifactUuid: "44444444-4444-4444-8444-4444
 const mappings: any = { resolveActive: async () => ({ artifactId: 7, artifactUuid: "55555555-5555-4555-8555-555555555555",
     sha256: "b".repeat(64), version: "1.0.0", familyKey: "oswadt-ifc4-minimal-rdf-mapping", profile: mapping }) };
 
+function validationReport(conforms: boolean) {
+    return { runUuid: "99999999-9999-4999-8999-999999999999", correlationId: "99999999-9999-4999-8999-999999999999",
+        validationKind: "model_rdf_structural", status: "completed", conforms, resultCount: conforms ? 0 : 1,
+        results: conforms ? [] : [{ focusNode: "urn:model", resultPath: "urn:required", value: null,
+            sourceShape: "urn:shape", sourceConstraintComponent: "http://www.w3.org/ns/shacl#MinCountConstraintComponent",
+            severity: "http://www.w3.org/ns/shacl#Violation", message: "Synthetic required value is absent." }],
+        constraints: [], dataGraphSha256: "c".repeat(64), shapesGraphSha256: "d".repeat(64),
+        shapesSource: "governed_active_shapes", shapesArtifactId: 9, shapesFamilyKey: "oswadt-model-rdf-structural-shapes",
+        shapesVersion: "1.0.0", shapesFilename: "oswadt-model-rdf-structural-shapes-v1.ttl", executorName: "pySHACL",
+        executorVersion: "0.40.0", inferenceMode: "none", advanced: true, metaShacl: true,
+        startedAt: "2026-07-20T12:00:00.000Z", completedAt: "2026-07-20T12:00:01.000Z",
+        reportTurtle: "@prefix sh: <http://www.w3.org/ns/shacl#> . [] a sh:ValidationReport .",
+        reportSha256: "e".repeat(64), reportGraphUri: null, modelVersionId: null, materialisationId: null };
+}
+
+class FakeValidation {
+    persisted = 0;
+    constructor(private readonly conforms: boolean) {}
+    async inspectGoverned() { return { source: "governed_active_shapes", artifactId: 9 }; }
+    async execute() { return validationReport(this.conforms); }
+    async persistModelReport(report: any, _graph: string, versionId: number, materialisationId: number) {
+        this.persisted++; return { ...report, modelVersionId: versionId, materialisationId,
+            reportGraphUri: `http://oswadt.test/id/graph/validation/report/${report.runUuid}` };
+    }
+}
+
 test("required materialisation writes and remotely verifies one immutable graph before completion; retry does not overwrite it", async () => {
     const db = new FakeDb(); const graph = new FakeGraph();
     db.snapshots.set(1, snapshot(1, "66666666-6666-4666-8666-666666666661", "space-v1", "asset-v1"));
@@ -113,6 +139,31 @@ test("disabled mode performs no graph or SQL materialisation operation", async (
     const result: any = await new SemanticMaterialisationService(db as any, mappings, () => graph as any).materialise({ versionId: 1, extractedModel: extracted("s", "a", "L"), ids });
     assert.equal(result.status, "disabled"); assert.equal(graph.puts, 0); assert.equal(db.records.size, 0);
     process.env.IFC_RDF_MATERIALISATION_ENABLED = "true"; process.env.IFC_RDF_MATERIALISATION_MODE = "required";
+});
+
+test("required SHACL non-conformance prevents graph writing and therefore cannot activate an incomplete version", async () => {
+    process.env.SHACL_VALIDATION_ENABLED = "true"; process.env.SHACL_VALIDATION_MODE = "required";
+    const db = new FakeDb(); const graph = new FakeGraph(); const validation = new FakeValidation(false);
+    db.snapshots.set(21, snapshot(21, "66666666-6666-4666-8666-666666666681", "space-v21", "asset-v21"));
+    const service = new SemanticMaterialisationService(db as any, mappings, () => graph as any,
+        () => new Date("2026-07-20T12:00:00.000Z"), () => "77777777-7777-4777-8777-777777777721", validation as any);
+    await assert.rejects(service.materialise({ versionId: 21, extractedModel: extracted("space-v21", "asset-v21", "Level 1"), ids }),
+        /does not conform/);
+    assert.equal(graph.puts, 0);
+    assert.equal(validation.persisted, 0);
+    process.env.SHACL_VALIDATION_ENABLED = "false"; process.env.SHACL_VALIDATION_MODE = "disabled";
+});
+
+test("report_only records a governed non-conformant report but does not block verified graph materialisation", async () => {
+    process.env.SHACL_VALIDATION_ENABLED = "true"; process.env.SHACL_VALIDATION_MODE = "report_only";
+    const db = new FakeDb(); const graph = new FakeGraph(); const validation = new FakeValidation(false);
+    db.snapshots.set(22, snapshot(22, "66666666-6666-4666-8666-666666666682", "space-v22", "asset-v22"));
+    const service = new SemanticMaterialisationService(db as any, mappings, () => graph as any,
+        () => new Date("2026-07-20T12:00:00.000Z"), () => "77777777-7777-4777-8777-777777777722", validation as any);
+    const result: any = await service.materialise({ versionId: 22, extractedModel: extracted("space-v22", "asset-v22", "Level 1"), ids });
+    assert.equal(result.status, "completed"); assert.equal(result.shaclValidation.conforms, false);
+    assert.equal(graph.puts, 1); assert.equal(validation.persisted, 1);
+    process.env.SHACL_VALIDATION_ENABLED = "false"; process.env.SHACL_VALIDATION_MODE = "disabled";
 });
 
 test("upload integration keeps disabled, best_effort, and required decisions separate and activates only after the semantic stage", () => {

@@ -46,8 +46,11 @@ const GRAPH_AWARE_5B_FILES = new Set([
 /** Diretórios que PODEM conhecer o grafo: módulo, CLI/testes e camada semântica isolada. */
 // Prompt 7D: modelIntake is an explicit, feature-gated semantic workflow; it
 // may use GraphClient, while the legacy upload path remains graph-independent.
-const ALLOWED_DIRS = new Set(["graph", "scripts", "tests", "semantic", "modelIntake"]);
+const ALLOWED_DIRS = new Set(["graph", "scripts", "tests", "semantic", "modelIntake", "semanticValidation"]);
 const SKIPPED_DIRS = new Set(["node_modules", "cdn_resources", "python", "bruno_collection", "dist", ".git", ...ALLOWED_DIRS]);
+// Prompt 7E accepts a field literally named "sparql" only to reject it at the
+// HTTP boundary. That denial guard is not SPARQL execution or graph access.
+const SPARQL_DENIAL_GUARD_FILES = new Set(["routes/modelIntake.ts"]);
 
 function operationalSources(): { file: string; source: string }[] {
     const results: { file: string; source: string }[] = [];
@@ -79,6 +82,7 @@ test("nenhum módulo operacional importa back/graph/ (sem dual-write; falha do g
 
 test("nenhum módulo operacional fala SPARQL nem lê variáveis GRAPH_* diretamente", () => {
     const offenders = operationalSources()
+        .filter(({ file }) => !SPARQL_DENIAL_GUARD_FILES.has(file))
         .filter(({ source }) => /GRAPH_(QUERY|UPDATE|DATA)_ENDPOINT|GRAPH_BASE_URI|sparql/i.test(source))
         .map(({ file }) => file);
     assert.deepEqual(offenders, []);
