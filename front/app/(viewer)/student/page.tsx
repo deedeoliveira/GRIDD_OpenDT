@@ -33,7 +33,7 @@ export default function ViewerPage() {
 
   const [selectedIfc, setSelectedIfc] = useState<SelectedIfcInfo | null>(null);
 
-  const [actorId] = useState<string>("pg202404");
+  const [actorId, setActorId] = useState<string>("");
 
   const [selectedAsset, setSelectedAsset] = useState<any | null>(null);
   const [assetReservations, setAssetReservations] = useState<ReservationRow[]>([]);
@@ -59,6 +59,15 @@ export default function ViewerPage() {
     const json = await res.json().catch(() => null);
     return { res, json };
   }
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchJson("/api/reservation/current-actor").then(({ res, json }) => {
+      const current = json?.data?.actorKey ?? json?.actorKey;
+      if (!cancelled && res.ok && typeof current === "string") setActorId(current);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   async function fetchLinkedModelList() {
     const { res, json } = await fetchJson("/api/model/linked");
@@ -210,6 +219,7 @@ export default function ViewerPage() {
     let cancelled = false;
 
     async function loadUserReservations() {
+      if (!actorId) return;
       const rows = await fetchReservationsByActor(actorId);
       if (!cancelled) {
         setActorReservations(rows);
@@ -326,6 +336,7 @@ export default function ViewerPage() {
 
                       <Button
                         className="mt-3"
+                        isDisabled={!actorId}
                         onPress={() => setIsReservationOpen(true)}
                       >
                         Reservar
