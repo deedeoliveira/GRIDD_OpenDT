@@ -329,6 +329,21 @@ flowchart TD
 - SHACL has no authority over authentication, authorization, eligibility,
   reservability, availability, approval, temporal conflicts or reservations.
 
+## 15.17 Persistent application accounts (Prompt 7G; ADR-0044/0045)
+
+- An application account is not an institutional agent, institutional role or
+  actor-link URI. It is a persistent synthetic local record with its own UUID
+  and lifecycle status.
+- In `local_session`, Node resolves the account server-side from an opaque
+  HttpOnly cookie. The browser does not store a token and cannot choose an
+  actor in reservation/evidence payloads.
+- Account FKs on actor links, new reservations and evidence runs create a
+  a local audit boundary. Legacy actor snapshots remain only for disabled-mode
+  compatibility.
+- Local synthetic login is development-only and startup refuses it in
+  production. Manager authorization/approval is future 7H; final interface and
+  building onboarding are future 7I.
+
 ## 15.15 Future semantic extension and building onboarding
 
 Future semantic scope includes evaluation beyond the minimal BOT/BEO mapping,

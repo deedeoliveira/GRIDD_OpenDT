@@ -253,6 +253,15 @@ See `documentation/audit/RESERVATION_EVIDENCE_WALKTHROUGH.md` and ADR-0042/0043.
 Semantic eligibility is shadow-only: it cannot allow, block, authorize or
 approve. SQL remains temporal availability and reservation-lifecycle authority.
 
+## Prompt 7G local application identity
+
+Prompt 7G adds persistent synthetic application accounts and opaque,
+server-resolved development sessions. It is not production authentication.
+In `local_session`, the student page displays the current account and does not
+accept an actor selected in the reservation form. Account, institutional link,
+semantic evidence and new reservation retain separate, linked records. See
+`documentation/audit/APPLICATION_IDENTITY_WALKTHROUGH.md` and ADR-0044/0045.
+
 ## Documentation
 
 The documentation is available in the [documentation directory](./documentation/Documentation.md)].

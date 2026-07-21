@@ -35,3 +35,6 @@
 - Reservation evidence graphs must be minimal, immutable and free of actor
   keys, person labels, student numbers, credentials and complete payloads.
 - Minimum verification: `cd back && npm test`, `cd back && npx tsc --noEmit`, `cd front && npx tsc --noEmit`, and `cd front && npm run build`.
+- Application accounts are distinct from institutional agents, roles and actor
+  links. In local-session mode, identity must be resolved server-side from the
+  opaque cookie; frontend actor fields are never authority.

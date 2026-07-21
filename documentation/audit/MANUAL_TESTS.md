@@ -1137,6 +1137,18 @@ hashes manuais, locks, retries, seeds ou inspeção de tabelas/graphs internos.
 
 ## 27. Prompt 7F — reservation semantic evidence in shadow mode
 
+## 28. Prompt 7G — application identity
+
+The technical executor prepares synthetic local accounts, migration, flags and
+services. The researcher uses only `APPLICATION_IDENTITY_WALKTHROUGH.md`.
+
+| Teste ou grupo | O que está sendo testado em linguagem comum | Resultado |
+|---|---|---|
+| Conta persistente e sessão | A área student mostra a conta local que iniciou a sessão, sem seletor de actor no pedido. | Pendente do walkthrough |
+| Ligação revogada | Uma sessão válida e uma ligação institucional revogada são estados diferentes e visíveis. | Pendente do walkthrough |
+| Conta disabled | Uma conta desativada recebe uma mensagem compreensível e não entra na área student. | Pendente do walkthrough |
+| Evidência e pedido | O mesmo contexto de sessão é usado pelo Check evidence e pelo pedido explícito. | Pendente do walkthrough |
+
 Correction: the researcher controls only asset and interval. The current development actor is read-only, unauthenticated and cannot be impersonated. The revoked actor is automated and executor-level only.
 
 Technical preparation belongs to the executor. The researcher controls actor
