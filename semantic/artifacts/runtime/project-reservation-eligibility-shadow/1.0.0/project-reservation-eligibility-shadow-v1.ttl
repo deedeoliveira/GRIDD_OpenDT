@@ -35,3 +35,4 @@ ev:ReservationEligibilityEvidenceShape a sh:NodeShape ;
           sh:message "The current IFC manifestation must be resolved."@en ],
         [ sh:path ev:structuralStatus ; sh:minCount 1 ; sh:maxCount 1 ; sh:hasValue ev:Conforms ;
           sh:message "The model materialisation used by the evidence must have a conforming structural SHACL run."@en ] .
+
