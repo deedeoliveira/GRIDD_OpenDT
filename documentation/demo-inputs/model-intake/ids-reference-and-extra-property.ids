@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ids xmlns="http://standards.buildingsmart.org/IDS" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://standards.buildingsmart.org/IDS http://standards.buildingsmart.org/IDS/1.0/ids.xsd">
+  <info><title>Controlled intake reference plus deliberately absent department</title><version>2.0.0</version><description>Public synthetic walkthrough input with one additional unmet requirement.</description><purpose>Research demonstrator</purpose></info>
+  <specifications>
+    <specification name="Spaces provide Reference" ifcVersion="IFC4" identifier="IDS-SPACE-REFERENCE">
+      <applicability minOccurs="1" maxOccurs="unbounded"><entity><name><simpleValue>IFCSPACE</simpleValue></name></entity></applicability>
+      <requirements><property dataType="IFCIDENTIFIER" cardinality="required"><propertySet><simpleValue>Pset_SpaceCommon</simpleValue></propertySet><baseName><simpleValue>Reference</simpleValue></baseName><value><xs:restriction base="xs:string"><xs:pattern value="R-[0-9]{3}" /></xs:restriction></value></property></requirements>
+    </specification>
+    <specification name="Spaces provide a department code" ifcVersion="IFC4" identifier="IDS-SPACE-DEPARTMENT">
+      <applicability minOccurs="1" maxOccurs="unbounded"><entity><name><simpleValue>IFCSPACE</simpleValue></name></entity></applicability>
+      <requirements><property dataType="IFCLABEL" cardinality="required"><propertySet><simpleValue>Pset_SpaceCommon</simpleValue></propertySet><baseName><simpleValue>Department</simpleValue></baseName><value><xs:restriction base="xs:string"><xs:pattern value="DEPT-[A-Z]+" /></xs:restriction></value></property></requirements>
+    </specification>
+  </specifications>
+</ids>

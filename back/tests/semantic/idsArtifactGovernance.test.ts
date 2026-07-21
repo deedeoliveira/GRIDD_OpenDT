@@ -16,7 +16,7 @@ test("public manifest governs IDS/XML as file-executed and preserves RDF graph s
     assert.equal(ids.mediaType, "application/ids+xml");
     assert.equal(ids.serialization, "ids-xml");
     assert.equal(ids.testOnly, false);
-    assert.ok(manifest.artifacts.filter((entry) => entry.artifactType !== "ids_profile").every((entry) => entry.storageMode === "graph_backed"));
+    assert.ok(manifest.artifacts.filter((entry) => !new Set(["ids_profile", "ifc_rdf_mapping"]).has(entry.artifactType)).every((entry) => entry.storageMode === "graph_backed"));
     await new ArtifactValidationService(new FilesystemArtifactSource(root)).validateManifestTree(manifest);
 });
 

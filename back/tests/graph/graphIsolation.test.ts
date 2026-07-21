@@ -44,7 +44,9 @@ const GRAPH_AWARE_5B_FILES = new Set([
 ]);
 
 /** Diretórios que PODEM conhecer o grafo: módulo, CLI/testes e camada semântica isolada. */
-const ALLOWED_DIRS = new Set(["graph", "scripts", "tests", "semantic"]);
+// Prompt 7D: modelIntake is an explicit, feature-gated semantic workflow; it
+// may use GraphClient, while the legacy upload path remains graph-independent.
+const ALLOWED_DIRS = new Set(["graph", "scripts", "tests", "semantic", "modelIntake"]);
 const SKIPPED_DIRS = new Set(["node_modules", "cdn_resources", "python", "bruno_collection", "dist", ".git", ...ALLOWED_DIRS]);
 
 function operationalSources(): { file: string; source: string }[] {

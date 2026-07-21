@@ -57,6 +57,7 @@ backup_*.sql
 *.ifc
 !back/tests/fixtures/ids/
 !back/tests/fixtures/ids/*.ifc
+!documentation/demo-inputs/model-intake/*.ifc
 
 # Python
 /back/python/__pycache__*
