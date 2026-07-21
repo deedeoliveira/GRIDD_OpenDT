@@ -52,3 +52,4 @@ ev:Missing a owl:NamedIndividual .
 ev:Eligible a owl:NamedIndividual .
 ev:NotEligible a owl:NamedIndividual .
 ev:Indeterminate a owl:NamedIndividual .
+
