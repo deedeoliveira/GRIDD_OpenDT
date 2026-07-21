@@ -62,12 +62,15 @@ export default function ViewerPage() {
 
   useEffect(() => {
     let cancelled = false;
-    fetchJson("/api/reservation/current-actor").then(({ res, json }) => {
-      const current = json?.data?.actorKey ?? json?.actorKey;
+    fetchJson("/api/auth/session").then(({ res, json }) => {
+      const current = json?.data?.accountKey;
       if (!cancelled && res.ok && typeof current === "string") setActorId(current);
+      if (!cancelled && res.status === 401) window.location.assign("/login");
     });
     return () => { cancelled = true; };
   }, []);
+
+  async function logout() { await fetch('/api/auth/logout',{method:'POST'}); window.location.assign('/login'); }
 
   async function fetchLinkedModelList() {
     const { res, json } = await fetchJson("/api/model/linked");
@@ -120,7 +123,7 @@ export default function ViewerPage() {
     const res = await fetch("/api/reservation/checkout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reservationId, actorId }),
+      body: JSON.stringify({ reservationId }),
     });
 
     const data = await res.json().catch(() => null);
@@ -256,7 +259,7 @@ export default function ViewerPage() {
       const res = await fetch("/api/reservation/checkin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reservationId, actorId }),
+        body: JSON.stringify({ reservationId }),
       });
 
       const data = await res.json().catch(() => null);
@@ -292,6 +295,8 @@ export default function ViewerPage() {
       )}
 
       <div className="w-[420px] absolute top-4 left-4 z-20 rounded shadow bg-white">
+
+        <div className="px-3 pt-3 text-xs flex justify-between"><span>Current account: {actorId || "resolving..."}</span><button onClick={logout} className="underline">Logout</button></div>
 
         <Accordion>
           <AccordionItem key="1" title="Models">

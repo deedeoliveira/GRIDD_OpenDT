@@ -8,7 +8,7 @@ export async function POST(req: Request) {
 
     const response = await fetch(backendUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(req.headers.get("cookie") ? { cookie: req.headers.get("cookie")! } : {}) },
       body: JSON.stringify(body)
     });
 

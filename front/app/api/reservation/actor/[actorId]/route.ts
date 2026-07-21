@@ -10,7 +10,9 @@ export async function GET(
     `${process.env.BASE_API_URL}/reservation/actor/${actorId}`;
 
   try {
-    const response = await fetch(backendUrl);
+    const response = await fetch(backendUrl, {
+      headers: request.headers.get("cookie") ? { cookie: request.headers.get("cookie")! } : {},
+    });
     const data = await response.json();
 
     return NextResponse.json(data, { status: response.status });
