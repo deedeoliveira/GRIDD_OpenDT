@@ -207,6 +207,34 @@ to add the building list and registration, creation of the persistent building
 identity and initial logical model line, first IFC/version onboarding, and
 subsequent version management from the building page.
 
+## Governed SHACL structural validation
+
+Prompt 7E extends the same `/dashboard` workspace after RDF preview. The
+researcher chooses either the active governed model-RDF shape set or uploads a
+temporary `.ttl`; the backend computes both hashes, derives the visible
+constraints from the received shapes and runs real pySHACL 0.40.0. IDS,
+project rules and SHACL remain separate evidence layers.
+
+SHACL is disabled by default. Local technical preparation applies the scoped
+7E migration separately, configures the five requested flags from
+`back/.env.example`, then runs:
+
+```bash
+cd back
+npm run shacl:setup
+npm run shacl:setup -- --execute
+```
+
+Setup is dry-run by default and never applies a migration, selects files,
+creates a model version, resets graphs or loads the institutional negative
+fixture. In `required` mode only the active governed shape set can permit
+activation; temporary shapes are preview evidence only. See
+`documentation/audit/SHACL_VALIDATION_WALKTHROUGH.md` and ADR-0040/0041.
+
+SHACL validates RDF structure/quality. It does not decide authentication,
+authorization, eligibility, reservability, availability, approval, temporal
+conflicts or reservation transactions.
+
 ## Documentation
 
 The documentation is available in the [documentation directory](./documentation/Documentation.md)].
@@ -220,4 +248,4 @@ The documentation is available in the [documentation directory](./documentation/
 - Demo walkthrough (10–15 min): [documentation/audit/DEMO_SCRIPT.md](./documentation/audit/DEMO_SCRIPT.md)
 - Institutional functional demonstration:
   [documentation/audit/DEMO_INSTITUTIONAL_CONTEXT.md](./documentation/audit/DEMO_INSTITUTIONAL_CONTEXT.md)
-- Architecture decision records: [documentation/adr/](./documentation/adr/) (ADR-0001…ADR-0039)
+- Architecture decision records: [documentation/adr/](./documentation/adr/) (ADR-0001…ADR-0041)

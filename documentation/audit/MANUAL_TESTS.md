@@ -1108,3 +1108,29 @@ functional steps in `MODEL_INTAKE_WALKTHROUGH.md`.
 Future manual verification intended for the researcher must use observable
 functional scenarios with researcher-controlled inputs, never SQL, SPARQL,
 migrations, hashes computed by hand, locks, retries or internal tables.
+
+## 26. Prompt 7E — governed SHACL structural validation
+
+Technical preparation (migration, pySHACL, artifact activation, flags, setup
+and services) belongs to the executor. The researcher controls the IFC, IDS
+and shapes through the real dashboard pickers and follows
+`SHACL_VALIDATION_WALKTHROUGH.md` only.
+
+| Teste ou grupo | O que está sendo testado em linguagem comum | Resultado |
+|---|---|---|
+| Execução pySHACL real | O RDF e as shapes escolhidas chegam a um executor SHACL compatível, não a uma simulação de interface. | PASS — investigadora |
+| Shapes governadas | O RDF do IFC cumpre a estrutura pública obrigatória da plataforma. | PASS — investigadora |
+| Shapes temporárias | Um `.ttl` escolhido pela investigadora é inspecionado e executado sem ser governado/ativado. | PASS — investigadora |
+| Mudança das shapes | Mantendo IFC, IDS e RDF, trocar somente as shapes altera hash, constraints e resultado. | PASS — investigadora; integridade criptográfica automatizada |
+| Constraints visíveis | Filename, hash, target, path, cardinalidade, tipo e mensagem vêm das shapes recebidas. | PASS — investigadora; hash verificado automaticamente |
+| Resultado explicável | Uma falha mostra focus node, path, value, severity, message e source shape. | PASS — investigadora |
+| Preview sem persistência | Executar SHACL no preview não cria model version, model graph ou report graph. | PASS — integração automatizada/executor |
+| Required protege versão | Só governed `conforms=true` permite criar/ativar; a versão corrente anterior permanece em falha. | PASS — investigadora e integração automatizada |
+| Frontend/backend | Os pickers enviam multipart ao backend, sem acesso frontend a Python/Fuseki. | PASS — investigadora e integração automatizada |
+| Relatórios/downloads | JSON, report Turtle e data Turtle correspondem ao run observado. | PASS — integração automatizada/executor |
+| Pacote institucional | A evidência automatizada positiva/negativa usa o pacote imutável e a negativa gera sete resultados. | Cobertura automatizada; não é tarefa manual |
+| Ausência de impacto em reservas | A validação estrutural não cria, altera, avalia ou aprova reservas. | PASS — investigadora e integração automatizada |
+| Regressão completa | O comportamento 7D e os restantes fluxos continuam cobertos pela suíte completa. | Cobertura automatizada; não é tarefa manual |
+
+Não pedir à investigadora SQL, SPARQL, migrations, pySHACL em linha de comando,
+hashes manuais, locks, retries, seeds ou inspeção de tabelas/graphs internos.

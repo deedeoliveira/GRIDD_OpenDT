@@ -21,5 +21,11 @@
 - Test harness pages are not a substitute for integration into the real management UX.
 - Never call a custom validator IDS; IDS claims require a genuine standard-compatible executor.
 - Loading a shapes graph is not SHACL execution.
+- SHACL claims require the real pinned pySHACL provider over the exact data and
+  shapes bytes; frontend labels or TypeScript checks are not execution evidence.
+- Keep IDS requirements, project rules, SHACL structural constraints and
+  operational decisions visibly separate in contracts, UI and documentation.
+- Temporary shapes are local/dev, non-governed and ephemeral; they must never
+  enter the registry/Fuseki or decide activation in required mode.
 - Keep IDS results, project rules, eligibility decisions, and reservation decisions as separate layers.
 - Minimum verification: `cd back && npm test`, `cd back && npx tsc --noEmit`, `cd front && npx tsc --noEmit`, and `cd front && npm run build`.

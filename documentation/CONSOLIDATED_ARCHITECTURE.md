@@ -309,12 +309,34 @@ flowchart TD
 - No geometry, full ifcOWL, SHACL, eligibility, institutional context,
   non-modelled operational data or reservations are materialised.
 
-## 15.14 Future Semantic Extension
+## 15.14 Governed SHACL execution (Prompt 7E; ADR-0040/0041)
 
-Trabalho futuro, por ordem provável: avaliação de extensão além do mapping
-mínimo BOT/BEO implementado → migração do vocabulário operational-v1 para a ontologia
-escolhida → SHACL (validação de shapes) → ingestão de sensores (fonte sensor_inference nas
-atribuições de localização, com confidence/observed_at já previstos no
-esquema) → regras institucionais como provider de política semântico →
-proveniência ampliada (PROV-O). Nenhuma destas extensões futuras está
-construída.
+- `SemanticValidationProvider` isolates the application from pinned pySHACL
+  0.40.0. Data, shapes and optional ontology are real RDF inputs; normalized
+  output includes focus node, path, value, shape/component, severity/message,
+  hashes, executor/version and timestamps.
+- The model-RDF shape set 1.0.0 is a public, immutable, graph-backed artifact.
+  It validates model/version context, persistent space/asset manifestations
+  and provenance. The UMinho institutional shapes 1.1 remain unchanged.
+- The dashboard displays backend-derived constraints and separate IDS,
+  project-rule and SHACL layers. It calls Node multipart APIs only.
+- Preview runs are ephemeral. Persistent version runs use normalized SQL rows
+  plus `graph/validation/report/{runUuid}`; neither SQL nor logs contain full
+  Turtle.
+- Disabled preserves 7D; report_only records without blocking; required runs
+  before model graph write and only an active governed conformant set permits
+  activation. Temporary uploads never decide activation.
+- SHACL has no authority over authentication, authorization, eligibility,
+  reservability, availability, approval, temporal conflicts or reservations.
+
+## 15.15 Future semantic extension and building onboarding
+
+Future semantic scope includes evaluation beyond the minimal BOT/BEO mapping,
+operational vocabulary migration, sensor ingestion and a separately governed
+semantic-policy provider. None is implied by structural SHACL validation.
+
+The current dashboard depends on a pre-existing building and logical model
+line. Future manager workflow must add: building list; “Register building”;
+persistent building identity and basic/responsible-organization data; first
+model line; first IFC/version; and subsequent versions on the building page.
+Building registration is not implemented in Prompt 7E.
