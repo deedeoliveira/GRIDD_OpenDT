@@ -129,6 +129,27 @@
       "privacyClassification": "public_research_artifact",
       "activationAllowed": true,
       "testOnly": false
+    },
+    {
+      "artifactKey": "oswadt-ifc4-minimal-rdf-mapping-1.0.0",
+      "artifactType": "ifc_rdf_mapping",
+      "familyName": "OSWADT IFC4 minimal RDF mapping",
+      "semanticVersion": "1.0.0",
+      "sourcePackageName": "OSWADT controlled model intake",
+      "sourcePackageVersion": "1.0.0",
+      "sourceReleaseStatus": "public_synthetic_demonstrator",
+      "sourceFilename": "oswadt-ifc4-minimal-rdf-mapping-v1.json",
+      "relativePath": "runtime/oswadt-ifc4-minimal-rdf-mapping/1.0.0/oswadt-ifc4-minimal-rdf-mapping-v1.json",
+      "sha256": "01940af5dfb9039ce2bf1c42046317f70489d6489d055555347ce15a472e6f13",
+      "byteSize": 3090,
+      "tripleCount": 0,
+      "mediaType": "application/json",
+      "serialization": "json",
+      "storageMode": "file_executed",
+      "semanticUri": "https://deedeoliveira.github.io/GRIDD_OpenDT/semantic-artifacts/oswadt-ifc4-minimal-rdf-mapping",
+      "privacyClassification": "public_research_artifact",
+      "activationAllowed": true,
+      "testOnly": false
     }
   ]
 }

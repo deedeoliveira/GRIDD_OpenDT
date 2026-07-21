@@ -22,7 +22,8 @@ export class ArtifactValidationService {
         }
         const expectedFormat = entry.storageMode === "graph_backed"
             ? entry.mediaType === "text/turtle" && entry.serialization === "turtle"
-            : entry.artifactType === "ids_profile" && entry.mediaType === "application/ids+xml" && entry.serialization === "ids-xml";
+            : (entry.artifactType === "ids_profile" && entry.mediaType === "application/ids+xml" && entry.serialization === "ids-xml")
+                || (entry.artifactType === "ifc_rdf_mapping" && entry.mediaType === "application/json" && entry.serialization === "json");
         if (!expectedFormat) {
             throw new SemanticArtifactError("artifact_integrity_failed", "artifact storage mode and serialization are inconsistent");
         }
@@ -64,7 +65,8 @@ export class ArtifactValidationService {
         const results: ValidatedArtifactSource[] = [];
         for (const entry of manifest.artifacts) results.push(await this.validate(entry, false));
 
-        const actualArtifacts = (await this.source.listFiles()).filter((file) => file.endsWith(".ttl") || file.endsWith(".ids"));
+        const actualArtifacts = (await this.source.listFiles()).filter((file) =>
+            file.endsWith(".ttl") || file.endsWith(".ids") || (file.endsWith(".json") && file.includes("/")));
         const declaredArtifacts = manifest.artifacts.map((entry) => entry.relativePath).sort();
         if (JSON.stringify(actualArtifacts) !== JSON.stringify(declaredArtifacts)) {
             throw new SemanticArtifactError("manifest_invalid", "semantic artifact tree contains undeclared or missing governed files");

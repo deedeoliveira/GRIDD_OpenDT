@@ -15,6 +15,7 @@ export const APPROVED_PUBLIC_SOURCE_FILENAMES = new Set([
     "uminho-test-data-positive-v1.1.ttl",
     "uminho-test-data-negative-v1.1.ttl",
     "oswadt-ifc4-model-requirements-v1.ids",
+    "oswadt-ifc4-minimal-rdf-mapping-v1.json",
 ]);
 
 const PUBLIC_PRIVACY = new Set(["public_research_artifact", "synthetic_runtime_data", "synthetic_test_only"]);
@@ -58,6 +59,7 @@ function parseEntry(value: unknown, index: number): PublicArtifactManifestEntry 
     }
     const storageMode = requiredString(raw.storageMode, `artifacts[${index}].storageMode`);
     const isIds = artifactType === "ids_profile";
+    const isMapping = artifactType === "ifc_rdf_mapping";
     if (!new Set(["graph_backed", "file_executed"]).has(storageMode)) {
         throw new SemanticArtifactError("manifest_invalid", `unsupported storageMode '${storageMode}'`);
     }
@@ -65,12 +67,16 @@ function parseEntry(value: unknown, index: number): PublicArtifactManifestEntry 
         if (storageMode !== "file_executed" || raw.mediaType !== "application/ids+xml" || raw.serialization !== "ids-xml") {
             throw new SemanticArtifactError("manifest_invalid", `IDS profile '${sourceFilename}' must be file_executed IDS/XML`);
         }
+    } else if (isMapping) {
+        if (storageMode !== "file_executed" || raw.mediaType !== "application/json" || raw.serialization !== "json") {
+            throw new SemanticArtifactError("manifest_invalid", `IFC-to-RDF mapping '${sourceFilename}' must be file_executed JSON`);
+        }
     } else if (storageMode !== "graph_backed" || raw.mediaType !== "text/turtle" || raw.serialization !== "turtle") {
         throw new SemanticArtifactError("manifest_invalid", `RDF artifact '${sourceFilename}' must be graph_backed Turtle`);
     }
     if (!Number.isSafeInteger(raw.byteSize) || Number(raw.byteSize) <= 0
-        || (!isIds && (!Number.isSafeInteger(raw.tripleCount) || Number(raw.tripleCount) < 0))
-        || (isIds && raw.tripleCount !== 0)) {
+        || ((!isIds && !isMapping) && (!Number.isSafeInteger(raw.tripleCount) || Number(raw.tripleCount) < 0))
+        || ((isIds || isMapping) && raw.tripleCount !== 0)) {
         throw new SemanticArtifactError("manifest_invalid", `byteSize/tripleCount are invalid for '${sourceFilename}'`);
     }
     if (typeof raw.activationAllowed !== "boolean" || typeof raw.testOnly !== "boolean") {

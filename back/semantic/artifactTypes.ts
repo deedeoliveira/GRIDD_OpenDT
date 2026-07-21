@@ -55,8 +55,8 @@ export interface PublicArtifactManifestEntry {
     sha256: string;
     byteSize: number;
     tripleCount: number;
-    mediaType: "text/turtle" | "application/ids+xml";
-    serialization: "turtle" | "ids-xml";
+    mediaType: "text/turtle" | "application/ids+xml" | "application/json";
+    serialization: "turtle" | "ids-xml" | "json";
     storageMode: ArtifactStorageMode;
     semanticUri: string;
     privacyClassification: PublicPrivacyClassification;
@@ -77,8 +77,8 @@ export interface IntegrityValidationSummary {
     sha256: string;
     byteSize: number;
     expectedTripleCount: number;
-    mediaType: "text/turtle" | "application/ids+xml";
-    serialization: "turtle" | "ids-xml";
+    mediaType: "text/turtle" | "application/ids+xml" | "application/json";
+    serialization: "turtle" | "ids-xml" | "json";
     validatedAt: string;
 }
 
