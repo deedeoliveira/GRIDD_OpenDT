@@ -113,6 +113,8 @@ export class InstitutionalContextService {
 
     private linkView(link: ActorInstitutionalLinkRow): InstitutionalActorContext["link"] {
         return {
+            linkId: Number(link.id),
+            institutionalDatasetArtifactId: Number(link.institutional_dataset_artifact_id),
             linkUuid: link.link_uuid,
             status: link.status,
             linkType: link.link_type,

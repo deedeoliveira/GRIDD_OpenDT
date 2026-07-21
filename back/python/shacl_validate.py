@@ -68,6 +68,8 @@ def constraints(shapes: Graph):
                 "class": compact_term(first(shapes, prop, SH["class"])),
                 "nodeKind": compact_term(first(shapes, prop, SH.nodeKind)),
                 "pattern": text(first(shapes, prop, SH.pattern)),
+                "minLength": int(first(shapes, prop, SH.minLength)) if first(shapes, prop, SH.minLength) is not None else None,
+                "hasValue": compact_term(first(shapes, prop, SH.hasValue)),
                 "severity": compact_term(first(shapes, prop, SH.severity) or first(shapes, shape, SH.severity) or SH.Violation),
                 "message": text(first(shapes, prop, SH.message) or first(shapes, shape, SH.message)),
             })
@@ -79,6 +81,7 @@ def constraints(shapes: Graph):
                     "class": text(value) if component == "class" else None,
                     "nodeKind": text(value) if component == "nodeKind" else None,
                     "pattern": None, "severity": text(first(shapes, shape, SH.severity) or SH.Violation),
+                    "minLength": None, "hasValue": None,
                     "message": text(first(shapes, shape, SH.message))})
     return rows
 

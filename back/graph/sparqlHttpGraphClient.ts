@@ -135,6 +135,17 @@ export class SparqlHttpGraphClient implements GraphClient {
         this.log("putGraph", true, { graphUri });
     }
 
+    async getGraph(graphUri: string, options: GraphRequestOptions = {}): Promise<string> {
+        this.assertAbsoluteGraphUri("getGraph", graphUri);
+        const response = await this.request("getGraph", this.gspUrl(graphUri), {
+            method: "GET", headers: { Accept: "text/turtle" },
+        }, options);
+        if (!response.ok) throw await this.httpError("getGraph", "graph_query_failed", response, graphUri);
+        const turtle = await response.text();
+        this.log("getGraph", true, { graphUri });
+        return turtle;
+    }
+
     async deleteGraph(graphUri: string, options: GraphRequestOptions = {}): Promise<void> {
         assertGraphDeletable(graphUri);
         const response = await this.request("deleteGraph", this.gspUrl(graphUri), { method: "DELETE" }, options);

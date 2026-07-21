@@ -18,6 +18,7 @@ import institutionalRoutes from "./routes/institutional.ts";
 import modelRequirementsRoutes from "./routes/modelRequirements.ts";
 import modelIntakeRoutes from "./routes/modelIntake.ts";
 import semanticValidationRoutes from "./routes/semanticValidation.ts";
+import semanticEvidenceRoutes from "./routes/semanticEvidence.ts";
 
 app.use(cors());
 app.use(express.json());
@@ -34,6 +35,7 @@ app.use("/api/institutional", institutionalRoutes);
 app.use("/api/model-requirements", modelRequirementsRoutes);
 app.use("/api/model-intake", modelIntakeRoutes);
 app.use("/api/semantic-validation", semanticValidationRoutes);
+app.use("/api/semantic-evidence", semanticEvidenceRoutes);
 
 app.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);

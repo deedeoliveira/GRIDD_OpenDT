@@ -19,7 +19,8 @@
     "ids:demo": "tsx scripts/idsDemo.ts",
     "ids:demo:setup": "tsx scripts/idsDemoSetup.ts",
     "model-intake:setup": "tsx scripts/modelIntakeSetup.ts",
-    "shacl:setup": "tsx scripts/shaclSetup.ts"
+    "shacl:setup": "tsx scripts/shaclSetup.ts",
+    "semantic-evidence:setup": "tsx scripts/semanticEvidenceSetup.ts"
   },
   "keywords": [],
   "author": "",

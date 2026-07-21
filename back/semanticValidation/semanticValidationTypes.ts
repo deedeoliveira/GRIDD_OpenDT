@@ -13,6 +13,8 @@ export interface VisibleShaclConstraint {
     class: string | null;
     nodeKind: string | null;
     pattern: string | null;
+    minLength?: number | null;
+    hasValue?: string | null;
     severity: string;
     message: string | null;
 }

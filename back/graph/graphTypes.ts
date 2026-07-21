@@ -98,6 +98,9 @@ export interface GraphClient {
         options?: GraphRequestOptions
     ): Promise<void>;
 
+    /** Obtém o Turtle exato de um named graph para downloads auditáveis. */
+    getGraph?(graphUri: string, options?: GraphRequestOptions): Promise<string>;
+
     query<T = Record<string, SparqlBindingValue>>(
         sparql: string,
         options?: GraphRequestOptions

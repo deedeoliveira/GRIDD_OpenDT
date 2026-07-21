@@ -93,6 +93,28 @@ export function semanticValidationReportGraphUri(baseUri: string, runUuid: strin
     return `${validateBaseUri(baseUri, "baseUri")}/graph/validation/report/${runUuid.trim().toLowerCase()}`;
 }
 
+/** Vocabulário público de evidência, imutável por revisão do registry. */
+export function semanticEvidenceVocabularyGraphUri(baseUri: string, artifactUuid: string): string {
+    return `${validateBaseUri(baseUri, "baseUri")}/graph/vocabularies/semantic-evidence/${artifactUuidSegment(artifactUuid)}`;
+}
+
+/** Policy semântica governada; separada das shapes estruturais. */
+export function semanticPolicyGraphUri(baseUri: string, artifactUuid: string): string {
+    return `${validateBaseUri(baseUri, "baseUri")}/graph/validation/policy/${artifactUuidSegment(artifactUuid)}`;
+}
+
+/** Evidência mínima e imutável de uma avaliação de reserva. */
+export function reservationEvidenceGraphUri(baseUri: string, runUuid: string): string {
+    if (!UUID_PATTERN.test(runUuid.trim())) throw new GraphError("graph_configuration_error", "semantic evidence run UUID must be a UUID");
+    return `${validateBaseUri(baseUri, "baseUri")}/graph/evidence/reservation/${runUuid.trim().toLowerCase()}`;
+}
+
+/** Relatório SHACL da policy, separado do evidence graph e de validações estruturais. */
+export function reservationPolicyReportGraphUri(baseUri: string, runUuid: string): string {
+    if (!UUID_PATTERN.test(runUuid.trim())) throw new GraphError("graph_configuration_error", "semantic evidence run UUID must be a UUID");
+    return `${validateBaseUri(baseUri, "baseUri")}/graph/evidence/reservation-policy-report/${runUuid.trim().toLowerCase()}`;
+}
+
 /** Dataset institucional sintético permitido no runtime de investigação. */
 export function institutionalSyntheticDataGraphUri(baseUri: string, artifactUuid: string): string {
     return `${validateBaseUri(baseUri, "baseUri")}/graph/institutional-data/synthetic/${artifactUuidSegment(artifactUuid)}`;

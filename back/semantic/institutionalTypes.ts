@@ -42,6 +42,8 @@ export interface InstitutionalActorContext {
     contextAvailable: boolean;
     unavailableReason: string | null;
     link: {
+        linkId?: number;
+        institutionalDatasetArtifactId?: number;
         linkUuid: string;
         status: string;
         linkType: string;
