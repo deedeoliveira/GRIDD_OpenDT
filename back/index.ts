@@ -19,9 +19,12 @@ import modelRequirementsRoutes from "./routes/modelRequirements.ts";
 import modelIntakeRoutes from "./routes/modelIntake.ts";
 import semanticValidationRoutes from "./routes/semanticValidation.ts";
 import semanticEvidenceRoutes from "./routes/semanticEvidence.ts";
+import applicationAuthRoutes from "./routes/applicationAuth.ts";
+import { resolveApplicationIdentity } from "./applicationIdentity/applicationIdentityMiddleware.ts";
 
 app.use(cors());
 app.use(express.json());
+app.use(resolveApplicationIdentity);
 
 app.use('/api/sensor', sensorRoutes);
 app.use('/api/cdn', cdnRoutes);
@@ -36,6 +39,7 @@ app.use("/api/model-requirements", modelRequirementsRoutes);
 app.use("/api/model-intake", modelIntakeRoutes);
 app.use("/api/semantic-validation", semanticValidationRoutes);
 app.use("/api/semantic-evidence", semanticEvidenceRoutes);
+app.use("/api/auth", applicationAuthRoutes);
 
 app.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
