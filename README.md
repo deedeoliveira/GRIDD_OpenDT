@@ -278,6 +278,8 @@ The documentation is available in the [documentation directory](./documentation/
 - Concurrency audit and transactional boundaries (Prompt 6):
   [documentation/audit/CONCURRENCY_AUDIT.md](./documentation/audit/CONCURRENCY_AUDIT.md)
 - Final integration assessment: [documentation/audit/PROMPT6_INTEGRATION.md](./documentation/audit/PROMPT6_INTEGRATION.md)
+- Advisor demonstration walkthrough: [documentation/audit/ADVISOR_DEMONSTRATION_WALKTHROUGH.md](./documentation/audit/ADVISOR_DEMONSTRATION_WALKTHROUGH.md)
+- Demonstrator cleanup plan (not executed): [documentation/audit/DEMO_DATA_CLEANUP_PLAN.md](./documentation/audit/DEMO_DATA_CLEANUP_PLAN.md)
 - Demo walkthrough (10–15 min): [documentation/audit/DEMO_SCRIPT.md](./documentation/audit/DEMO_SCRIPT.md)
 - Institutional functional demonstration:
   [documentation/audit/DEMO_INSTITUTIONAL_CONTEXT.md](./documentation/audit/DEMO_INSTITUTIONAL_CONTEXT.md)

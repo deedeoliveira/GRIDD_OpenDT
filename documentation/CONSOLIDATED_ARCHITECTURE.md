@@ -383,3 +383,7 @@ Building registration is not implemented in Prompt 7E.
   claim universal exclusivity against third parties.
 - Building registration remains future. Prompt 7G will consolidate the final
   manager interface; the current flow assumes pre-existing building/model data.
+- Prompt 7I consolidates this as a role-based research demonstrator: existing
+  model contexts are selected in the manager area; building onboarding,
+  building-owned timezone configuration and production authentication remain
+  future work. Presentation uses Europe/Lisbon while storage remains UTC.

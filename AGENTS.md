@@ -40,3 +40,8 @@
   opaque cookie; frontend actor fields are never authority.
 - Application roles and management scopes authorize managers; institutional
   roles and semantic evidence never approve, reject or authorize reservations.
+- The demonstrator UI is role-oriented: student and manager navigation derives
+  from the server-resolved session, and technical identifiers belong in
+  expandable details rather than the primary task view.
+- Building onboarding is future work. The current demonstrator operates only
+  on existing linked models, model lines, models and model versions.

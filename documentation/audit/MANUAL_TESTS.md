@@ -1183,5 +1183,16 @@ key, asset and interval in the real reservation form and follows only
 | Ausência de autorização/aprovação | Nenhuma apresentação confunde shadow, disponibilidade e resultado operacional. | Pendente do walkthrough |
 | Regressão completa | Reservas anteriores, IDS, model intake e SHACL estrutural mantêm comportamento. | Cobertura automatizada |
 
+## 30. Prompt 7I — demonstrador consolidado
+
+| Teste ou grupo | O que está sendo testado em linguagem comum | Resultado |
+|---|---|---|
+| Login student e manager | Cada conta sintética abre a sua área própria. | Cobertura automatizada |
+| Navegação por role | Estudante não recebe navegação de gestor e gestor não é encaminhado para student. | Cobertura automatizada |
+| Modelos existentes | O gestor escolhe um contexto já existente sem criar edifício ou model line. | Cobertura automatizada |
+| IFC, IDS, RDF e SHACL | O workspace preserva seleção explícita, resultados separados e pré-visualização. | Cobertura automatizada |
+| Pedido e decisões | Pedido, aprovação, conflito, rejeição, cancelamento e razões mantêm os fluxos anteriores. | Cobertura automatizada |
+| Datas | A interface apresenta datas em Europe/Lisbon, incluindo horário de verão. | Cobertura automatizada |
+
 Não pedir SQL, SPARQL, migrations, seeds, setup, inspeção de graphs/tabelas,
 hashes manuais ou comandos pySHACL à investigadora.
