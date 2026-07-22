@@ -25,5 +25,5 @@ test('student proxy preserves the decision summary and the page renders decision
   assert.match(proxy,/await response\.text\(\)/);
   assert.match(page,/No reason was recorded for this historical decision\./);
   assert.match(page,/Data da decisão:/);
-  assert.match(page,/decisionDetails\(r\)/);
+  assert.match(page,/<DecisionDetails reservation=\{row\}/);
 });
