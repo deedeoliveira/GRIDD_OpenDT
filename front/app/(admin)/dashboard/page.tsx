@@ -41,10 +41,11 @@ type ShaclResult = { severity: string | null; focusNode: string | null; resultPa
 type ShaclReport = { runUuid: string; conforms: boolean; resultCount: number; results: ShaclResult[]; dataGraphSha256: string;
   shapesGraphSha256: string; shapesSource: string; executorName: string; executorVersion: string; reportGraphUri: string | null };
 
-const box = "rounded-2xl border border-slate-800 bg-slate-900 p-6";
-const input = "mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 file:mr-4 file:rounded-lg file:border-0 file:bg-cyan-500 file:px-3 file:py-2 file:font-semibold file:text-slate-950";
+const box = "uminho-card p-6";
+const input = "uminho-input mt-2 w-full px-4 py-3 file:mr-4 file:rounded-lg file:border-0 file:bg-[var(--uminho-primary-light)] file:px-3 file:py-2 file:font-semibold";
 
 export default function DashboardPage() {
+  const [workspaceSelected, setWorkspaceSelected] = useState(false);
   const [context, setContext] = useState<Context | null>(null);
   const [modelId, setModelId] = useState("");
   const [ifcFile, setIfcFile] = useState<File | null>(null);
@@ -60,7 +61,12 @@ export default function DashboardPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { void loadContext(); }, []);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("workspace") === "models") {
+      setWorkspaceSelected(true);
+      void loadContext();
+    }
+  }, []);
   const selected = useMemo(() => context?.models.find((item) => String(item.model_id) === modelId) ?? null, [context, modelId]);
   const activeModels = context?.models.filter((model) => model.state === "active") ?? [];
   const inactiveModels = context?.models.filter((model) => model.state !== "active") ?? [];
@@ -152,12 +158,22 @@ export default function DashboardPage() {
   function inputsChanged() { setRun(null); setCreated(null); setShacl(null); }
   function shapesChanged() { setShapes(null); setShacl(null); setCreated(null); }
 
+  function openModelWorkspace() {
+    setWorkspaceSelected(true);
+    const url = new URL(window.location.href);
+    url.searchParams.set("workspace", "models");
+    window.history.replaceState({}, "", url);
+    void loadContext();
+  }
+
+  if (!workspaceSelected) return <main className="uminho-page px-5 py-10"><div className="mx-auto max-w-6xl"><ManagerNavigation /><header className="mb-8"><p className="text-sm font-semibold uppercase tracking-[.22em]" style={{ color: "var(--uminho-primary)" }}>Workspace do gestor</p><h1 className="mt-2 text-4xl font-bold">O que pretende gerir?</h1><p className="mt-3 max-w-3xl" style={{ color: "var(--text-secondary)" }}>Escolha uma área de trabalho. O acesso a modelos é global ao workspace nesta fase; decisões de reservas continuam limitadas pelo âmbito de recursos da sessão.</p></header><div className="grid gap-5 md:grid-cols-2"><button className="uminho-mode-card" type="button" onClick={openModelWorkspace}><h2 className="text-xl font-semibold">Gerir modelos</h2><p className="mt-2" style={{ color: "var(--text-secondary)" }}>Consultar logical model lines, versões e o workspace de model intake.</p></button><a className="uminho-mode-card block" href="/dashboard/reservations"><h2 className="text-xl font-semibold">Reservas e decisões</h2><p className="mt-2" style={{ color: "var(--text-secondary)" }}>Analisar pedidos, atualizar evidência e tomar decisões autorizadas.</p></a></div></div></main>;
+
   return (
-    <main className="min-h-screen bg-slate-950 px-5 py-10 text-slate-100">
+    <main className="uminho-page px-5 py-10">
       <div className="mx-auto max-w-7xl space-y-7">
         <ManagerNavigation />
-        <header><p className="text-sm font-semibold uppercase tracking-[.25em] text-cyan-300">Modelos</p>
-          <h1 className="mt-2 text-4xl font-bold">Validar e criar uma versão</h1>
+        <header><p className="text-sm font-semibold uppercase tracking-[.25em]" style={{ color: "var(--uminho-primary)" }}>Workspace do gestor</p>
+          <h1 className="mt-2 text-4xl font-bold">Gerir modelos</h1>
           <p className="mt-3 max-w-3xl text-slate-300">Escolha um modelo existente, selecione IFC e IDS, reveja os resultados e crie uma nova versão apenas quando estiver pronto.</p></header>
         {error && <div className="rounded-2xl border border-rose-700 bg-rose-950/50 p-5 text-rose-200" role="alert">{error}</div>}
 
@@ -247,9 +263,9 @@ export default function DashboardPage() {
   );
 }
 
-function Step({ n, title }: { n: string; title: string }) { return <div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-full bg-cyan-500 font-bold text-slate-950">{n}</span><h2 className="text-2xl font-bold">{title}</h2></div>; }
+function Step({ n, title }: { n: string; title: string }) { return <div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-full bg-[var(--uminho-primary)] font-bold text-white">{n}</span><h2 className="text-2xl font-bold">{title}</h2></div>; }
 function Fact({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) { return <div><dt className="text-xs font-semibold uppercase tracking-wider text-slate-400">{label}</dt><dd className={`mt-1 break-all ${mono ? "font-mono text-xs" : ""}`}>{value}</dd></div>; }
-function Choice({ active, onClick, title }: { active: boolean; onClick: () => void; title: string }) { return <button type="button" onClick={onClick} className={`rounded-xl border p-4 text-left font-semibold ${active ? "border-cyan-400 bg-cyan-950/50" : "border-slate-700 bg-slate-950"}`}>{title}</button>; }
+function Choice({ active, onClick, title }: { active: boolean; onClick: () => void; title: string }) { return <button type="button" onClick={onClick} className={`rounded-xl border p-4 text-left font-semibold ${active ? "border-[var(--uminho-primary)] bg-[var(--uminho-primary-light)] text-[var(--uminho-primary-dark)]" : "border-[var(--border)] bg-white"}`}>{title}</button>; }
 function Status({ label, value }: { label: string; value: string }) { const pass = value === "pass"; return <div className={`rounded-xl border p-4 ${pass ? "border-emerald-700" : "border-rose-700"}`}><div className="text-xs uppercase text-slate-400">{label}</div><div className={`mt-1 text-xl font-bold ${pass ? "text-emerald-300" : "text-rose-300"}`}>{value.toUpperCase()}</div></div>; }
 function ProfileCard({ profile, processed }: { profile: Profile; processed: boolean }) { return <div className="mt-5 rounded-xl bg-slate-950 p-4"><p className="font-semibold">{processed ? "IDS processed by the server" : "Available governed profile"}</p><dl className="mt-3 grid gap-3 text-sm sm:grid-cols-3"><Fact label="Source" value={profile.source} /><Fact label="Filename" value={profile.originalFilename} /><Fact label="Version" value={profile.version} /><Fact label="SHA-256" value={profile.sha256} mono /><Fact label="Executor" value={`${profile.executorName} ${profile.executorVersion}`} /><Fact label="Specifications / requirements" value={`${profile.specificationCount} / ${profile.requirements.length}`} /></dl>
   <div className="mt-5 space-y-3">{profile.requirements.map((r) => <div className="rounded-lg border border-slate-800 p-3" key={`${r.requirementId}-${r.requires}`}><div className="font-semibold">{r.requirementId} — {r.specification}</div><div className="mt-1 text-sm text-slate-300">Applies to: {r.appliesTo} · Requires: {r.requires} · Cardinality: {r.cardinality}{r.expectedPattern ? ` · Expected pattern: ${r.expectedPattern}` : ""}</div></div>)}</div></div>; }
