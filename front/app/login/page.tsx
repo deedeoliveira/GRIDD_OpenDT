@@ -1,3 +1,17 @@
 "use client";
-import { useEffect,useState } from "react";
-export default function Login(){const [accounts,setAccounts]=useState<any[]>([]);const [error,setError]=useState('');useEffect(()=>{fetch('/api/auth/local-accounts').then(r=>r.json()).then(j=>setAccounts(j.data??[])).catch(()=>setError('Local synthetic login is unavailable.'));},[]);async function login(accountKey:string){const r=await fetch('/api/auth/local-login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountKey})});if(!r.ok){const j=await r.json();setError(j.message??'Login failed.');return;}const session=await fetch('/api/auth/session').then(x=>x.json());const area=session?.data?.applicationArea;if(area==='manager')location.assign('/dashboard/reservations');else if(area==='student')location.assign('/student');else setError('This account has no available application area.');}return <main className="max-w-xl mx-auto p-8"><h1 className="text-2xl font-semibold">Local login</h1><p className="mt-2 text-sm text-slate-600">Local synthetic session for research and development. This is not production authentication.</p>{error&&<p className="mt-3 text-red-700">{error}</p>}<div className="mt-5 space-y-3">{accounts.map(a=><button key={a.accountUuid} className="block w-full text-left border rounded p-3 disabled:opacity-50" disabled={a.status!=="active"} onClick={()=>login(a.accountKey)}>{a.displayLabel} <span className="text-sm">({a.status})</span></button>)}</div></main>}
+
+import { useEffect, useState } from "react";
+
+type Account = { accountUuid: string; accountKey: string; displayLabel: string; status: string };
+
+export default function Login() {
+  const [accounts, setAccounts] = useState<Account[]>([]); const [error, setError] = useState("");
+  useEffect(() => { void fetch("/api/auth/local-accounts").then((response) => response.json()).then((payload) => setAccounts(payload.data ?? [])).catch(() => setError("Não foi possível obter as contas locais.")); }, []);
+  async function login(accountKey: string) {
+    const response = await fetch("/api/auth/local-login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ accountKey }) });
+    if (!response.ok) { const payload = await response.json().catch(() => null); setError(payload?.message ?? "Não foi possível iniciar sessão."); return; }
+    const sessionResponse = await fetch("/api/auth/session", { cache: "no-store" }); const session = await sessionResponse.json().catch(() => null); const area = session?.data?.applicationArea;
+    if (area === "manager") window.location.assign("/dashboard"); else if (area === "student") window.location.assign("/student"); else setError("Esta conta não tem uma área disponível.");
+  }
+  return <main className="mx-auto max-w-xl p-8"><p className="text-sm font-semibold uppercase tracking-[.2em] text-cyan-700">Demonstração de investigação</p><h1 className="mt-2 text-3xl font-semibold">Iniciar sessão</h1><p className="mt-2 text-sm text-slate-600">Escolha uma conta sintética para abrir a área correspondente. Esta autenticação é local e destinada à demonstração.</p>{error && <p className="mt-3 text-red-700" role="alert">{error}</p>}<div className="mt-5 space-y-3">{accounts.map((account) => <button key={account.accountUuid} className="block w-full rounded border p-3 text-left disabled:opacity-50" disabled={account.status !== "active"} onClick={() => login(account.accountKey)}><span className="font-medium">{account.displayLabel}</span><span className="ml-2 text-sm text-slate-600">({account.status === "active" ? "disponível" : "indisponível"})</span></button>)}</div></main>;
+}

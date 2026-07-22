@@ -8,6 +8,7 @@ import type { LinkedModel } from "@/types/model";
 
 import ReservationModal from "./ReservationModal";
 import YourReservationsModal from "./YourReservationsModal";
+import { formatLisbonDateTime, lisbonTimeZoneLabel } from "@/lib/lisbonDateTime";
 
 type SelectedIfcInfo = {
   guid: string;
@@ -70,6 +71,7 @@ export default function ViewerPage() {
     let cancelled = false;
     fetchJson("/api/auth/session").then(({ res, json }) => {
       const current = json?.data?.accountKey;
+      if (!cancelled && res.ok && json?.data?.applicationArea === "manager") { window.location.assign("/dashboard"); return; }
       if (!cancelled && res.ok && typeof current === "string") setActorId(current);
       if (!cancelled && res.status === 401) window.location.assign("/login");
     });
@@ -241,22 +243,7 @@ export default function ViewerPage() {
   }, [actorId]);
 
 
-  function formatDateTime(dateString: string) {
-    const d = new Date(dateString);
-    const pad = (n: number) => n.toString().padStart(2, "0");
-
-    return (
-      d.getFullYear() +
-      "-" +
-      pad(d.getMonth() + 1) +
-      "-" +
-      pad(d.getDate()) +
-      " " +
-      pad(d.getHours()) +
-      ":" +
-      pad(d.getMinutes())
-    );
-  }
+  function formatDateTime(dateString: string) { return formatLisbonDateTime(dateString); }
 
   function decisionDetails(reservation: ReservationRow) {
     const decision = reservation.decision;
@@ -266,9 +253,9 @@ export default function ViewerPage() {
         : null;
     }
     return <>
-      {decision.reason ? <div className="text-xs">Reason: {decision.reason}</div> : (reservation.status === "cancelled" || reservation.status === "rejected") && <div className="text-xs">No reason was recorded for this historical decision.</div>}
-      {decision.decidedAt && <div className="text-xs">Decision date: {formatDateTime(decision.decidedAt)}</div>}
-      {decision.decidedByRole && <div className="text-xs">Decision source: {decision.decidedByRole.replaceAll("_", " ")}</div>}
+      {decision.reason ? <div className="text-xs">Razão: {decision.reason}</div> : (reservation.status === "cancelled" || reservation.status === "rejected") && <div className="text-xs">Não foi registada uma razão para esta decisão histórica.</div>}
+      {decision.decidedAt && <div className="text-xs">Data da decisão: {formatDateTime(decision.decidedAt)} ({lisbonTimeZoneLabel})</div>}
+      {decision.decidedByRole && <div className="text-xs">Origem da decisão: {decision.decidedByRole.replaceAll("_", " ")}</div>}
     </>;
   }
 
@@ -314,10 +301,10 @@ export default function ViewerPage() {
 
       <div className="w-[420px] absolute top-4 left-4 z-20 rounded shadow bg-white">
 
-        <div className="px-3 pt-3 text-xs flex justify-between"><span>Current account: {actorId || "resolving..."}</span><button onClick={logout} className="underline">Logout</button></div>
+        <div className="px-3 pt-3 text-xs flex justify-between"><span>Conta atual: {actorId || "a obter..."}</span><button onClick={logout} className="underline">Terminar sessão</button></div>
 
         <Accordion>
-          <AccordionItem key="1" title="Models">
+          <AccordionItem key="1" title="Recursos disponíveis">
             {linkedModel.map((model) => (
               <Button
                 key={model.id}
@@ -330,7 +317,7 @@ export default function ViewerPage() {
             ))}
           </AccordionItem>
 
-          <AccordionItem key="2" title="Selected">
+          <AccordionItem key="2" title="Recurso selecionado">
             {!selectedIfc ? (
               <div className="p-2 text-sm text-gray-600">
                 Nenhum elemento selecionado
@@ -380,11 +367,11 @@ export default function ViewerPage() {
             )}
           </AccordionItem>
 
-          <AccordionItem key="3" title="Your Reservations">
+          <AccordionItem key="3" title="Minhas reservas">
 
             {actorReservations.length === 0 ? (
               <div className="p-2 text-sm text-gray-600">
-                No reservations found.
+                Não existem reservas.
               </div>
             ) : (
               <div className="p-2 text-sm flex flex-col gap-4">
@@ -392,7 +379,7 @@ export default function ViewerPage() {
                 {/* PENDING */}
                 {actorReservations.filter(r => r.status === "pending").length > 0 && (
                   <div>
-                    <div className="font-semibold mb-1">Pending</div>
+                    <div className="font-semibold mb-1">Pendentes</div>
                     {actorReservations
                       .filter(r => r.status === "pending")
                       .map(r => (
@@ -412,7 +399,7 @@ export default function ViewerPage() {
                 {/* APPROVED */}
                 {actorReservations.filter(r => r.status === "approved").length > 0 && (
                   <div>
-                    <div className="font-semibold mb-1">Approved</div>
+                    <div className="font-semibold mb-1">Aprovadas</div>
 
                       {successMessage && (
                         <div className="m-3 p-2 text-sm bg-green-100 text-green-700 rounded">
@@ -454,7 +441,7 @@ export default function ViewerPage() {
                 {/* IN USE (inclui overdue: período terminou sem checkout) */}
                 {actorReservations.filter(r => r.status === "rejected").length > 0 && (
                   <div>
-                    <div className="font-semibold mb-1">Rejected</div>
+                    <div className="font-semibold mb-1">Rejeitadas</div>
                     {actorReservations.filter(r => r.status === "rejected").map(r => (
                       <div key={r.id} className="border-b py-2 text-gray-500">
                         <div>Asset ID: {r.asset_id}</div>
@@ -467,7 +454,7 @@ export default function ViewerPage() {
 
                 {actorReservations.filter(r => ["in_use", "overdue"].includes(r.status)).length > 0 && (
                   <div>
-                    <div className="font-semibold mb-1">In Use</div>
+                    <div className="font-semibold mb-1">Em utilização</div>
 
                     {checkoutMessage && (
                       <div className="mb-2 p-2 text-xs bg-green-100 text-green-700 rounded">
@@ -512,7 +499,7 @@ export default function ViewerPage() {
                   ["completed", "cancelled", "no_show"].includes(r.status)
                 ).length > 0 && (
                   <div>
-                    <div className="font-semibold mb-1">Finished</div>
+                    <div className="font-semibold mb-1">Terminadas</div>
                     {actorReservations
                       .filter(r =>
                         ["completed", "cancelled", "no_show"].includes(r.status)
