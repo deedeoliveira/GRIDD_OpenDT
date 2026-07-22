@@ -65,7 +65,7 @@ test("frontend/backend contract uses real file pickers and multipart, backend ha
     assert.equal((page.match(/type="file"/g) ?? []).length, 3);
     assert.match(page, /new FormData/); assert.match(proxy, /request\.formData/); assert.match(route, /upload\.fields/);
     assert.match(page, /serverComputedSha256/); assert.match(page, /profile\.requirements/);
-    assert.match(page, /Validate and preview/); assert.match(page, /Create model version/);
+    assert.match(page, /Validar e pré-visualizar/); assert.match(page, /Create model version/);
     assert.match(service, /ifcGuid: space\.ifc_guid/); assert.match(service, /ifcGuid: asset\.ifc_guid/);
     assert.match(service, /model-version\/\$\{snapshot\.version\.version_uuid\}/);
     assert.doesNotMatch(page + proxy, /3030|SPARQL|IFCOPENSHELL_FLASK|python\//i);

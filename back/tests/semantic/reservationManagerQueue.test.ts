@@ -39,5 +39,5 @@ test('manager proxy and frontend explicitly disable cache and expose totals, fil
   const proxy=fs.readFileSync(path.resolve(import.meta.dirname,'../../../front/app/api/manager/[...path]/route.ts'),'utf8');
   const page=fs.readFileSync(path.resolve(import.meta.dirname,'../../../front/app/(admin)/dashboard/reservations/page.tsx'),'utf8');
   assert.match(proxy,/cache:\s*'no-store'/); assert.match(proxy,/['"]Cache-Control['"]:\s*'no-store'/);
-  assert.match(page,/Showing \{rows\.length\} of \{pagination\.totalItems\} requests/); assert.match(page,/Refresh queue/); assert.match(page,/Previous/); assert.match(page,/Next/);
+  assert.match(page,/\{rows\.length\} de \{pagination\.totalItems\} pedidos/); assert.match(page,/Atualizar fila/); assert.match(page,/Anterior/); assert.match(page,/Seguinte/);
 });

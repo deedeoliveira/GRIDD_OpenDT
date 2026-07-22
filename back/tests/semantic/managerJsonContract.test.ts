@@ -55,8 +55,8 @@ test('real proxy and page source use safe transport, one parser and review-state
   const mine = fs.readFileSync(path.resolve(import.meta.dirname, '../../routes/reservationsMine.ts'), 'utf8');
   assert.match(proxy, /await request\.text\(\)/); assert.doesNotMatch(proxy, /request\.json\(\)/); assert.match(proxy, /await response\.text\(\)/);
   assert.doesNotMatch(page, /response\.json\(\)/); assert.match(page, /parseApiJsonResponse/g); assert.match(page, /disabled=\{!canApprove\}/); assert.match(page, /disabled=\{!canReject\}/);
-  assert.match(page, /Open review/); assert.match(page, /Refresh evidence/); assert.match(page, /No decision was made/); assert.match(page, /Technical details/);
-  assert.match(page, /setError\(null\)/); assert.match(page, /review_evidence_stale/); assert.match(page, /status: 'stale'/);
-  assert.match(page, /needsOverride/); assert.match(page, /reasonPresent/); assert.match(page, /shadow outcome for approval/);
+  assert.match(page, /Abrir análise/); assert.match(page, /Atualizar evidência/); assert.match(page, /Nenhuma decisão foi tomada/); assert.match(page, /Detalhes técnicos/);
+  assert.match(page, /setError\(null\)/); assert.match(page, /review_evidence_stale/); assert.match(page, /status: ["']stale["']/);
+  assert.match(page, /needsOverride/); assert.match(page, /reasonPresent/); assert.match(page, /Reconheço o alerta da evidência/);
   assert.match(mine, /studentReservationsSql/); assert.match(mine, /toStudentReservation/);
 });

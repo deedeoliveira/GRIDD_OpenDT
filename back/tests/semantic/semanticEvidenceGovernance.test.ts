@@ -42,8 +42,8 @@ test("forward/rollback persistence is normalized and does not change reservation
 test("real reservation UI uses researcher-controlled asset/interval and two explicit actions without hardcoded outcomes", () => {
     const ui = fs.readFileSync(path.join(ROOT, "front/app/(viewer)/student/ReservationModal.tsx"), "utf8");
     assert.match(ui, /actorId/);
-    assert.match(ui, /Check evidence/);
-    assert.match(ui, /Create reservation request/);
+    assert.match(ui, /Verificar evidência/);
+    assert.match(ui, /Criar pedido/);
     assert.match(ui, /semanticEvidenceRunUuid/);
     assert.doesNotMatch(ui, /SHACL PASS|SHACL FAIL|outcome:\s*["']eligible/);
 });

@@ -24,6 +24,6 @@ test('student proxy preserves the decision summary and the page renders decision
   const page=fs.readFileSync(path.resolve(import.meta.dirname,'../../../front/app/(viewer)/student/page.tsx'),'utf8');
   assert.match(proxy,/await response\.text\(\)/);
   assert.match(page,/No reason was recorded for this historical decision\./);
-  assert.match(page,/Decision date:/);
+  assert.match(page,/Data da decisão:/);
   assert.match(page,/decisionDetails\(r\)/);
 });
