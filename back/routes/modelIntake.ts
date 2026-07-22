@@ -24,7 +24,7 @@ const shapesUpload = multer({ dest: tempRoot, limits: { files: 1, fileSize: 2 * 
 async function requireManagerWorkspace(req: express.Request, res: express.Response, next: express.NextFunction) {
     if (!req.applicationIdentity) return buildErrorResponse(res, 401, "A local development session is required.");
     const area = await new ApplicationIdentityDatabase().applicationArea(Number(req.applicationIdentity.accountId));
-    if (area !== "manager") return buildErrorResponse(res, 403, "This workspace is available only to a scoped reservation manager.");
+    if (area !== "manager") return buildErrorResponse(res, 403, "This workspace is available only to an active reservation manager.");
     next();
 }
 

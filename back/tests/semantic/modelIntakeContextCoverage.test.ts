@@ -18,8 +18,8 @@ test("model context retains logical model lines without a current version and co
   assert.match(database, /latest_version_status/); assert.match(service, /safeLatestFailure/); assert.match(service, /latestVersion/);
 });
 
-test("model intake context is manager-session protected and dashboard distinguishes duplicate names by parent context", () => {
-  assert.match(route, /requireManagerWorkspace/); assert.match(route, /applicationArea/); assert.match(route, /workspace is available only to a scoped reservation manager/i);
+test("model intake context is manager-session protected by the active manager role and dashboard distinguishes duplicate names by parent context", () => {
+  assert.match(route, /requireManagerWorkspace/); assert.match(route, /applicationArea/); assert.match(route, /workspace is available only to an active reservation manager/i);
   assert.match(proxy, /request\.headers\.get\("cookie"\)/); assert.match(proxy, /requestHeaders\.set\("cookie", cookie\)/);
   assert.match(dashboard, /Contexto do modelo:/); assert.match(dashboard, /Adicionar primeira versão/); assert.match(dashboard, /Adicionar nova versão/); assert.match(dashboard, /A tentativa mais recente não foi ativada porque o processamento falhou/);
   assert.match(dashboard, /useState\(""\)/); assert.match(dashboard, /<option value="">Selecionar modelo<\/option>/);

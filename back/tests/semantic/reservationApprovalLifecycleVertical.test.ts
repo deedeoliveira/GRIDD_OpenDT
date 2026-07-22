@@ -64,7 +64,7 @@ test('vertical lifecycle: a rejection needs a reason and an approved request may
 
 test('vertical lifecycle: no application role/scope and a different asset are both denied', async () => {
   const noRole = new ApprovalHarness(); noRole.allowed = false;
-  await assert.rejects(() => service(noRole).decide(501, 'session-1', 40, 'approved', {}), (error: any) => error instanceof ReservationApprovalError && error.httpStatus === 403);
+  for (const kind of ['approved','rejected','cancelled'] as const) await assert.rejects(() => service(noRole).decide(501, 'session-1', 40, kind, {}), (error: any) => error instanceof ReservationApprovalError && error.httpStatus === 403);
   const outOfScope = new ApprovalHarness(); outOfScope.reservation.asset_id = 8;
   await assert.rejects(() => service(outOfScope).decide(501, 'session-1', 40, 'approved', {}), (error: any) => error instanceof ReservationApprovalError && error.httpStatus === 403);
 });

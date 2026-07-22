@@ -31,11 +31,10 @@ export class ApplicationIdentityDatabase {
   }
   async applicationArea(accountId:number):Promise<'manager'|'student'|'none'>{
     await this.db.checkConnection();
-    const [rows]:any=await this.db.connection.execute(`SELECT 1 FROM reservation_management_scopes s
-      JOIN application_account_roles ar ON ar.application_account_id=s.application_account_id AND ar.revoked_at IS NULL
+    const [rows]:any=await this.db.connection.execute(`SELECT 1 FROM application_account_roles ar
       JOIN application_roles r ON r.id=ar.application_role_id AND r.normalized_role_key='reservation_manager'
-      JOIN application_accounts a ON a.id=s.application_account_id AND a.status='active'
-      WHERE s.application_account_id=:accountId AND s.status='active' LIMIT 1`,{accountId});
+      JOIN application_accounts a ON a.id=ar.application_account_id AND a.status='active'
+      WHERE ar.application_account_id=:accountId AND ar.revoked_at IS NULL LIMIT 1`,{accountId});
     return rows.length ? 'manager' : 'student';
   }
   async disconnect(): Promise<void> { await this.db.disconnect(); }

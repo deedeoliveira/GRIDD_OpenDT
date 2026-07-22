@@ -27,12 +27,13 @@ test('manager queue paginates deterministically without losing recent nullable p
   assert.match(listSql,/LEFT JOIN reservation_semantic_evidence_links/); assert.match(listSql,/LEFT JOIN reservation_decisions/);
 });
 
-test('manager queue applies scope to count and items and rejects an account without scope',async()=>{
+test('manager queue applies scope to count and items and returns an empty queue to a manager without scopes',async()=>{
   const db=new QueueDatabase(); const service=new ReservationApprovalService(db as any,{} as any,async()=>true); await service.list(50,{status:'all'});
   const scoped=db.calls.filter(sql=>sql.includes('r.asset_id IN'));
   assert.equal(scoped.length,2,'count and list use the same scope predicate');
-  const denied=new ReservationApprovalService(new QueueDatabase(false) as any,{} as any,async()=>true);
-  await assert.rejects(()=>denied.list(51), (error:any)=>error.httpStatus===403);
+  const unassigned=new ReservationApprovalService(new QueueDatabase(false) as any,{} as any,async()=>true);
+  const empty=await unassigned.list(51);
+  assert.deepEqual(empty,{items:[],page:1,pageSize:25,totalItems:0,totalPages:1});
 });
 
 test('manager proxy and frontend explicitly disable cache and expose totals, filtering, refresh and navigation',()=>{
@@ -40,4 +41,7 @@ test('manager proxy and frontend explicitly disable cache and expose totals, fil
   const page=fs.readFileSync(path.resolve(import.meta.dirname,'../../../front/app/(admin)/dashboard/reservations/page.tsx'),'utf8');
   assert.match(proxy,/cache:\s*'no-store'/); assert.match(proxy,/['"]Cache-Control['"]:\s*'no-store'/);
   assert.match(page,/\{rows\.length\} de \{pagination\.totalItems\} pedidos/); assert.match(page,/Atualizar fila/); assert.match(page,/Anterior/); assert.match(page,/Seguinte/);
+  assert.match(page,/NÃ£o existem pedidos para os ativos atualmente atribuÃ­dos Ã  sua conta/);
+  const route=fs.readFileSync(path.resolve(import.meta.dirname,'../../routes/managerReservations.ts'),'utf8');
+  assert.match(route,/ApplicationIdentityDatabase/); assert.match(route,/manager_role_required/); assert.match(route,/applicationArea\(accountId\)!=='manager'/);
 });
