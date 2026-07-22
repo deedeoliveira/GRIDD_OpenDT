@@ -1,8 +1,22 @@
 # Reservation approval walkthrough
 
-The technical executor prepares synthetic accounts and scopes. The researcher
-uses `/student`, `/login` and `/dashboard/reservations`; no SQL, migrations,
-locks or commands are required.
+The technical executor prepares synthetic accounts and any scoped reservation
+fixtures required for a decision walkthrough. The researcher uses `/student`,
+`/login` and `/dashboard/reservations`; no SQL, migrations, locks or commands
+are required. An active `reservation_manager` role opens the manager workspace;
+asset scopes only authorize reviews and decisions for their assigned assets.
+
+## Manager with no assigned assets
+
+1. Sign in as an active manager with no reservation-management scopes.
+2. Open `/dashboard`, then **Gerir modelos**: the controlled intake workspace
+   opens even when the model list is empty.
+3. Open **Reservas e decisões**: the queue responds normally with zero items.
+4. Do not create a reservation or scope. Any direct review, refresh, approval,
+   rejection, or manager cancellation for an unassigned asset must be refused.
+
+This verifies workspace access without broadening reservation-decision
+authority.
 
 ## Approved walkthrough outcome
 

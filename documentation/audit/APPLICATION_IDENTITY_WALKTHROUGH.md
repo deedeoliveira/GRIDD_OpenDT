@@ -4,6 +4,11 @@ The executor prepares the local services. The researcher only opens
 `http://localhost:3000/login` and chooses synthetic inputs; no SQL, migrations,
 cookies, hashes, commands or infrastructure inspection are required.
 
+An active `reservation_manager` role opens the manager dashboard and controlled
+model intake without an asset scope. Asset scopes still limit review and
+reservation-decision authority; without one, the manager sees an empty queue
+and cannot act on a reservation.
+
 | Teste ou grupo | O que está sendo testado em linguagem comum | Resultado |
 |---|---|---|
 | Teste A — verified student | A reserva usa a conta que iniciou a sessão, não uma identidade escolhida no formulário. | Pendente do walkthrough |

@@ -341,13 +341,20 @@ flowchart TD
   a local audit boundary. Legacy actor snapshots remain only for disabled-mode
   compatibility.
 - Local synthetic login is development-only and startup refuses it in
-  production. Manager authorization/approval is future 7H; final interface and
-  building onboarding are future 7I.
+  production. The server resolves `applicationArea=manager` from an active
+  `reservation_manager` application role; the browser cannot choose that area
+  or a role. Building onboarding remains future work.
 
 ## 15.18 Reservation approval (Prompt 7H; ADR-0046/0047)
 
-- `reservation_manager` and asset scopes are application authorization, never
-  institutional roles or semantic policy results.
+- `reservation_manager` grants access to the manager workspace and controlled
+  model intake, while active asset scopes grant reservation-listing and
+  decision authority only for their assets. A manager without scopes sees an
+  empty queue and cannot open, refresh, approve, reject, or cancel a
+  reservation.
+- Roles and asset scopes are application authorization, never institutional
+  roles or semantic policy results. This limited demonstrator boundary is not
+  complete production RBAC.
 - Pending requests can coexist across actors. Approval locks and rechecks SQL
   availability, appends an audit record, and remains a human decision.
 

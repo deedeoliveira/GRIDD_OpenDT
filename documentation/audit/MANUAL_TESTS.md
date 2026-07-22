@@ -1,5 +1,18 @@
 # Procedimento de teste manual
 
+## Correção de autorização manager — role e scopes separados
+
+1. Em `/login`, iniciar sessão como `manager-demo-001` e confirmar a abertura
+   de `/dashboard`, com **Gerir modelos** e **Reservas e decisões**.
+2. Abrir **Gerir modelos** e confirmar que o contexto vazio não produz erro.
+3. Abrir **Reservas e decisões** e confirmar a mensagem de fila vazia. Não criar
+   modelos, ativos, scopes ou reservas neste teste.
+4. Iniciar sessão como student e confirmar que `/dashboard` não fica acessível.
+
+O role ativo concede a área manager; os scopes por ativo continuam a limitar
+somente a consulta e as decisões sobre reservas. Este é um teste de interface
+e não uma afirmação de RBAC completo de produção.
+
 ## Prompt 7J-A — identidade visual e fluxo student
 
 | Teste ou grupo | O que está sendo testado em linguagem comum | Resultado |
