@@ -1,7 +1,7 @@
 import MySQLDatabase from "./mysqlDatabase.ts";
 import fs from 'fs';
 import type { IModelDatabase } from "../types/database.ts";
-import type { LinkedModel, Model } from "../types/models.ts";
+import type { LinkedModel, Model, StudentModelContext } from "../types/models.ts";
 import path from "path";
 import crypto from "node:crypto";
 import { resolveStorageKey } from "./storage.ts";
@@ -150,7 +150,7 @@ class ModelDatabase implements IModelDatabase {
 
             const id = (modelRows as any).insertId;
 
-            return { id, name, linkedParentId } as Model;
+            return { id: String(id), name, linkedParentId: String(linkedParentId) } as Model;
         } catch (error: any) {
             return new Error(`Error uploading model: ${error.message}`);
         }
@@ -259,6 +259,59 @@ class ModelDatabase implements IModelDatabase {
         }
 
         return linkedRows as LinkedModel[];
+    }
+
+    /**
+     * Safe read contract for the student viewer.  The three identifiers are
+     * deliberately named because linked_models.id, models.id and
+     * model_versions.id are different concepts.
+     */
+    async listStudentModelContexts(): Promise<StudentModelContext[]> {
+        await this.db.checkConnection();
+        const [rows]: any = await this.db.connection.execute(`
+            SELECT m.id AS model_line_id, m.model_uuid, m.name AS model_line_name,
+                   lm.id AS linked_model_id, lm.name AS linked_model_name,
+                   cv.id AS current_version_id, cv.version_number AS current_version_number,
+                   cv.status AS current_version_status,
+                   (SELECT COUNT(*) FROM model_versions count_v WHERE count_v.model_id = m.id) AS version_count,
+                   lv.id AS latest_version_id, lv.status AS latest_version_status,
+                   lv.created_at AS latest_version_created_at, lv.failure_reason AS latest_version_failure_reason
+            FROM models m
+            INNER JOIN linked_models lm ON lm.id = m.linked_parent_id
+            LEFT JOIN model_versions cv ON cv.id = m.current_version_id
+            LEFT JOIN model_versions lv ON lv.id = (
+                SELECT latest.id FROM model_versions latest
+                WHERE latest.model_id = m.id
+                ORDER BY latest.created_at DESC, latest.id DESC LIMIT 1
+            )
+            ORDER BY (cv.id IS NULL), lm.name ASC, m.name ASC, m.id ASC
+        `);
+        return rows.map((row: any) => {
+            const failure = String(row.latest_version_failure_reason ?? "");
+            const safeFailure = failure
+                .replace(/[A-Za-z]:[\\/][^\s]+/g, "[path removed]")
+                .replace(/(?:[\\/][\w.-]+){3,}/g, "[path removed]")
+                .slice(0, 240);
+            const stageMatch = safeFailure.match(/(?:stage|etapa)\s*[:=]\s*([\w-]+)/i);
+            return {
+                modelLineId: Number(row.model_line_id),
+                modelLineUuid: String(row.model_uuid),
+                modelLineName: String(row.model_line_name),
+                linkedModelId: Number(row.linked_model_id),
+                linkedModelName: String(row.linked_model_name),
+                currentVersionId: row.current_version_id == null ? null : Number(row.current_version_id),
+                currentVersionNumber: row.current_version_number == null ? null : Number(row.current_version_number),
+                currentVersionStatus: row.current_version_status ?? null,
+                versionCount: Number(row.version_count ?? 0),
+                latestVersion: row.latest_version_id == null ? null : {
+                    id: Number(row.latest_version_id),
+                    status: String(row.latest_version_status),
+                    createdAt: row.latest_version_created_at ? new Date(row.latest_version_created_at).toISOString() : null,
+                    failureStage: stageMatch?.[1] ?? null,
+                    message: safeFailure || null,
+                },
+            };
+        });
     }
 
 

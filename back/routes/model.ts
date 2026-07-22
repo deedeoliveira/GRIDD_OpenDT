@@ -13,6 +13,20 @@ import versionDb from "../utils/modelVersionDatabase.ts";
 import { handleModelUpload } from "../services/modelUploadService.ts";
 import { resolveStorageKey } from "../utils/storage.ts";
 import fsSync from 'fs';
+import { ApplicationIdentityDatabase } from "../applicationIdentity/applicationIdentityDatabase.ts";
+
+async function requireWorkspace(req: express.Request, res: express.Response, allowed: Array<"student" | "manager">) {
+    if (!req.applicationIdentity) {
+        buildErrorResponse(res, 401, "A local development session is required.");
+        return false;
+    }
+    const area = await new ApplicationIdentityDatabase().applicationArea(Number(req.applicationIdentity.accountId));
+    if (area === "none" || !allowed.includes(area)) {
+        buildErrorResponse(res, 403, "This model resource is not available to the current workspace.");
+        return false;
+    }
+    return true;
+}
 
 const app = express();
 
@@ -20,6 +34,15 @@ const MODELS_TEMP_ROOT_PATH = path.join(import.meta.dirname, '../cdn_resources/m
 const MODELS_ROOT_PATH = path.join(import.meta.dirname, '../cdn_resources/models');
 
 const upload = multer({ dest: MODELS_TEMP_ROOT_PATH });
+
+app.get('/student-contexts', async (req, res) => {
+    try {
+        if (!await requireWorkspace(req, res, ["student"])) return;
+        return buildSuccessResponse(res, 200, await db.listStudentModelContexts());
+    } catch (error: any) {
+        return buildErrorResponse(res, 500, error.message);
+    }
+});
 
 app.get('/linked/', async (req, res) => {
     const linkedModels = await db.listLinkedModels();
@@ -174,6 +197,7 @@ app.get('/versions/:versionId/download', async (req, res) => {
     }
 
     try {
+        if (!await requireWorkspace(req, res, ["student", "manager"])) return;
         const version = await versionDb.getVersionById(versionId);
 
         if (!version) {

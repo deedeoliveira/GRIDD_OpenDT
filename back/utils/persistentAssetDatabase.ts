@@ -2,6 +2,19 @@ import crypto from "crypto";
 import MySQLDatabase from "./mysqlDatabase.ts";
 import type { AssetIdentityLookup } from "../identity/assetIdentityTypes.ts";
 
+export type StudentReservableAsset = {
+    persistentAssetId: string;
+    name: string;
+    tag: string | null;
+    location: { name: string | null; reference: string | null };
+    representation: {
+        kind: "modelled" | "non_modelled" | "undetermined";
+        modelLineId?: number;
+        modelName?: string;
+        linkedModelId?: number;
+    };
+};
+
 /**
  * Persistência da identidade dos ativos (Prompt 4):
  * assets persistentes, asset_bindings por versão, casos de reconciliação e
@@ -273,6 +286,53 @@ class PersistentAssetDatabase implements AssetIdentityLookup {
         const [rows]: any = await this.db.connection.execute(
             "SELECT * FROM assets WHERE id = :assetId LIMIT 1", { assetId });
         return rows[0] ?? null;
+    }
+
+    async getStudentAssetByCurrentBinding(modelLineId: number, ifcGuid: string): Promise<StudentReservableAsset | null> {
+        await this.db.checkConnection();
+        const [rows]: any = await this.db.connection.execute(`
+            SELECT a.asset_uuid, a.name, a.asset_code,
+                   m.id AS model_line_id, m.name AS model_line_name,
+                   lm.id AS linked_model_id, 'modelled' AS representation_kind,
+                   s.name AS location_name, s.inventory_code AS location_reference
+            FROM models m
+            INNER JOIN linked_models lm ON lm.id = m.linked_parent_id
+            INNER JOIN asset_bindings ab ON ab.model_version_id = m.current_version_id
+              AND ab.binding_status = 'active' AND ab.ifc_guid = :ifcGuid
+            INNER JOIN assets a ON a.id = ab.asset_id
+              AND a.asset_uuid IS NOT NULL AND a.lifecycle_status = 'active' AND a.reservable = 1
+            LEFT JOIN spaces s ON s.id = ab.space_id
+            WHERE m.id = :modelLineId
+            ORDER BY ab.id ASC LIMIT 1
+        `, { modelLineId, ifcGuid });
+        return rows[0] ? this.toStudentAsset(rows[0]) : null;
+    }
+
+    async resolveReservableAssetId(persistentAssetId: string): Promise<number | null> {
+        await this.db.checkConnection();
+        const [rows]: any = await this.db.connection.execute(`
+            SELECT id FROM assets
+            WHERE asset_uuid = :persistentAssetId
+              AND lifecycle_status = 'active' AND reservable = 1
+            LIMIT 1
+        `, { persistentAssetId });
+        return rows[0] ? Number(rows[0].id) : null;
+    }
+
+    private toStudentAsset(row: any): StudentReservableAsset {
+        const kind = row.representation_kind as StudentReservableAsset["representation"]["kind"];
+        return {
+            persistentAssetId: String(row.asset_uuid),
+            name: String(row.name),
+            tag: row.asset_code ?? null,
+            location: { name: row.location_name ?? null, reference: row.location_reference ?? null },
+            representation: kind === "modelled" ? {
+                kind,
+                modelLineId: Number(row.model_line_id),
+                modelName: String(row.model_line_name),
+                linkedModelId: Number(row.linked_model_id),
+            } : { kind },
+        };
     }
 
     async getBindingsByAsset(assetId: number): Promise<any[]> {

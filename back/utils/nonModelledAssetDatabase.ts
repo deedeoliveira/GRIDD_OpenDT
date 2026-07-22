@@ -393,6 +393,59 @@ class NonModelledAssetDatabase {
         `);
         return rows;
     }
+
+    /**
+     * Combined read-only catalogue projection. Current model bindings and
+     * graph-authoritative projections are classified in one query, with one
+     * deterministic row per persistent asset.
+     */
+    async listStudentReservableAssets(modelLineId: number | null = null): Promise<any[]> {
+        await this.db.checkConnection();
+        const [rows]: any = await this.db.connection.execute(`
+            WITH current_bindings AS (
+                SELECT ab.asset_id, m.id AS model_line_id, m.name AS model_line_name,
+                       lm.id AS linked_model_id, bs.name AS binding_space_name,
+                       bs.inventory_code AS binding_space_reference,
+                       ROW_NUMBER() OVER (PARTITION BY ab.asset_id ORDER BY m.id ASC, ab.id ASC) AS rn
+                FROM asset_bindings ab
+                INNER JOIN model_versions mv ON mv.id = ab.model_version_id
+                INNER JOIN models m ON m.current_version_id = mv.id
+                INNER JOIN linked_models lm ON lm.id = m.linked_parent_id
+                LEFT JOIN spaces bs ON bs.id = ab.space_id
+                WHERE ab.binding_status = 'active'
+            )
+            SELECT a.asset_uuid, a.name, a.asset_code,
+                   cb.model_line_id, cb.model_line_name, cb.linked_model_id,
+                   CASE WHEN cb.asset_id IS NOT NULL THEN 'modelled'
+                        WHEN a.source = 'graph' AND a.semantic_uri IS NOT NULL THEN 'non_modelled'
+                        ELSE 'undetermined' END AS representation_kind,
+                   COALESCE(cb.binding_space_name, ls.name) AS location_name,
+                   COALESCE(cb.binding_space_reference, ls.inventory_code) AS location_reference
+            FROM assets a
+            LEFT JOIN current_bindings cb ON cb.asset_id = a.id AND cb.rn = 1
+            LEFT JOIN asset_location_assignments ala
+                   ON ala.asset_id = a.id AND ala.valid_to IS NULL AND a.source = 'graph'
+            LEFT JOIN spaces ls ON ls.id = ala.space_id
+            WHERE a.asset_uuid IS NOT NULL
+              AND a.lifecycle_status = 'active'
+              AND a.reservable = 1
+              AND (a.source <> 'graph' OR a.semantic_uri IS NOT NULL)
+              AND (:modelLineId IS NULL OR cb.model_line_id = :modelLineId)
+            ORDER BY representation_kind ASC, a.name ASC, a.asset_uuid ASC
+        `, { modelLineId });
+        return rows.map((row: any) => ({
+            persistentAssetId: String(row.asset_uuid),
+            name: String(row.name),
+            tag: row.asset_code ?? null,
+            location: { name: row.location_name ?? null, reference: row.location_reference ?? null },
+            representation: row.representation_kind === "modelled" ? {
+                kind: "modelled",
+                modelLineId: Number(row.model_line_id),
+                modelName: String(row.model_line_name),
+                linkedModelId: Number(row.linked_model_id),
+            } : { kind: row.representation_kind },
+        }));
+    }
 }
 
 export default new NonModelledAssetDatabase();

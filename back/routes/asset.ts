@@ -8,6 +8,7 @@ import { NonModelledAssetError } from "../services/nonModelledAssetTypes.ts";
 import { getReservabilityEvaluator } from "../policies/policyProvider.ts";
 import { buildSuccessResponse, buildErrorResponse } from "../utils/responseHandler.ts";
 import { logConcurrencyEvent } from "../utils/concurrencyControl.ts";
+import { ApplicationIdentityDatabase } from "../applicationIdentity/applicationIdentityDatabase.ts";
 
 /** Erros tipados 5B → HTTP; restantes → 500 sem stack trace. */
 function nonModelledErrorResponse(res: any, error: any) {
@@ -19,6 +20,19 @@ function nonModelledErrorResponse(res: any, error: any) {
 
 const app = express();
 app.use(express.json());
+
+async function requireStudent(req: express.Request, res: express.Response) {
+  if (!req.applicationIdentity) {
+    buildErrorResponse(res, 401, "A local development session is required.");
+    return false;
+  }
+  const area = await new ApplicationIdentityDatabase().applicationArea(Number(req.applicationIdentity.accountId));
+  if (area !== "student") {
+    buildErrorResponse(res, 403, "This resource list is available only to the student reservation workspace.");
+    return false;
+  }
+  return true;
+}
 
 /* -------------------------------------
    GET asset by GUID / specific version
@@ -77,6 +91,25 @@ app.get("/availability/:assetId", async (req, res) => {
 
     return buildSuccessResponse(res, 200, result);
 
+  } catch (error: any) {
+    return buildErrorResponse(res, 500, error.message);
+  }
+});
+
+app.get("/availability/persistent/:persistentAssetId", async (req, res) => {
+  const { persistentAssetId } = req.params;
+  const { start, end } = req.query;
+  if (!await requireStudent(req, res)) return;
+  if (!start || !end) return buildErrorResponse(res, 400, "Missing start or end query parameters");
+  const startDate = new Date(String(start));
+  const endDate = new Date(String(end));
+  if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) return buildErrorResponse(res, 400, "Invalid start or end date");
+  if (endDate <= startDate) return buildErrorResponse(res, 400, "End time must be after start time");
+  if (startDate <= new Date()) return buildErrorResponse(res, 400, "Cannot create reservation in the past");
+  try {
+    const assetId = await persistentAssetDb.resolveReservableAssetId(persistentAssetId);
+    if (!assetId) return buildErrorResponse(res, 404, "Reservable asset not found");
+    return buildSuccessResponse(res, 200, await assetDb.getAvailability(assetId, startDate, endDate));
   } catch (error: any) {
     return buildErrorResponse(res, 500, error.message);
   }
@@ -142,6 +175,39 @@ app.get("/by-guid-latest/:modelId/:guid", async (req, res) => {
 /* -------------------------------------
    (Prompt 4) Ativo persistente, bindings e reconciliação
 ------------------------------------- */
+
+/* Global student catalogue: one query, optional logical model line filter. */
+app.get("/persistent/reservable", async (req, res) => {
+  try {
+    if (!await requireStudent(req, res)) return;
+    const raw = req.query.modelLineId;
+    const modelLineId = raw == null || raw === "" ? null : Number(raw);
+    if (modelLineId !== null && (!Number.isInteger(modelLineId) || modelLineId <= 0)) {
+      return buildErrorResponse(res, 400, "Valid model line ID is required");
+    }
+    return buildSuccessResponse(res, 200, {
+      items: await nonModelledDb.listStudentReservableAssets(modelLineId),
+    });
+  } catch (error: any) {
+    return buildErrorResponse(res, 500, error.message);
+  }
+});
+
+/* Resolves a visible IFC element only through its binding in the current version. */
+app.get("/persistent/current-binding/:modelLineId/:guid", async (req, res) => {
+  try {
+    if (!await requireStudent(req, res)) return;
+    const modelLineId = Number(req.params.modelLineId);
+    if (!Number.isInteger(modelLineId) || modelLineId <= 0 || !req.params.guid) {
+      return buildErrorResponse(res, 400, "Valid model line ID and IFC GUID are required");
+    }
+    const item = await persistentAssetDb.getStudentAssetByCurrentBinding(modelLineId, req.params.guid);
+    if (!item) return buildErrorResponse(res, 404, "The selected IFC element is not a current reservable persistent asset.");
+    return buildSuccessResponse(res, 200, item);
+  } catch (error: any) {
+    return buildErrorResponse(res, 500, error.message);
+  }
+});
 
 /* Ativo persistente (identidade + ciclo de vida + projeção) */
 app.get("/persistent/:assetId", async (req, res) => {

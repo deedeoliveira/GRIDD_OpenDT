@@ -7,6 +7,7 @@ import { SemanticEvidenceError, sanitizedSemanticEvidenceError } from '../semant
 import { assertCurrentApplicationActor, resolveCurrentApplicationActor } from "../reservation/currentApplicationActor.ts";
 import { applicationIdentityRuntime } from "../applicationIdentity/applicationIdentityMiddleware.ts";
 import { ApplicationIdentityDatabase } from "../applicationIdentity/applicationIdentityDatabase.ts";
+import persistentAssetDb from "../utils/persistentAssetDatabase.ts";
 
 const app = express();
 
@@ -15,6 +16,19 @@ app.use(express.json());
 function currentActor(req: express.Request) { return req.applicationIdentity?.accountKey ?? resolveCurrentApplicationActor(); }
 function currentAccountId(req: express.Request) { return req.applicationIdentity?.accountId ?? null; }
 function rejectSpoof(req: express.Request, supplied: unknown) { const {config}=applicationIdentityRuntime(); return config.mode==='local_session' ? currentActor(req) : assertCurrentApplicationActor(supplied); }
+async function reservationAssetId(body: any): Promise<number> {
+  if (typeof body?.persistentAssetId === "string") {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.persistentAssetId)) {
+      throw new Error("Valid persistent asset identity is required");
+    }
+    const resolved = await persistentAssetDb.resolveReservableAssetId(body.persistentAssetId);
+    if (!resolved) throw new Error("Reservable asset not found");
+    return resolved;
+  }
+  const legacy = Number(body?.assetId);
+  if (!Number.isInteger(legacy) || legacy <= 0) throw new Error("Valid asset is required");
+  return legacy;
+}
 function requiresLocalIdentity(req: express.Request, res: express.Response) {
   if (applicationIdentityRuntime().config.mode === 'local_session' && !req.applicationIdentity) {
     buildErrorResponse(res, 401, 'A local development session is required.'); return true;
@@ -28,9 +42,10 @@ app.post('/evidence', async (req, res) => {
     if (requiresLocalIdentity(req, res)) return;
     const actorKey = rejectSpoof(req, req.body?.actorKey);
     if (req.applicationIdentity) await new ApplicationIdentityDatabase().assertLinkedAccount(req.applicationIdentity.accountId, actorKey);
+    const assetId = await reservationAssetId(req.body);
     const evidence = await getReservationSemanticEvidenceService().evaluate({
       actorKey,
-      assetId: Number(req.body?.assetId),
+      assetId,
       start: String(req.body?.start ?? ''),
       end: String(req.body?.end ?? ''),
       ...(req.applicationIdentity ? { applicationIdentity: {
@@ -84,14 +99,15 @@ app.get("/actor/:actorId", async (req, res) => {
 
 
 app.post('/request', async (req, res) => {
-  const { assetId, actorId, startTime, endTime, semanticEvidenceRunUuid } = req.body;
+  const { actorId, startTime, endTime, semanticEvidenceRunUuid } = req.body;
 
-  if (!assetId || !startTime || !endTime) {
+  if ((!req.body?.assetId && !req.body?.persistentAssetId) || !startTime || !endTime) {
     return buildErrorResponse(res, 400, 'Missing required fields');
   }
 
   try {
     if (requiresLocalIdentity(req, res)) return;
+    const assetId = await reservationAssetId(req.body);
     const currentActor = rejectSpoof(req, actorId);
     const evidenceConfig = loadSemanticEvidenceConfig();
     const start = new Date(startTime);
