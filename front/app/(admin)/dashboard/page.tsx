@@ -1,10 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import ManagerNavigation from "./ManagerNavigation";
 
 type Context = {
   models: Array<{ model_id: number; model_uuid: string; model_name: string; linked_model_id: number; linked_model_name: string;
-    current_version_id: number | null; current_version_number: number | null; current_ifc_hash: string | null }>;
+    current_version_id: number | null; current_version_number: number | null; current_ifc_hash: string | null;
+    versionCount: number; state: "active" | "no_active_version" | "no_current_version"; canCreateVersion: boolean;
+    latestVersion: { id: number; status: string; createdAt: string | null; failureStage: string | null; message: string | null } | null;
+    linkedParent: { id: number; name: string } }>;
   activeIdsProfile: Profile;
   mappingProfile: { familyKey: string; version: string; sha256: string; status: string; artifactType: string };
   modes: { materialisation: string; temporaryIdsUploadEnabled: boolean };
@@ -44,7 +48,7 @@ export default function DashboardPage() {
   const [context, setContext] = useState<Context | null>(null);
   const [modelId, setModelId] = useState("");
   const [ifcFile, setIfcFile] = useState<File | null>(null);
-  const [idsMode, setIdsMode] = useState<"active" | "uploaded">("active");
+  const [idsMode, setIdsMode] = useState<"" | "active" | "uploaded">("");
   const [idsFile, setIdsFile] = useState<File | null>(null);
   const [shapesMode, setShapesMode] = useState<"governed" | "temporary">("governed");
   const [shapesFile, setShapesFile] = useState<File | null>(null);
@@ -52,11 +56,20 @@ export default function DashboardPage() {
   const [shacl, setShacl] = useState<ShaclReport | null>(null);
   const [run, setRun] = useState<Run | null>(null);
   const [created, setCreated] = useState<Created | null>(null);
+  const [intakeOpen, setIntakeOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => { void loadContext(); }, []);
   const selected = useMemo(() => context?.models.find((item) => String(item.model_id) === modelId) ?? null, [context, modelId]);
+  const activeModels = context?.models.filter((model) => model.state === "active") ?? [];
+  const inactiveModels = context?.models.filter((model) => model.state !== "active") ?? [];
+  function modelLabel(model: Context["models"][number]) {
+    return `${model.model_name} — linha ${model.model_id}`;
+  }
+  function chooseModel(value: string) {
+    setModelId(value); setIntakeOpen(false); setIfcFile(null); setIdsFile(null); setIdsMode(""); setShapesMode("governed"); setShapesFile(null); setShapes(null); setError(null); inputsChanged();
+  }
 
   async function loadContext() {
     try {
@@ -69,11 +82,12 @@ export default function DashboardPage() {
 
   function formData(includeRun = false) {
     if (!ifcFile || !modelId) throw new Error("Select a logical model line and an IFC file.");
-    if (idsMode === "uploaded" && !idsFile) throw new Error("Select an IDS file or use the active governed profile.");
+    if (!idsMode) throw new Error("Selecione um perfil IDS governado ou um ficheiro IDS temporário.");
+    if (idsMode === "uploaded" && !idsFile) throw new Error("Selecione um ficheiro IDS temporário.");
     const form = new FormData();
     form.set("ifcFile", ifcFile);
     form.set("modelId", modelId);
-    form.set("idsMode", idsMode);
+    form.set("idsMode", idsMode as "active" | "uploaded");
     if (idsFile && idsMode === "uploaded") form.set("idsFile", idsFile);
     if (includeRun && run) form.set("preflightRunUuid", run.runUuid);
     return form;
@@ -141,48 +155,50 @@ export default function DashboardPage() {
   return (
     <main className="min-h-screen bg-slate-950 px-5 py-10 text-slate-100">
       <div className="mx-auto max-w-7xl space-y-7">
-        <header><p className="text-sm font-semibold uppercase tracking-[.25em] text-cyan-300">Model management</p>
-          <h1 className="mt-2 text-4xl font-bold">Controlled model intake</h1>
-          <p className="mt-3 max-w-3xl text-slate-300">Review an IFC against the IDS you select, inspect backend-generated RDF, then explicitly create an immutable model version.</p></header>
-        <div className="rounded-2xl border border-amber-600 bg-amber-950/40 p-5 text-amber-100" role="note">
-          Research prototype. This flow validates information and records provenance. It makes no eligibility, authorization, approval or reservation decision.
-        </div>
+        <ManagerNavigation />
+        <header><p className="text-sm font-semibold uppercase tracking-[.25em] text-cyan-300">Modelos</p>
+          <h1 className="mt-2 text-4xl font-bold">Validar e criar uma versão</h1>
+          <p className="mt-3 max-w-3xl text-slate-300">Escolha um modelo existente, selecione IFC e IDS, reveja os resultados e crie uma nova versão apenas quando estiver pronto.</p></header>
         {error && <div className="rounded-2xl border border-rose-700 bg-rose-950/50 p-5 text-rose-200" role="alert">{error}</div>}
 
-        <section className={box}><Step n="1" title="Model context" />
-          <label className="mt-5 block text-sm font-semibold" htmlFor="model">Linked model / logical model line</label>
-          <select id="model" className={input} value={modelId} onChange={(e) => { setModelId(e.target.value); inputsChanged(); }}>
-            <option value="">Select a model line…</option>
-            {context?.models.map((model) => <option value={model.model_id} key={model.model_id}>{model.linked_model_name} / {model.model_name}</option>)}
+        <section className={box}><Step n="1" title="Selecionar modelo" />
+          <p className="mt-4 text-slate-300">Selecione um modelo para consultar versões, validações e ações disponíveis.</p>
+          <p className="mt-2 text-sm text-slate-400">{activeModels.length} com versão ativa · {inactiveModels.length} sem versão ativa</p>
+          <label className="mt-5 block text-sm font-semibold" htmlFor="model">Modelo</label>
+          <select id="model" className={input} value={modelId} onChange={(event) => chooseModel(event.target.value)}>
+            <option value="">Selecionar modelo</option>
+            <optgroup label="Modelos com versão ativa">{activeModels.map((model) => <option value={model.model_id} key={model.model_id}>{modelLabel(model)}</option>)}</optgroup>
+            <optgroup label="Modelos sem versão ativa">{inactiveModels.map((model) => <option value={model.model_id} key={model.model_id}>{modelLabel(model)}</option>)}</optgroup>
           </select>
-          {selected && <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3"><Fact label="Current version" value={selected.current_version_number ? `v${selected.current_version_number}` : "None"} />
-            <Fact label="Current IFC SHA-256" value={selected.current_ifc_hash ?? "No current file"} mono /><Fact label="Logical model UUID" value={selected.model_uuid} mono /></dl>}
+          {selected && <article className="mt-5 rounded-xl border border-slate-700 bg-slate-950 p-5"><h3 className="text-xl font-bold">{modelLabel(selected)}</h3><p className="mt-1 text-sm text-slate-300">Contexto do modelo: {selected.linkedParent.name}</p><p className="mt-3">{selected.state === "active" ? `Versão atual: V${selected.current_version_number} — ativa.` : selected.state === "no_active_version" ? "Ainda não foi adicionada uma versão IFC." : `Sem versão ativa — versões históricas: ${selected.versionCount}.`}</p>{selected.state === "no_current_version" && selected.latestVersion?.status === "failed" && <><p className="mt-3 text-amber-200">A tentativa mais recente não foi ativada porque o processamento falhou.</p><details className="mt-2 text-sm text-slate-300"><summary>Ver detalhes</summary><p className="mt-1">Estado: falhou{selected.latestVersion.failureStage ? ` · etapa: ${selected.latestVersion.failureStage}` : ""}</p>{selected.latestVersion.message && <p className="mt-1">{selected.latestVersion.message}</p>}</details></>}<button type="button" className="mt-4 rounded border border-cyan-500 px-3 py-2 text-sm" onClick={() => setIntakeOpen(true)}>{selected.state === "no_active_version" ? "Adicionar primeira versão" : selected.state === "no_current_version" ? "Adicionar nova versão" : "Abrir modelo"}</button><details className="mt-3 text-sm text-slate-300"><summary>Detalhes técnicos</summary><dl className="mt-2 grid gap-3 sm:grid-cols-2"><Fact label="Hash IFC atual" value={selected.current_ifc_hash ?? "Sem ficheiro atual"} mono /><Fact label="Identificador do modelo" value={selected.model_uuid} mono /></dl></details></article>}
         </section>
 
-        <section className={box}><Step n="2" title="IFC file" />
-          <label className="mt-5 block text-sm font-semibold" htmlFor="ifc">Choose .ifc</label>
+        {selected && intakeOpen && <>
+
+        <section id="model-intake" className={box}><Step n="2" title="Ficheiro IFC" />
+          <label className="mt-5 block text-sm font-semibold" htmlFor="ifc">Selecionar .ifc</label>
           <input id="ifc" className={input} type="file" accept=".ifc" onChange={(e) => { setIfcFile(e.target.files?.[0] ?? null); inputsChanged(); }} />
           {run && <div className="mt-5 rounded-xl border border-emerald-800 bg-emerald-950/30 p-4"><p className="font-bold text-emerald-300">File processed by the server</p>
             <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2"><Fact label="Filename" value={run.ifc.originalFilename} /><Fact label="Size" value={`${run.ifc.byteSize} bytes`} />
               <Fact label="IFC schema" value={run.ifc.detectedIfcSchema} /><Fact label="SHA-256" value={run.ifc.serverComputedSha256} mono /></dl></div>}
         </section>
 
-        <section className={box}><Step n="3" title="IDS profile" />
-          <div className="mt-5 grid gap-3 sm:grid-cols-2"><Choice active={idsMode === "active"} onClick={() => { setIdsMode("active"); inputsChanged(); }} title="Active governed profile" />
+        <section className={box}><Step n="3" title="Perfil IDS" />
+          <div className="mt-5 grid gap-3 sm:grid-cols-2"><Choice active={idsMode === "active"} onClick={() => { setIdsMode("active"); inputsChanged(); }} title="Perfil governado ativo" />
             <Choice active={idsMode === "uploaded"} onClick={() => { setIdsMode("uploaded"); inputsChanged(); }} title="Upload temporary IDS" /></div>
           {idsMode === "uploaded" && <><label className="mt-5 block text-sm font-semibold" htmlFor="ids">Choose .ids</label>
             <input id="ids" className={input} type="file" accept=".ids,application/xml,text/xml" onChange={(e) => { setIdsFile(e.target.files?.[0] ?? null); inputsChanged(); }} /></>}
-          {(run?.ids ?? context?.activeIdsProfile) && <ProfileCard profile={run?.ids ?? context!.activeIdsProfile} processed={Boolean(run)} />}
+          {(run?.ids ?? (idsMode === "active" ? context?.activeIdsProfile : null)) && <ProfileCard profile={run?.ids ?? context!.activeIdsProfile} processed={Boolean(run)} />}
         </section>
 
-        <section className={box}><Step n="4" title="Preflight" />
-          <button className="mt-5 rounded-xl bg-cyan-500 px-6 py-3 font-bold text-slate-950 disabled:opacity-50" disabled={busy || !ifcFile || !modelId}
-            onClick={validateAndPreview}>{busy ? "Processing selected files…" : "Validate and preview"}</button>
+        <section className={box}><Step n="4" title="Validação e pré-visualização" />
+          <button className="mt-5 rounded-xl bg-cyan-500 px-6 py-3 font-bold text-slate-950 disabled:opacity-50" disabled={busy || !ifcFile || !modelId || !idsMode}
+            onClick={validateAndPreview}>{busy ? "A processar ficheiros selecionados…" : "Validar e pré-visualizar"}</button>
           {run && <div className="mt-5 grid gap-3 sm:grid-cols-3"><Status label="Overall" value={run.validation.overallStatus} />
             <Status label="IDS" value={run.validation.idsStatus} /><Status label="Project rules" value={run.validation.projectRulesStatus} /></div>}
         </section>
 
-        {run && <section className={box}><Step n="5" title="Evidence" />
+        {run && <section className={box}><Step n="5" title="Resultados do modelo" />
           <h3 className="mt-6 text-lg font-bold">Concrete findings</h3><Findings findings={run.validation.findings} />
           <h3 className="mt-7 text-lg font-bold">Spaces and persistent identity candidates</h3><SpaceTable rows={run.rdfPreview.spaces} />
           <h3 className="mt-7 text-lg font-bold">Managed assets and persistent identity candidates</h3><AssetTable rows={run.rdfPreview.assets} />
@@ -195,7 +211,7 @@ export default function DashboardPage() {
             <a className="rounded-lg border border-cyan-600 px-4 py-2" href={`/api/model-intake/runs/${run.runUuid}/report`}>Download JSON report</a></div>
         </section>}
 
-        <section className={box}><Step n="6" title="Semantic graph validation" />
+        <section className={box}><Step n="6" title="Validação estrutural SHACL" />
           <p className="mt-4 text-slate-300">SHACL validates graph structure and quality only. IDS, project rules and operational decisions remain separate layers.</p>
           <div className="mt-5 grid gap-3 sm:grid-cols-2"><Choice active={shapesMode === "governed"} onClick={() => { setShapesMode("governed"); shapesChanged(); }} title="Active governed shapes" />
             <Choice active={shapesMode === "temporary"} onClick={() => { setShapesMode("temporary"); shapesChanged(); }} title="Upload temporary shapes" /></div>
@@ -211,7 +227,7 @@ export default function DashboardPage() {
           {shacl && <ShaclReportView report={shacl} />}
         </section>
 
-        {run && <section className={box}><Step n="7" title="Version creation" />
+        {run && <section className={box}><Step n="7" title="Criar versão" />
           <div className="mt-5 rounded-xl border border-amber-700 bg-amber-950/30 p-4">This action creates a new immutable model version and may make it current after all required checks and semantic materialisation succeed.</div>
           <button className="mt-5 rounded-xl bg-emerald-500 px-6 py-3 font-bold text-slate-950 disabled:opacity-50" disabled={busy || run.validation.blocking
             || Boolean(context?.shacl.mode === "required" && (!shacl?.conforms || shacl.shapesSource !== "governed_active_shapes"))} onClick={createVersion}>Create model version</button>
@@ -225,6 +241,7 @@ export default function DashboardPage() {
             <div className="mt-4 flex gap-3"><a className="rounded-lg border border-emerald-600 px-4 py-2" href={`/api/model-intake/model-versions/${created.versionId}/semantic-turtle`}>Download version Turtle</a>
               <a className="rounded-lg border border-emerald-600 px-4 py-2" href={`/api/model-intake/model-versions/${created.versionId}/semantic-report`}>Download version report</a></div></div>}
         </section>}
+        </>}
       </div>
     </main>
   );

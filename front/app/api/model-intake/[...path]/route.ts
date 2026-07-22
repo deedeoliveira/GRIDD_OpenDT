@@ -5,7 +5,10 @@ async function proxy(request: Request, context: { params: Promise<{ path: string
   const target = `${process.env.BASE_API_URL}/model-intake/${path.map(encodeURIComponent).join("/")}`;
   try {
     const method = request.method;
-    const init: RequestInit = { method, cache: "no-store" };
+    const requestHeaders = new Headers();
+    const cookie = request.headers.get("cookie");
+    if (cookie) requestHeaders.set("cookie", cookie);
+    const init: RequestInit = { method, cache: "no-store", headers: requestHeaders };
     if (method !== "GET" && method !== "HEAD") init.body = await request.formData();
     const response = await fetch(target, init);
     const contentType = response.headers.get("content-type") ?? "application/json";

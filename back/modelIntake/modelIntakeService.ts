@@ -57,6 +57,13 @@ function psetValue(psets: any, property: string): string | null {
     return null;
 }
 
+function safeLatestFailure(value: unknown): { failureStage: string | null; message: string | null } {
+    if (typeof value !== "string" || !value.trim()) return { failureStage: null, message: null };
+    const compact = value.replace(/[A-Za-z]:[\\/][^\s:]+|\/{1,2}[^\s:]+/g, "[redacted-path]").replace(/\s+/g, " ").trim().slice(0, 500);
+    const match = compact.match(/^([a-z][a-z0-9_]{1,80}):\s*(.*)$/i);
+    return { failureStage: match?.[1] ?? null, message: (match?.[2] ?? compact) || null };
+}
+
 export class IntakeError extends Error {
     constructor(readonly code: string, message: string, readonly statusCode = 400) { super(message); this.name = "IntakeError"; }
 }
@@ -72,7 +79,24 @@ export class ModelIntakeService {
     async context() {
         const config = loadModelIntakeConfig();
         if (!config.workspaceEnabled) throw new IntakeError("model_intake_disabled", "The controlled model intake workspace is disabled.", 404);
-        const models = await this.database.listModelContexts();
+        const models = (await this.database.listModelContexts()).map((row) => {
+            const versionCount = Number(row.version_count ?? 0);
+            const currentVersion = row.current_version_id == null ? null : {
+                id: Number(row.current_version_id), uuid: row.current_version_uuid,
+                number: Number(row.current_version_number), ifcHash: row.current_ifc_hash,
+            };
+            const latestFailure = safeLatestFailure(row.latest_version_failure_reason);
+            const latestVersion = row.latest_version_id == null ? null : {
+                id: Number(row.latest_version_id), status: row.latest_version_status,
+                createdAt: row.latest_version_created_at ?? null,
+                failureStage: latestFailure.failureStage, message: latestFailure.message,
+            };
+            return { ...row, id: Number(row.model_id), uuid: row.model_uuid, name: row.model_name,
+                linkedParent: { id: Number(row.linked_model_id), name: row.linked_model_name },
+                currentVersion, latestVersion, versionCount,
+                state: currentVersion ? "active" : versionCount ? "no_current_version" : "no_active_version",
+                canCreateVersion: true };
+        });
         const ids = await this.resolveProfile("active", undefined, crypto.randomUUID());
         const mapping = await this.mappings.resolveActive(config.mappingFamilyKey, config.artifactRoot);
         return {

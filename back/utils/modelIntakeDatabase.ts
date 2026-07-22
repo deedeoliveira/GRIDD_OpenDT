@@ -20,10 +20,22 @@ export class ModelIntakeDatabase {
             SELECT m.id AS model_id, m.model_uuid, m.name AS model_name,
                    lm.id AS linked_model_id, lm.name AS linked_model_name,
                    v.id AS current_version_id, v.version_uuid AS current_version_uuid,
-                   v.version_number AS current_version_number, v.file_hash AS current_ifc_hash
+                   v.version_number AS current_version_number, v.file_hash AS current_ifc_hash,
+                   COALESCE(history.version_count, 0) AS version_count,
+                   latest.id AS latest_version_id, latest.status AS latest_version_status,
+                   latest.created_at AS latest_version_created_at, latest.failure_reason AS latest_version_failure_reason
             FROM models m
             INNER JOIN linked_models lm ON lm.id = m.linked_parent_id
             LEFT JOIN model_versions v ON v.id = m.current_version_id
+            LEFT JOIN (
+                SELECT model_id, COUNT(*) AS version_count
+                FROM model_versions GROUP BY model_id
+            ) history ON history.model_id = m.id
+            LEFT JOIN model_versions latest ON latest.id = (
+                SELECT candidate.id FROM model_versions candidate
+                WHERE candidate.model_id = m.id
+                ORDER BY candidate.version_number DESC, candidate.id DESC LIMIT 1
+            )
             ORDER BY lm.name, m.name, m.id
         `);
         return rows;
