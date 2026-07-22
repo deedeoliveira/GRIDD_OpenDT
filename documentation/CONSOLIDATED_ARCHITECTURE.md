@@ -387,3 +387,14 @@ Building registration is not implemented in Prompt 7E.
   model contexts are selected in the manager area; building onboarding,
   building-owned timezone configuration and production authentication remain
   future work. Presentation uses Europe/Lisbon while storage remains UTC.
+
+## 15.19 Institutional visual language and student workspaces (Prompt 7J-A; ADR-0049)
+
+- Central tokens use UMinho Pantone 207 / `#c5014b` and Pantone 159 / `#e16b03` as documented in the official identity manual. A textual header is used; no unverified logo or font asset is copied into the repository.
+- Local login remains server-routed and session-resolved. Visible account numbering is presentation only, never an application or institutional ID.
+- Student has three mutually exclusive workspaces: reservation through the current IFC model, reservation from a global persistent-asset catalogue, and management of existing reservations. Manager has two: model management and reservation decisions.
+- Viewer selection uses an explicit `linkedModelId` / `modelLineId` / `currentVersionId` contract. Only a current asset binding can turn an IFC selection into a reservable persistent resource.
+- The selected-resource panel belongs with the logical-model selection, before the IFC tree/viewer. It remains compact without a selection. A reservable current binding opens the shared accessible reservation dialog; the model path contributes presentation context only and does not duplicate evidence, SQL availability or request creation.
+- The global catalogue is a read-only operational projection: current binding = modelled; graph-authoritative projection without current binding = non-modelled; uncertain origin is explicit. One SQL query deduplicates; the browser receives the persistent UUID and the backend resolves the operational ID.
+- Both student creation paths reuse the existing evidence and reservation services. SQL availability, lifecycle authority, graph authority and semantic shadow policy are unchanged. Manager filtering/grouping by model remains future 7J-B scope.
+- Viewer/model selection is transient workspace state. Returning after changing workspace requires a new logical-model selection, avoiding hidden graphical instances while leaving reservation authority and lifecycle untouched.

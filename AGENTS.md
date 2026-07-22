@@ -45,3 +45,10 @@
   expandable details rather than the primary task view.
 - Building onboarding is future work. The current demonstrator operates only
   on existing linked models, model lines, models and model versions.
+- Institutional visual identity must use a verified official source. Do not
+  copy or approximate a logo or font without a verified permitted asset; a
+  textual institutional header is the safe default.
+- Keep reservation-through-model, reservation-without-model and management of
+  existing reservations as distinct student workspaces. A visible IFC element
+  is reservable only after explicit selection resolves a current persistent
+  binding; it must never create a request implicitly.

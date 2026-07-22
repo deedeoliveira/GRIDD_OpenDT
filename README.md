@@ -268,6 +268,18 @@ Scoped application managers review pending requests at `/dashboard/reservations`
 Approval is an explicit audited operational decision with a transactional SQL
 conflict recheck; semantic evidence remains shadow-only.
 
+## Prompt 7J-A institutional visual language and student workflow
+
+The local demonstrator uses a textual Universidade do Minho header and central accessible visual tokens. It derives the primary/accent colors from the [Manual de Identidade UMinho](https://www.uminho.pt/PT/uminho/Simbolos-e-Hino/Identidade-grafica/Documents/MANUAL-IDENTIDADE-UMinho.pdf), but deliberately does not bundle a logo or institutional font without a verified permitted asset.
+
+Student separates **Reservar através do modelo**, **Reservar sem modelo** and
+**Gerir reservas**. The first loads an explicit current model version and only
+accepts current persistent bindings; the second provides one searchable global
+catalogue; the third contains only existing requests and lifecycle actions.
+Manager navigation separates **Gerir modelos** from **Reservas e decisões**.
+Both creation paths reuse the same backend evidence and reservation services.
+See [Prompt 7J-A report](./documentation/audit/PROMPT7J_A_VISUAL_AND_STUDENT_WORKFLOW.md) and [ADR-0049](./documentation/adr/ADR-0049-institutional-visual-language-and-student-workspaces.md).
+
 ## Documentation
 
 The documentation is available in the [documentation directory](./documentation/Documentation.md)].

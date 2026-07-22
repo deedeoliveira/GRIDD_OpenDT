@@ -1,5 +1,16 @@
 # Procedimento de teste manual
 
+## Prompt 7J-A — identidade visual e fluxo student
+
+| Teste ou grupo | O que está sendo testado em linguagem comum | Resultado |
+|---|---|---|
+| Cabeçalho e login | A identidade textual apresenta Universidade do Minho, mantém o aviso de autenticação local e não muda as contas. | Pendente do walkthrough |
+| Explorar modelo | A investigadora escolhe um modelo e vê a árvore IFC com mostrar/ocultar acessível. | Pendente do walkthrough |
+| Gerir reservas | A investigadora acompanha os pedidos existentes sem depender do viewer; os grupos começam fechados e podem ser abertos. | Pendente do walkthrough |
+| Separação de fluxos | Explorar não abre pedido de reserva e reservas não torna a árvore o fluxo principal. | Cobertura automatizada e walkthrough pendente |
+
+Este é um walkthrough funcional e observável. Não pedir SQL, SPARQL, migrations, hashes, locks, retries ou inspeção de infraestrutura à investigadora.
+
 Documento vivo, organizado por etapa:
 - **§0–§13**: procedimento da baseline (Prompt 0), com anotações posteriores;
 - **§14 (Prompt 2)**: versionamento de modelos e ficheiros imutáveis;
@@ -1196,3 +1207,31 @@ key, asset and interval in the real reservation form and follows only
 
 Não pedir SQL, SPARQL, migrations, seeds, setup, inspeção de graphs/tabelas,
 hashes manuais ou comandos pySHACL à investigadora.
+
+## 31. Prompt 7J-A — workspaces student/manager e carregamento IFC
+
+Preparação técnica é responsabilidade do executor. A investigadora usa apenas
+os seletores, pesquisa, viewer, árvore e ações funcionais visíveis.
+
+| Teste ou grupo | O que está sendo testado em linguagem comum | Resultado |
+|---|---|---|
+| Reservar através do modelo | Uma logical model line com versão ativa abre o IFC e a árvore reais. | Pronto para walkthrough |
+| Binding do elemento | Só equipamentos ligados à versão corrente podem iniciar um pedido. | Pronto para walkthrough |
+| Painel do recurso | O recurso escolhido aparece junto à seleção de modelo, antes da árvore e do viewer; sem seleção, o painel fica compacto. | Pronto para walkthrough |
+| Pedido via modelo | **Iniciar pedido** abre o mesmo diálogo acessível do catálogo, com contexto do modelo; não apresenta formulário no painel nem cria pedido ao abrir. | Pronto para walkthrough |
+| Eye/EyeOff | Mostrar e ocultar altera o ramo visível sem perder a sessão. | Pronto para walkthrough |
+| Reservar sem modelo | Uma pesquisa única filtra o catálogo sem precisar de viewer. | Pronto para walkthrough |
+| Representação | Ativos modelados e não modelados são classificados pela fonte/binding corrente, sem duplicação. | Cobertura automatizada; o estado local não contém fixture não modelada |
+| Localização | A localização corrente aparece ou é assumidamente “não registada”; não se inventa uma sala. | Pronto para walkthrough |
+| Mesmo motor | As duas formas de seleção usam a mesma evidência, disponibilidade e criação de pedido. | Cobertura automatizada |
+| Gerir reservas | Só pedidos existentes, decisões, razões e ações de lifecycle aparecem. | Pronto para walkthrough |
+| Manager | O gestor alterna entre modelos e decisões sem misturar os workflows. | Pronto para walkthrough |
+| Isolamento | A preparação não cria modelos, versões ou reservas e não muda políticas. | Confirmado pelo executor |
+
+O filtro manager por modelo e o agrupamento de pedidos concorrentes pertencem
+ao 7J-B e não são pedidos neste walkthrough.
+
+O viewer e a seleção da logical model line são estado transitório do workspace.
+Depois de trocar de workspace, a investigadora escolhe novamente a linha antes
+de carregar o viewer; esta é uma decisão atual de interface e lifecycle, não
+uma alteração à autoridade ou ao lifecycle da reserva.
