@@ -71,6 +71,7 @@ export function createNonModelledSqlState(spaces: any[] = []): FakeSqlState {
                 attempt_count: 1,
                 last_error_code: null,
                 last_error_message: null,
+                created_at: new Date().toISOString(),
                 completed_at: null,
             });
             return [{ insertId: id }];
@@ -84,6 +85,9 @@ export function createNonModelledSqlState(spaces: any[] = []): FakeSqlState {
         }
         if (/FROM semantic_sync_operations WHERE id =/.test(sql)) {
             return [state.ops.filter((o) => o.id === params.operationId).map((o) => ({ ...o }))];
+        }
+        if (/FROM semantic_sync_operations WHERE operation_uuid =/.test(sql)) {
+            return [state.ops.filter((o) => o.operation_uuid === params.operationUuid).map((o) => ({ ...o }))];
         }
         if (/UPDATE semantic_sync_operations\s+SET status/.test(sql)) {
             const op = state.ops.find((o) => o.operation_uuid === params.operationUuid);

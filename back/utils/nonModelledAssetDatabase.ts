@@ -35,6 +35,7 @@ export interface SyncOperationRow {
     attempt_count: number;
     last_error_code: string | null;
     last_error_message: string | null;
+    created_at: string | null;
     completed_at: string | null;
 }
 
@@ -84,6 +85,23 @@ class NonModelledAssetDatabase {
         const [rows]: any = await this.db.connection.execute(
             "SELECT * FROM semantic_sync_operations WHERE id = :operationId LIMIT 1", { operationId });
         return rows[0] ?? null;
+    }
+
+    async findOperationByUuid(operationUuid: string): Promise<SyncOperationRow | null> {
+        await this.db.checkConnection();
+        const [rows]: any = await this.db.connection.execute(
+            "SELECT * FROM semantic_sync_operations WHERE operation_uuid = :operationUuid LIMIT 1", { operationUuid });
+        return rows[0] ?? null;
+    }
+
+    async listOperationsByAssetUuid(assetUuid: string): Promise<SyncOperationRow[]> {
+        await this.db.checkConnection();
+        const [rows]: any = await this.db.connection.execute(`
+            SELECT * FROM semantic_sync_operations
+            WHERE asset_uuid = :assetUuid
+            ORDER BY id ASC
+        `, { assetUuid });
+        return rows;
     }
 
     async createOperation(input: {
@@ -273,6 +291,17 @@ class NonModelledAssetDatabase {
 
             return { assetId };
         });
+    }
+
+    /** Atualiza somente a projeção de reservabilidade após uma avaliação de
+     * política. Não cria identidade, binding IFC ou localização. */
+    async setReservabilityProjection(assetId: number, reservable: boolean): Promise<void> {
+        await this.db.checkConnection();
+        await this.db.connection.execute(`
+            UPDATE assets
+            SET reservable = :reservable
+            WHERE id = :assetId AND source = 'graph'
+        `, { assetId, reservable });
     }
 
     private async insertAssignmentIfMissing(conn: any, assetId: number, assignment: {

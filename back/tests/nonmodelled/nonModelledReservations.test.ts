@@ -81,7 +81,8 @@ test("espaço da localização corrente absent → reserva bloqueada; reservas e
 });
 
 test("política deny/undetermined (reservable=0) → reserva bloqueada", async () => {
-    const asset = await registration.register(registerCommand({ initialSpaceId: 1 })); // legacy → undetermined
+    policies.setReservabilityEvaluator(fixedEvaluator("undetermined") as any);
+    const asset = await registration.register(registerCommand({ initialSpaceId: 1 }));
     await assert.rejects(
         reservationDb.createReservation(asset.assetId, "pg202404", FUTURE_START, FUTURE_END),
         /not reservable/

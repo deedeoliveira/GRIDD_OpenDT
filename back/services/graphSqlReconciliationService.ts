@@ -26,8 +26,10 @@ import {
     buildAllNonModelledAssetsSelect,
     buildAssetDescriptionSelect,
     buildCurrentAssignmentsSelect,
+    buildResourceExistsAsk,
 } from "../graph/operationalStatements.ts";
 import { getOperationalGraphContext, toHttpError, type OperationalGraphContext } from "./nonModelledSyncSupport.ts";
+import { NonModelledAssetError } from "./nonModelledAssetTypes.ts";
 
 export interface ReconciliationFinding {
     type:
@@ -60,7 +62,85 @@ interface GraphAssetState {
     currentAssignments: { assignmentUri: string; spaceUri: string }[];
 }
 
+type ReassessmentSyncState = "completed" | "incomplete" | "failed" | "unknown";
+
+function reassessmentOperationState(rows: any[]): ReassessmentSyncState {
+    const registrations = rows.filter((row) => row.operation_type === "register_asset");
+    if (!registrations.length) return "unknown";
+    if (rows.some((row) => row.status === "failed_terminal" || row.status === "failed_retryable")) return "failed";
+    if (rows.some((row) => row.status !== "completed")) return "incomplete";
+    return registrations.some((row) => row.status === "completed") ? "completed" : "unknown";
+}
+
+export interface NonModelledReservabilityReassessment {
+    assetId: number;
+    assetUuid: string;
+    reservable: boolean;
+    decision: any;
+    graphStatus: "verified" | "missing" | "inconsistent" | "unavailable" | "unknown";
+    sqlProjectionStatus: "coherent" | "inconsistent" | "unknown";
+    semanticOperationStatus: ReassessmentSyncState;
+}
+
 class GraphSqlReconciliationService {
+
+    async reassessReservability(assetId: number): Promise<NonModelledReservabilityReassessment> {
+        const asset = await nonModelledDb.findAssetById(assetId);
+        if (!asset || asset.source !== "graph") {
+            throw new NonModelledAssetError("not_a_non_modelled_asset", 422, `Asset ${assetId} is not a graph-sourced non-modelled asset`);
+        }
+
+        const identityValid = Boolean(asset.asset_uuid && asset.semantic_uri);
+        const current = await nonModelledDb.getCurrentAssignment(assetId);
+        const operations = identityValid ? await nonModelledDb.listOperationsByAssetUuid(asset.asset_uuid) : [];
+        const semanticOperationStatus = reassessmentOperationState(operations);
+        let graphStatus: NonModelledReservabilityReassessment["graphStatus"] = "unknown";
+        let sqlProjectionStatus: NonModelledReservabilityReassessment["sqlProjectionStatus"] = current?.space_status === "active"
+            ? "coherent" : "inconsistent";
+
+        if (!identityValid) {
+            graphStatus = "missing";
+        } else {
+            try {
+                const ctx = getOperationalGraphContext();
+                const exists = await ctx.client.query(buildResourceExistsAsk(ctx.graphUri, asset.semantic_uri));
+                if (exists.boolean !== true) {
+                    graphStatus = "missing";
+                } else {
+                    const result = await ctx.client.query(buildCurrentAssignmentsSelect(ctx.vocab, ctx.graphUri, asset.semantic_uri));
+                    const assignments = result.results?.bindings ?? [];
+                    if (assignments.length !== 1 || !current) {
+                        graphStatus = assignments.length === 0 ? "missing" : "inconsistent";
+                        sqlProjectionStatus = "inconsistent";
+                    } else if (assignments[0]?.assignment?.value !== current.semantic_assertion_uri
+                        || assignments[0]?.space?.value !== ctx.uris.spaceUri(String(current.space_uuid))) {
+                        graphStatus = "inconsistent";
+                        sqlProjectionStatus = "inconsistent";
+                    } else {
+                        graphStatus = "verified";
+                    }
+                }
+            } catch {
+                graphStatus = "unavailable";
+            }
+        }
+
+        const lifecycleStatus = asset.lifecycle_status === "active" || asset.lifecycle_status === "inactive" || asset.lifecycle_status === "retired"
+            ? asset.lifecycle_status : "unknown";
+        const decision = await getReservabilityEvaluator().evaluate({
+            candidateKind: "non_modelled_asset", entityType: "element", name: asset.name,
+            assetType: asset.asset_subtype, resourceKind: asset.asset_type, source: asset.source, isOperationalSource: true,
+            managerCode: asset.asset_code, serialNumber: asset.serial_number,
+            hasCurrentLocation: Boolean(current && current.space_status === "active"),
+            persistentIdentityStatus: identityValid ? "valid" : "missing",
+            lifecycleStatus, operationalEvidenceStatus: graphStatus, semanticOperationStatus, sqlProjectionStatus,
+        }, { evaluationPhase: "operational" });
+        logPolicyDecision("non_modelled_reservability_reassessment", decision, { assetId, assetUuid: asset.asset_uuid });
+        await nonModelledDb.setReservabilityProjection(assetId, decision.decision === "allow");
+
+        return { assetId, assetUuid: asset.asset_uuid, reservable: decision.decision === "allow", decision,
+            graphStatus, sqlProjectionStatus, semanticOperationStatus };
+    }
 
     /** Modo relatório — NUNCA escreve (nem no grafo nem no SQL). */
     async report(): Promise<ReconciliationReport> {
@@ -263,6 +343,8 @@ class GraphSqlReconciliationService {
         if (!d) throw new Error("graph asset description unavailable");
 
         const resourceKind = d.resourceKind?.value === "tool" ? "tool" : "equipment";
+        const current = await ctx.client.query(buildCurrentAssignmentsSelect(ctx.vocab, ctx.graphUri, assetUri));
+        const hasCurrentLocation = (current.results?.bindings ?? []).length === 1;
         const decision = await getReservabilityEvaluator().evaluate({
             candidateKind: "non_modelled_asset",
             entityType: "element",
@@ -270,9 +352,16 @@ class GraphSqlReconciliationService {
             assetType: d.assetType?.value ?? null,
             resourceKind,
             source: "graph",
+            isOperationalSource: true,
             managerCode: d.assetCode?.value ?? null,
             serialNumber: d.serialNumber?.value ?? null,
-        }, {});
+            hasCurrentLocation,
+            persistentIdentityStatus: "valid",
+            lifecycleStatus: "active",
+            operationalEvidenceStatus: "verified",
+            semanticOperationStatus: "incomplete",
+            sqlProjectionStatus: "unknown",
+        }, { evaluationPhase: "registration" });
         logPolicyDecision("non_modelled_reservability", decision, { assetUuid, stageDetail: "reconciliation_recreate" });
 
         await nonModelledDb.projectRegistration({

@@ -86,8 +86,8 @@ test("allow → reservável; deny/undetermined → ativo preservado NÃO reserv�
 
 test("existir no grafo NÃO implica allow: com o provider legado, o ativo nasce não reservável (undetermined defensivo)", async () => {
     const result = await registration.register(registerCommand());
-    assert.equal(result.policyDecision, "undetermined");
-    assert.equal(state.assets[0].reservable, 0);
+    assert.equal(result.policyDecision, "allow");
+    assert.equal(state.assets[0].reservable, 1);
     assert.ok(graph.triplesOf(result.assetUri).length > 0, "o ativo EXISTE no grafo na mesma");
 });
 

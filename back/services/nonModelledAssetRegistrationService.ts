@@ -50,6 +50,15 @@ interface NormalizedRegistration {
     initialSpaceId: number | null;
 }
 
+export interface RegistrationRecoveryResult {
+    originalOperationUuid: string;
+    recoveryOperationUuid: string;
+    assetUuid: string;
+    assetUri: string;
+    graphUri: string;
+    graphWasRestored: boolean;
+}
+
 function normalizeCommand(command: RegisterNonModelledAssetCommand): NormalizedRegistration {
     if (typeof command.registrationKey !== "string" || command.registrationKey.trim() === "" || command.registrationKey.length > 200) {
         throw new NonModelledAssetError("validation_error", 400, "registrationKey is required (non-empty string, max 200 chars)");
@@ -99,6 +108,171 @@ function registrationPayloadHash(n: NormalizedRegistration): string {
 }
 
 class NonModelledAssetRegistrationService {
+
+    /**
+     * Reconstitui no grafo uma operação de registo já concluída que perdeu a
+     * sua autoridade semântica. A fonte é exclusivamente o comando canónico
+     * append-only: a projeção SQL serve apenas para confirmar que continua a
+     * apontar para a mesma identidade, nunca para construir RDF.
+     *
+     * A recuperação é registada como uma nova operação `register_asset`, com
+     * chave formal derivada da operação original. O schema atual restringe o
+     * tipo a `register_asset|move_asset`; o payload de recuperação preserva a
+     * ligação inequívoca ao comando original sem alterar esse contrato.
+     */
+    async recoverCompletedRegistration(original: SyncOperationRow): Promise<RegistrationRecoveryResult> {
+        if (original.operation_type !== "register_asset" || original.status !== "completed") {
+            throw new NonModelledAssetError("recovery_not_eligible", 409,
+                "only a completed register_asset operation can be recovered from its canonical command log");
+        }
+        if (!original.asset_uuid || !original.asset_uri || !original.location_assignment_uuid || !original.location_assignment_uri
+            || !original.payload_json || !original.created_at) {
+            throw new NonModelledAssetError("recovery_log_incomplete", 409,
+                "the completed registration log lacks the identity, location, payload, or timestamp required for an auditable replay");
+        }
+        const originalCreatedAt = new Date(original.created_at);
+        if (Number.isNaN(originalCreatedAt.valueOf())) {
+            throw new NonModelledAssetError("recovery_log_incomplete", 409,
+                "the canonical registration timestamp is invalid; recovery is refused");
+        }
+
+        let normalized: NormalizedRegistration;
+        try {
+            normalized = normalizeCommand({ ...JSON.parse(original.payload_json), registrationKey: original.idempotency_key });
+        } catch (error) {
+            if (error instanceof NonModelledAssetError) throw error;
+            throw new NonModelledAssetError("recovery_log_incomplete", 409,
+                "the canonical registration payload cannot be parsed for recovery");
+        }
+        if (registrationPayloadHash(normalized) !== original.payload_hash) {
+            throw new NonModelledAssetError("recovery_payload_mismatch", 409,
+                "the canonical registration payload no longer matches its persisted hash; recovery is refused");
+        }
+        if (normalized.initialSpaceId === null) {
+            throw new NonModelledAssetError("recovery_log_incomplete", 409,
+                "the original registration has no initial location; this recovery requires an unambiguous current location");
+        }
+
+        const ctx = getOperationalGraphContext();
+        const recoveryKeyBase = `recover-registration:${original.operation_uuid}:${original.payload_hash}`;
+        const recoveryHistory = (await nonModelledDb.listOperationsByAssetUuid(original.asset_uuid))
+            .filter((row) => row.operation_type === "register_asset"
+                && (row.idempotency_key === recoveryKeyBase || row.idempotency_key.startsWith(`${recoveryKeyBase}:attempt-`)));
+        let recoveryAttempt = recoveryHistory.length + 1;
+        let recovery = recoveryHistory.at(-1) ?? null;
+
+        // Uma recuperação já concluída continua idempotente enquanto a
+        // autoridade remota existir. Se ela voltar a desaparecer, não se
+        // reabre nem se reescreve o evento anterior: cria-se uma tentativa
+        // formal posterior, ligada ao mesmo comando original.
+        if (recovery?.status === "completed") {
+            const exists = await ctx.client.query(buildResourceExistsAsk(ctx.graphUri, original.asset_uri));
+            if (exists.boolean === true) {
+                return {
+                    originalOperationUuid: original.operation_uuid,
+                    recoveryOperationUuid: recovery.operation_uuid,
+                    assetUuid: original.asset_uuid,
+                    assetUri: original.asset_uri,
+                    graphUri: ctx.graphUri,
+                    graphWasRestored: false,
+                };
+            }
+            recovery = null;
+        } else if (recovery) {
+            recoveryAttempt = recoveryHistory.length;
+        }
+
+        const recoveryKey = recoveryAttempt === 1 ? recoveryKeyBase : `${recoveryKeyBase}:attempt-${recoveryAttempt}`;
+        const recoveryPayload = {
+            recoveryKind: "replay_completed_registration",
+            recoveryAttempt,
+            originalOperationUuid: original.operation_uuid,
+            originalIdempotencyKey: original.idempotency_key,
+            originalPayloadHash: original.payload_hash,
+            originalCreatedAt: originalCreatedAt.toISOString(),
+        };
+        const recoveryPayloadHash = canonicalPayloadHash(recoveryPayload);
+
+        if (!recovery) {
+            await nonModelledDb.createOperation({
+                operationUuid: crypto.randomUUID(),
+                idempotencyKey: recoveryKey,
+                operationType: "register_asset",
+                payloadHash: recoveryPayloadHash,
+                payloadJson: JSON.stringify(recoveryPayload),
+                assetUuid: original.asset_uuid,
+                assetUri: original.asset_uri,
+                locationAssignmentUuid: original.location_assignment_uuid,
+                locationAssignmentUri: original.location_assignment_uri,
+            });
+            recovery = await nonModelledDb.findOperationByKey("register_asset", recoveryKey);
+        }
+        if (!recovery) throw new Error("recovery operation could not be read after creation");
+        if (recovery.payload_hash !== recoveryPayloadHash) {
+            throw new NonModelledAssetError("recovery_idempotency_conflict", 409,
+                "the formal recovery key already belongs to a different recovery payload");
+        }
+
+        return nonModelledDb.withOperationLock(recovery.operation_uuid, async () => {
+            const fresh = await nonModelledDb.findOperationByKey("register_asset", recoveryKey) ?? recovery!;
+            if (fresh.status === "completed") {
+                const exists = await ctx.client.query(buildResourceExistsAsk(ctx.graphUri, original.asset_uri!));
+                if (exists.boolean !== true) {
+                    throw new NonModelledAssetError("recovery_graph_lost", 503,
+                        "the operational graph disappeared during an idempotent recovery check; rerun to append a new recovery attempt");
+                }
+                return {
+                    originalOperationUuid: original.operation_uuid,
+                    recoveryOperationUuid: fresh.operation_uuid,
+                    assetUuid: original.asset_uuid!,
+                    assetUri: original.asset_uri!,
+                    graphUri: ctx.graphUri,
+                    graphWasRestored: false,
+                };
+            }
+
+            try {
+                const space = await this.assertSpaceUsable(normalized.initialSpaceId!, "original initialSpaceId");
+                const exists = await ctx.client.query(buildResourceExistsAsk(ctx.graphUri, original.asset_uri!));
+                const graphWasRestored = exists.boolean !== true;
+                if (graphWasRestored) {
+                    await ctx.client.update(buildRegistrationInsert(ctx.vocab, ctx.graphUri, {
+                        assetUri: original.asset_uri!,
+                        assetUuid: original.asset_uuid!,
+                        displayName: normalized.name,
+                        assetType: normalized.assetType,
+                        resourceKind: normalized.resourceKind,
+                        managerCode: normalized.managerCode,
+                        serialNumber: normalized.serialNumber,
+                        registrationKey: original.idempotency_key,
+                        sourceSystem: SOURCE_SYSTEM,
+                        createdAtIso: originalCreatedAt.toISOString(),
+                        activityUri: ctx.uris.provenanceActivityUri(original.operation_uuid),
+                        assignment: {
+                            assignmentUri: original.location_assignment_uri!,
+                            spaceUri: ctx.uris.spaceUri(space.space_uuid),
+                            validFromIso: originalCreatedAt.toISOString(),
+                            source: "manual",
+                        },
+                    }));
+                }
+                await this.verifyRegistration(ctx, original, space);
+                await nonModelledDb.setOperationStatus(fresh.operation_uuid, "graph_written", null);
+                await nonModelledDb.setOperationStatus(fresh.operation_uuid, "completed", null);
+                return {
+                    originalOperationUuid: original.operation_uuid,
+                    recoveryOperationUuid: fresh.operation_uuid,
+                    assetUuid: original.asset_uuid!,
+                    assetUri: original.asset_uri!,
+                    graphUri: ctx.graphUri,
+                    graphWasRestored,
+                };
+            } catch (error) {
+                await nonModelledDb.setOperationStatus(fresh.operation_uuid, "failed_retryable", sanitizeSyncError(error));
+                throw toHttpError(error);
+            }
+        });
+    }
 
     async register(command: RegisterNonModelledAssetCommand): Promise<NonModelledAssetResult> {
         const normalized = normalizeCommand(command);
@@ -297,10 +471,16 @@ class NonModelledAssetRegistrationService {
             assetType: normalized.assetType,
             resourceKind: normalized.resourceKind,
             source: "graph",
+            isOperationalSource: true,
             managerCode: normalized.managerCode,
             serialNumber: normalized.serialNumber,
             hasCurrentLocation: space !== null,
-        }, {});
+            persistentIdentityStatus: "valid",
+            lifecycleStatus: "active",
+            operationalEvidenceStatus: "verified",
+            semanticOperationStatus: "incomplete",
+            sqlProjectionStatus: "unknown",
+        }, { evaluationPhase: "registration" });
         logPolicyDecision("non_modelled_reservability", decision, { assetUuid });
 
         // allow ⇒ reservável; deny/undetermined/error ⇒ ativo preservado, NÃO reservável

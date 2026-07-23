@@ -31,6 +31,9 @@ export interface PolicyEvaluationResult {
 export interface PolicyContext {
     modelId?: number | string;
     modelVersionId?: number | string;
+    /** A fase de registo ainda não tem projeção SQL concluída; a fase
+     * operacional só aceita evidência completa e coerente. */
+    evaluationPhase?: "registration" | "operational";
     [extra: string]: unknown;
 }
 
@@ -59,10 +62,18 @@ export interface ReservabilityCandidate {
     assetType?: string | null;
     resourceKind?: string | null;
     source?: string | null;
+    /** A origem operacional foi verificada pelo serviço chamador. */
+    isOperationalSource?: boolean;
     managerCode?: string | null;
     serialNumber?: string | null;
     /** Há localização corrente conhecida? (condição operacional, não identidade) */
     hasCurrentLocation?: boolean;
+    /** Evidência normalizada pelo serviço, sem transportar consultas ou credenciais. */
+    persistentIdentityStatus?: "valid" | "missing" | "unknown";
+    lifecycleStatus?: "active" | "inactive" | "retired" | "unknown";
+    operationalEvidenceStatus?: "verified" | "missing" | "inconsistent" | "unavailable" | "unknown";
+    semanticOperationStatus?: "completed" | "incomplete" | "failed" | "unknown";
+    sqlProjectionStatus?: "coherent" | "inconsistent" | "unknown";
 }
 
 /** Pedido de reserva a validar antes de entrar no fluxo existente. */

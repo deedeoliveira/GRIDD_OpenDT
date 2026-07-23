@@ -4,6 +4,7 @@ import type {
     ReservationRequestValidator,
 } from "./types.ts";
 import { LegacyIfcReservabilityEvaluator } from "./legacyIfcReservabilityEvaluator.ts";
+import { OperationalReservabilityEvaluator } from "./operationalReservabilityEvaluator.ts";
 import { LegacyReservationRequestValidator } from "./legacyReservationRequestValidator.ts";
 
 /**
@@ -20,6 +21,7 @@ import { LegacyReservationRequestValidator } from "./legacyReservationRequestVal
 
 const reservabilityRegistry: Record<string, () => ReservabilityEvaluator> = {
     legacy: () => new LegacyIfcReservabilityEvaluator(),
+    operational: () => new OperationalReservabilityEvaluator(),
 };
 
 const validationRegistry: Record<string, () => ReservationRequestValidator> = {
@@ -33,7 +35,7 @@ function resolve<T>(
     registry: Record<string, () => T>,
     envVar: string
 ): T {
-    const name = process.env[envVar] ?? "legacy";
+    const name = process.env[envVar] ?? (envVar === "RESERVABILITY_POLICY_PROVIDER" ? "operational" : "legacy");
     const factory = registry[name];
 
     if (!factory) {
