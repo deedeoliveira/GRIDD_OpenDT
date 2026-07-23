@@ -200,7 +200,11 @@ export async function runOperationalReset(apply: boolean, options: ResetOptions 
             órfãos. Remoção DIRECIONADA (nunca CLEAR/DROP), reutilizando o
             mesmo serviço de scripts/cleanupNonModelledGraphData.ts. Uma
             falha aqui NÃO desfaz o reset SQL — fica instrução para repetir. ---- */
-    try {
+    // A suite usa uma ligação SQL falsa, mas o grafo é um serviço externo.
+    // Nunca deixar um reset de teste alcançar o dataset persistente local.
+    if (process.env.NODE_ENV === "test") {
+        console.log("Grafo operacional preservado em NODE_ENV=test (a suite não pode limpar /oswadt-dev).");
+    } else try {
         const graphCleanup = await cleanupNonModelledGraphResources();
         if (graphCleanup.skipped) {
             console.warn(

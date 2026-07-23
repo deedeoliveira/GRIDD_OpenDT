@@ -112,3 +112,8 @@ test("tabelas preservadas documentadas: channels (referência); não existem tab
     assert.deepEqual([...PRESERVED_TABLES], ["channels"]);
     assert.ok(!([...OPERATIONAL_TABLES] as string[]).includes("channels"));
 });
+
+test("reset em NODE_ENV=test não chama a limpeza do graph operacional persistente", () => {
+    const source = fs.readFileSync(path.join(import.meta.dirname, "../../scripts/resetOperationalData.ts"), "utf-8");
+    assert.match(source, /NODE_ENV === "test"[\s\S]*Grafo operacional preservado em NODE_ENV=test/);
+});
