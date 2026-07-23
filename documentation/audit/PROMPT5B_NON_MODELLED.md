@@ -78,9 +78,10 @@ código/serial opcionais, espaço inicial persistente e ATIVO) → operação
 → verificação por query (UUID + atribuição inicial) → `graph_written` →
 política de reservabilidade pelo provider configurado (nunca
 reservable=true fixo; allow ⇒ reservável, deny/undetermined/error ⇒ ativo
-preservado NÃO reservável; com o provider legado o resultado é
-`undetermined` DEFENSIVO — decisão de política para não modelados continua
-por tomar, documentada) → projeção SQL transacional → `completed`.
+preservado NÃO reservável; o perfil operacional usa apenas factos
+verificados no graph e coerência da projeção) → projeção SQL transacional →
+`completed`. Os critérios, o fail-closed e o recovery estão em
+[`NON_MODELLED_OPERATIONAL_RECOVERY.md`](NON_MODELLED_OPERATIONAL_RECOVERY.md).
 
 Sem espaço inicial: registo semântico válido, estado operacional
 `pending_location`, reservas bloqueadas, nenhuma localização inventada.
@@ -160,9 +161,8 @@ inventar URI/identidade).
 
 ## 13. Limitações e itens futuros
 
-Decisão de política de reservabilidade para não modelados por tomar
-(undetermined defensivo até lá); autenticação administrativa inexistente;
-constraint SQL de unicidade do managerCode adiada; scheduler de retry
+Autenticação administrativa inexistente; constraint SQL de unicidade do
+managerCode adiada; scheduler de retry
 futuro; fontes external_system/sensor_inference futuras; precedência
 sensor/IFC futura; vocabulário provisório a alinhar com a ontologia da
 tese; base URI de produção por aprovar; UUIDs de models/versions/entities
