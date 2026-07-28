@@ -49,7 +49,7 @@ test("student chooses one of three isolated workspaces", () => {
   assert.match(assetProxy, /\/asset\/\$\{path\.map\(encodeURIComponent\)\.join\("\/"\)\}/);
   assert.match(catalogueAssets, /listStudentReservableAssets/);
   assert.match(persistentAssets, /getStudentAssetByCurrentBinding/);
-  assert.match(assetRoute, /requireStudent/);
+  assert.match(assetRoute, /requireReservationWorkspace/);
   assert.doesNotMatch(student, /AccordionItem|fixed inset-0/);
 });
 

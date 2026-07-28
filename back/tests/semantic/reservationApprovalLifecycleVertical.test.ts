@@ -1,14 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import crypto from 'node:crypto';
-import { ReservationApprovalError, ReservationApprovalService } from '../../reservationApproval/reservationApprovalService.ts';
+import { ReservationApprovalService } from '../../reservationApproval/reservationApprovalService.ts';
 
 type Reservation = { id: number; actor_id?: string; asset_id: number; status: string; start_time: string; end_time: string; shadow_eligibility_outcome?: string | null; evidence_expires_at?: string | null };
 
 class ApprovalHarness {
   calls: string[] = [];
   audits: any[] = [];
-  allowed = true;
   conflict = false;
   actorSourceCurrent = true;
   reservation: Reservation = { id: 40, actor_id: 'actor', asset_id: 7, status: 'pending', start_time: '2030-02-01 10:00:00', end_time: '2030-02-01 11:00:00', shadow_eligibility_outcome: 'eligible', evidence_expires_at: '2030-03-01 00:00:00' };
@@ -19,7 +18,6 @@ class ApprovalHarness {
   async withTransaction<T>(fn: (connection: any) => Promise<T>) { return fn({ execute: async (sql: string, values: any) => this.reply(sql, values, true) }); }
   private async reply(sql: string, values: any, transactional: boolean): Promise<any> {
     this.calls.push(sql);
-    if (/FROM reservation_management_scopes/.test(sql)) return [this.allowed ? [{ id: 3, asset_id: 7, scope_uuid: 'scope-7' }] : []];
     if (/FROM res_reservations r/.test(sql)) return [[this.reservation]];
     if (/FROM actor_institutional_links/.test(sql)) return [this.actorSourceCurrent ? [{ id: 4 }] : []];
     if (/FROM semantic_artifact_families/.test(sql)) return [[{ current_artifact_id: 9 }]];
@@ -38,16 +36,26 @@ class ApprovalHarness {
 
 function service(harness: ApprovalHarness) { return new ReservationApprovalService(harness as any, { latest: async () => ({ id: 9, review_uuid: 'review-current', status: 'current', reservation_input_hash: crypto.createHash('sha256').update(JSON.stringify({ actor: harness.reservation.actor_id ?? 'actor', asset: Number(harness.reservation.asset_id), start: new Date(`${harness.reservation.start_time}Z`).toISOString(), end: new Date(`${harness.reservation.end_time}Z`).toISOString() })).digest('hex'), expires_at: '2031-03-01 00:00:00.000', evidence_run_id: 88, run_uuid: 'review-run', shadow_eligibility_outcome: harness.reservation.shadow_eligibility_outcome ?? 'eligible', sql_availability_status: 'available' }), freshness: () => true, markStale: async () => {} } as any, async () => true); }
 
-test('vertical lifecycle: a session-resolved scoped manager approves a pending request and creates one audit', async () => {
+test('vertical lifecycle: a session-resolved operational manager approves a pending request and creates one audit', async () => {
   const harness = new ApprovalHarness();
   const result = await service(harness).decide(501, 'session-1', 40, 'approved', { managerId: 99999 } as any);
   assert.equal(result.status, 'approved');
   assert.equal(harness.reservation.status, 'approved');
   assert.equal(harness.audits.length, 1);
   assert.equal(harness.audits[0].accountId, 501, 'the service receives the resolved session account, never a body manager id');
-  assert.match(harness.calls[1]!, /FOR UPDATE/);
+  assert.match(harness.calls[0]!, /FOR UPDATE/);
   assert.ok(harness.calls.some((sql) => /SELECT id FROM assets.*FOR UPDATE/.test(sql)));
   assert.ok(harness.calls.some((sql) => /status IN \('approved','in_use','no_show'\)/.test(sql)));
+  assert.ok(!harness.calls.some((sql) => /reservation_management_scopes/.test(sql)), 'operational authority is global — no scope query');
+});
+
+test('global operational authority: any asset is decidable without a scope, and the audit records operational_manager/global', async () => {
+  const harness = new ApprovalHarness(); harness.reservation.asset_id = 987654; // arbitrary asset with no scope row
+  const result = await service(harness).decide(501, 'session-1', 40, 'approved', {});
+  assert.equal(result.status, 'approved');
+  const insert = harness.calls.find((sql) => /INSERT INTO reservation_decisions/.test(sql))!;
+  assert.match(insert, /'operational_manager','global'/);
+  assert.doesNotMatch(insert, /'reservation_manager'/);
 });
 
 test('vertical lifecycle: a rejection needs a reason and an approved request may be administratively cancelled once', async () => {
@@ -60,13 +68,6 @@ test('vertical lifecycle: a rejection needs a reason and an approved request may
   await service(harness).decide(501, 'session-1', 40, 'cancelled', { reason: 'Synthetic administrative cancellation.' });
   assert.equal(harness.reservation.status, 'cancelled');
   assert.equal(harness.audits.length, 2);
-});
-
-test('vertical lifecycle: no application role/scope and a different asset are both denied', async () => {
-  const noRole = new ApprovalHarness(); noRole.allowed = false;
-  for (const kind of ['approved','rejected','cancelled'] as const) await assert.rejects(() => service(noRole).decide(501, 'session-1', 40, kind, {}), (error: any) => error instanceof ReservationApprovalError && error.httpStatus === 403);
-  const outOfScope = new ApprovalHarness(); outOfScope.reservation.asset_id = 8;
-  await assert.rejects(() => service(outOfScope).decide(501, 'session-1', 40, 'approved', {}), (error: any) => error instanceof ReservationApprovalError && error.httpStatus === 403);
 });
 
 test('vertical lifecycle: current SQL conflict blocks the second overlapping approval without adding an audit', async () => {

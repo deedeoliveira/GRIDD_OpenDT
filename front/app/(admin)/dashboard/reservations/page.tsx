@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import ManagerNavigation from "../ManagerNavigation";
+import { capabilitiesOf, fetchSession } from "@/lib/sessionCapabilities.mts";
 import { ApiResponseError, parseApiJsonResponse } from "@/lib/apiResponse.mts";
 import { formatLisbonDateTime, lisbonTimeZoneLabel } from "@/lib/lisbonDateTime";
 
@@ -26,11 +27,29 @@ export default function ReservationManagement() {
   const [rows, setRows] = useState<Row[]>([]); const [error, setError] = useState<UiError | null>(null); const [notice, setNotice] = useState<string | null>(null);
   const [reason, setReason] = useState<Record<number, string>>({}); const [acknowledged, setAcknowledged] = useState<Record<number, boolean>>({}); const [review, setReview] = useState<Record<number, Review>>({}); const [busy, setBusy] = useState<Record<number, boolean>>({});
   const [statusFilter, setStatusFilter] = useState("pending"); const [page, setPage] = useState(1); const [pagination, setPagination] = useState({ page: 1, pageSize: 25, totalItems: 0, totalPages: 1 });
+  const [authorized, setAuthorized] = useState(false);
   const load = async (requestedPage = page, requestedStatus = statusFilter) => {
     try { const response = await fetch(`/api/manager/reservations?page=${requestedPage}&pageSize=25&status=${requestedStatus}`, { cache: "no-store" }); const payload = await parseApiJsonResponse<{ items: Row[]; page: number; pageSize: number; totalItems: number; totalPages: number }>(response); setRows(payload.data.items); setPagination(payload.data); setPage(payload.data.page); setError(null); }
     catch (caught) { setError(uiError(caught)); }
   };
-  useEffect(() => { void load(page, statusFilter); }, [page, statusFilter]);
+  // Authorization is resolved FIRST and gates the queue. Capabilities are the
+  // authority: only a confirmed operationalManagement account loads the queue.
+  // A BIM-only account is redirected to /dashboard and never requests
+  // /api/manager/reservations; an unauthenticated (401) or failed session goes to
+  // /login; a non-management resource user goes to /student. No queue request and
+  // no unauthorized error can flash before the redirect.
+  useEffect(() => {
+    let cancelled = false;
+    void fetchSession().then(({ status, session }) => {
+      if (cancelled) return;
+      if (status === 401 || !session) { window.location.assign("/login"); return; }
+      const derived = capabilitiesOf(session);
+      if (derived.operationalManagement) { setAuthorized(true); return; }
+      window.location.assign(derived.bimManagement ? "/dashboard" : derived.reserveResources ? "/student" : "/login");
+    }).catch(() => { if (!cancelled) window.location.assign("/login"); });
+    return () => { cancelled = true; };
+  }, []);
+  useEffect(() => { if (authorized) void load(page, statusFilter); }, [authorized, page, statusFilter]);
   const openDetail = async (id: number, refresh = false) => {
     setBusy((current) => ({ ...current, [id]: true })); setError(null); setNotice(null);
     try { const response = await fetch(`/api/manager/reservations/${id}${refresh ? "/refresh-evidence" : ""}`, { method: refresh ? "POST" : "GET", headers: { Accept: "application/json" } }); const payload = await parseApiJsonResponse<{ reviewEvidence: Review; refreshed: boolean }>(response); setReview((current) => ({ ...current, [id]: payload.data.reviewEvidence })); setNotice(refresh ? `Evidência atualizada às ${formatLisbonDateTime(payload.data.reviewEvidence.reviewed_at!)}. Nenhuma decisão foi tomada.` : `Análise aberta para o pedido ${id}. Nenhuma decisão foi tomada.`); await load(); }

@@ -5,6 +5,13 @@
  *
  * Não existe (ainda) tabela de controlo de migrations — a aplicação é manual
  * e cada migration deve ser idempotente ou aplicada uma única vez.
+ *
+ * Atomicidade: todos os statements correm na MESMA conexão, em sequência. Se um
+ * statement falhar, é emitido um ROLLBACK explícito antes de fechar a conexão.
+ * Para migrations que delimitam `START TRANSACTION; ... COMMIT;`, isto garante
+ * que uma falha a meio não deixa alterações parciais. Migrations sem transação
+ * (ex.: DDL, que faz commit implícito) mantêm exatamente o comportamento
+ * anterior — o ROLLBACK é um no-op quando não há transação ativa.
  */
 import "dotenv/config";
 import mysql from "mysql2/promise";
@@ -45,6 +52,9 @@ async function main() {
     } catch (error: any) {
       console.error(`  [${i + 1}/${statements.length}] ERRO ${preview}`);
       console.error(`  ${error.message}`);
+      // Rollback explícito de qualquer transação aberta antes de sair. Se não
+      // houver transação ativa (ex.: migration só com DDL), é um no-op seguro.
+      try { await conn.query("ROLLBACK"); } catch { /* sem transação ativa */ }
       await conn.end();
       process.exit(1);
     }

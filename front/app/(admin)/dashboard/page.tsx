@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import ManagerNavigation from "./ManagerNavigation";
+import { capabilitiesOf, fetchSession, noCapabilities, type Capabilities } from "@/lib/sessionCapabilities.mts";
 
 type Context = {
   models: Array<{ model_id: number; model_uuid: string; model_name: string; linked_model_id: number; linked_model_name: string;
@@ -46,6 +47,7 @@ const input = "uminho-input mt-2 w-full px-4 py-3 file:mr-4 file:rounded-lg file
 
 export default function DashboardPage() {
   const [workspaceSelected, setWorkspaceSelected] = useState(false);
+  const [capabilities, setCapabilities] = useState<Capabilities>(noCapabilities);
   const [context, setContext] = useState<Context | null>(null);
   const [modelId, setModelId] = useState("");
   const [ifcFile, setIfcFile] = useState<File | null>(null);
@@ -62,10 +64,28 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("workspace") === "models") {
-      setWorkspaceSelected(true);
-      void loadContext();
-    }
+    // Authorization is resolved first. Capabilities are the authority: the BIM
+    // intake workspace requires bimManagement. An unauthenticated (401) or failed
+    // session goes to /login; a non-management resource user to /student; an
+    // operational-only account never loads model intake. The page never lingers
+    // in a misleading workspace state.
+    let cancelled = false;
+    void fetchSession().then(({ status, session }) => {
+      if (cancelled) return;
+      if (status === 401 || !session) { window.location.assign("/login"); return; }
+      const derived = capabilitiesOf(session);
+      if (!derived.bimManagement && !derived.operationalManagement) {
+        window.location.assign(derived.reserveResources ? "/student" : "/login");
+        return;
+      }
+      setCapabilities(derived);
+      if (new URLSearchParams(window.location.search).get("workspace") === "models") {
+        if (!derived.bimManagement) { window.location.assign(derived.operationalManagement ? "/dashboard/reservations" : "/student"); return; }
+        setWorkspaceSelected(true);
+        void loadContext();
+      }
+    }).catch(() => { if (!cancelled) window.location.assign("/login"); });
+    return () => { cancelled = true; };
   }, []);
   const selected = useMemo(() => context?.models.find((item) => String(item.model_id) === modelId) ?? null, [context, modelId]);
   const activeModels = context?.models.filter((model) => model.state === "active") ?? [];
@@ -166,7 +186,7 @@ export default function DashboardPage() {
     void loadContext();
   }
 
-  if (!workspaceSelected) return <main className="uminho-page px-5 py-10"><div className="mx-auto max-w-6xl"><ManagerNavigation /><header className="mb-8"><p className="text-sm font-semibold uppercase tracking-[.22em]" style={{ color: "var(--uminho-primary)" }}>Workspace do gestor</p><h1 className="mt-2 text-4xl font-bold">O que pretende gerir?</h1><p className="mt-3 max-w-3xl" style={{ color: "var(--text-secondary)" }}>Escolha uma área de trabalho. O acesso a modelos é global ao workspace nesta fase; decisões de reservas continuam limitadas pelo âmbito de recursos da sessão.</p></header><div className="grid gap-5 md:grid-cols-2"><button className="uminho-mode-card" type="button" onClick={openModelWorkspace}><h2 className="text-xl font-semibold">Gerir modelos</h2><p className="mt-2" style={{ color: "var(--text-secondary)" }}>Consultar logical model lines, versões e o workspace de model intake.</p></button><a className="uminho-mode-card block" href="/dashboard/reservations"><h2 className="text-xl font-semibold">Reservas e decisões</h2><p className="mt-2" style={{ color: "var(--text-secondary)" }}>Analisar pedidos, atualizar evidência e tomar decisões autorizadas.</p></a></div></div></main>;
+  if (!workspaceSelected) return <main className="uminho-page px-5 py-10"><div className="mx-auto max-w-6xl"><ManagerNavigation /><header className="mb-8"><p className="text-sm font-semibold uppercase tracking-[.22em]" style={{ color: "var(--uminho-primary)" }}>Workspace do gestor</p><h1 className="mt-2 text-4xl font-bold">O que pretende gerir?</h1><p className="mt-3 max-w-3xl" style={{ color: "var(--text-secondary)" }}>Escolha uma área de trabalho. Nesta fase o acesso à Gestão BIM e à Gestão operacional é global; a Gestão operacional já não depende de âmbitos de ativos.</p></header><div className="grid gap-5 md:grid-cols-2"><a className="uminho-mode-card block" href="/student"><h2 className="text-xl font-semibold">Reservar recursos</h2><p className="mt-2" style={{ color: "var(--text-secondary)" }}>Consultar ativos reserváveis e gerir as suas próprias reservas.</p></a>{capabilities.bimManagement && <button className="uminho-mode-card" type="button" onClick={openModelWorkspace}><h2 className="text-xl font-semibold">Gestão BIM</h2><p className="mt-2" style={{ color: "var(--text-secondary)" }}>Consultar logical model lines, versões e o workspace de model intake.</p></button>}{capabilities.operationalManagement && <a className="uminho-mode-card block" href="/dashboard/reservations"><h2 className="text-xl font-semibold">Gestão operacional</h2><p className="mt-2" style={{ color: "var(--text-secondary)" }}>Analisar pedidos, atualizar evidência e tomar decisões autorizadas.</p></a>}</div></div></main>;
 
   return (
     <main className="uminho-page px-5 py-10">

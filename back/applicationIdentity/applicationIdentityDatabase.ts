@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import MySQLDatabase from "../utils/mysqlDatabase.ts";
 import { normalizeActorKey } from "../semantic/actorInstitutionalLinkTypes.ts";
-import type { ApplicationAccount } from "./applicationIdentityTypes.ts";
+import type { AccountAuthorization, ApplicationAccount, CanonicalRole } from "./applicationIdentityTypes.ts";
 import { toMysqlUtc } from '../utils/utcTime.ts';
 
 export class ApplicationIdentityDatabase {
@@ -29,13 +29,39 @@ export class ApplicationIdentityDatabase {
       WHERE application_account_id=:accountId AND actor_key_normalized=:actorKey AND status IN ('verified','revoked') LIMIT 1`,{accountId,actorKey:normalized});
     if(!rows.length) throw new Error("The resolved application account is not linked to this institutional actor.");
   }
-  async applicationArea(accountId:number):Promise<'manager'|'student'|'none'>{
+  // Additive capabilities derived server-side from active role grants and account
+  // status. The transitional key reservation_manager and the canonical
+  // operational_manager both grant operationalManagement; the exposed role is
+  // always normalised to operational_manager. Suspended/disabled accounts get no
+  // active capability. Asset scopes are never consulted here (operational access
+  // is global for this phase; scopes are dormant future granularity).
+  async resolveCapabilities(accountId:number):Promise<AccountAuthorization>{
     await this.db.checkConnection();
-    const [rows]:any=await this.db.connection.execute(`SELECT 1 FROM application_account_roles ar
-      JOIN application_roles r ON r.id=ar.application_role_id AND r.normalized_role_key='reservation_manager'
-      JOIN application_accounts a ON a.id=ar.application_account_id AND a.status='active'
-      WHERE ar.application_account_id=:accountId AND ar.revoked_at IS NULL LIMIT 1`,{accountId});
-    return rows.length ? 'manager' : 'student';
+    const [rows]:any=await this.db.connection.execute(`SELECT a.status,a.account_kind,r.normalized_role_key
+      FROM application_accounts a
+      LEFT JOIN application_account_roles ar ON ar.application_account_id=a.id AND ar.revoked_at IS NULL
+      LEFT JOIN application_roles r ON r.id=ar.application_role_id
+      WHERE a.id=:accountId`,{accountId});
+    const student:AccountAuthorization={roles:[],capabilities:{reserveResources:false,bimManagement:false,operationalManagement:false},applicationArea:'student'};
+    if(!rows.length) return student;
+    const active=rows[0].status==='active'; const human=rows[0].account_kind==='human';
+    if(!active) return student;
+    const keys=new Set(rows.map((r:any)=>r.normalized_role_key).filter(Boolean));
+    const bimManagement=keys.has('bim_manager');
+    const operationalManagement=keys.has('operational_manager')||keys.has('reservation_manager');
+    const roles:CanonicalRole[]=[];
+    if(bimManagement) roles.push('bim_manager');
+    if(operationalManagement) roles.push('operational_manager');
+    return {
+      roles,
+      capabilities:{reserveResources:human,bimManagement,operationalManagement},
+      applicationArea:(bimManagement||operationalManagement)?'manager':'student',
+    };
+  }
+  // Temporary compatibility alias derived from capabilities. NOT an authorization
+  // authority — route guards use explicit capabilities.
+  async applicationArea(accountId:number):Promise<'manager'|'student'>{
+    return (await this.resolveCapabilities(accountId)).applicationArea;
   }
   async disconnect(): Promise<void> { await this.db.disconnect(); }
 }

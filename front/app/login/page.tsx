@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { capabilitiesOf, hasAnyManagement } from "@/lib/sessionCapabilities.mts";
 
 type Account = { accountUuid: string; accountKey: string; displayLabel: string; status: string };
 
@@ -24,9 +25,11 @@ export default function Login() {
     }
     const sessionResponse = await fetch("/api/auth/session", { cache: "no-store" });
     const session = await sessionResponse.json().catch(() => null);
-    const area = session?.data?.applicationArea;
-    if (area === "manager") window.location.assign("/dashboard");
-    else if (area === "student") window.location.assign("/student");
+    const capabilities = capabilitiesOf(session?.data);
+    // A management account lands on the management dashboard; every other active
+    // human account lands on the resource-reservation workspace.
+    if (hasAnyManagement(capabilities)) window.location.assign("/dashboard");
+    else if (capabilities.reserveResources) window.location.assign("/student");
     else setError("Esta conta não tem uma área disponível.");
   }
 

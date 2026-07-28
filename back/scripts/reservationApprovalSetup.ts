@@ -35,12 +35,18 @@ async function main() {
         institutionalAgentUri: accounts[1]!.agent, verificationSource: 'reservation_approval_setup_second_student' });
       if (secondStudentLink.status !== 'verified') throw new Error('Second synthetic student link was not verified.');
       await identities.bindCurrentLink(Number(student.id), accounts[1]!.key, accounts[1]!.agent);
-      await db.connection.execute(`INSERT INTO application_roles(role_key,normalized_role_key,display_label) VALUES ('reservation_manager','reservation_manager','Reservation manager') ON DUPLICATE KEY UPDATE display_label=VALUES(display_label)`);
-      await db.connection.execute(`INSERT IGNORE INTO application_account_roles(application_account_id,application_role_id) SELECT :accountId,id FROM application_roles WHERE normalized_role_key='reservation_manager'`, { accountId: Number(manager.id) });
+      // Canonical additive roles. The demonstration manager receives BOTH
+      // management roles, so it can enter the BIM and the operational workspaces
+      // (and still reserve resources like any active human account).
+      await db.connection.execute(`INSERT INTO application_roles(role_key,normalized_role_key,display_label) VALUES ('operational_manager','operational_manager','Operational Manager'),('bim_manager','bim_manager','BIM Manager') ON DUPLICATE KEY UPDATE display_label=VALUES(display_label)`);
+      await db.connection.execute(`INSERT IGNORE INTO application_account_roles(application_account_id,application_role_id) SELECT :accountId,id FROM application_roles WHERE normalized_role_key IN ('operational_manager','bim_manager')`, { accountId: Number(manager.id) });
+      // Operational authority is global for this phase; scopes are dormant
+      // future-granularity infrastructure. Existing scope rows are seeded/kept
+      // untouched for continuity but are NOT required for any operational action.
       for(const asset of assets) await db.connection.execute(`INSERT INTO reservation_management_scopes(scope_uuid,application_account_id,asset_id,status) VALUES (:uuid,:accountId,:assetId,'active') ON DUPLICATE KEY UPDATE status='active',revoked_at=NULL`, { uuid: crypto.randomUUID(), accountId: Number(manager.id), assetId: asset.id });
     }
     console.log(JSON.stringify({
-      ok: true, dryRun: !execute, managerAccount: accounts[0]!.key, applicationRole: 'reservation_manager',
+      ok: true, dryRun: !execute, managerAccount: accounts[0]!.key, applicationRoles: ['operational_manager', 'bim_manager'],
       secondStudent: { accountKey: accounts[1]!.key, agent: 'TestStudentPhD002', datasetArtifactId: dataset.artifactId,
         verifiedLink: execute ? 'prepared' : 'planned' }, revokedLinkAccount: 'TEST-ACTOR-REVOKED',
       scope: { kind: 'assets', assets: assets.map((asset:any)=>({ assetId:asset.id,assetCode:asset.asset_code })) },

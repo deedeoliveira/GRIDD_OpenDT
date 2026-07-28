@@ -8,7 +8,7 @@ import { NonModelledAssetError } from "../services/nonModelledAssetTypes.ts";
 import { getReservabilityEvaluator } from "../policies/policyProvider.ts";
 import { buildSuccessResponse, buildErrorResponse } from "../utils/responseHandler.ts";
 import { logConcurrencyEvent } from "../utils/concurrencyControl.ts";
-import { ApplicationIdentityDatabase } from "../applicationIdentity/applicationIdentityDatabase.ts";
+import { ensureReserveResources } from "../applicationIdentity/applicationAuthorization.ts";
 
 /** Erros tipados 5B → HTTP; restantes → 500 sem stack trace. */
 function nonModelledErrorResponse(res: any, error: any) {
@@ -21,17 +21,11 @@ function nonModelledErrorResponse(res: any, error: any) {
 const app = express();
 app.use(express.json());
 
-async function requireStudent(req: express.Request, res: express.Response) {
-  if (!req.applicationIdentity) {
-    buildErrorResponse(res, 401, "A local development session is required.");
-    return false;
-  }
-  const area = await new ApplicationIdentityDatabase().applicationArea(Number(req.applicationIdentity.accountId));
-  if (area !== "student") {
-    buildErrorResponse(res, 403, "This resource list is available only to the student reservation workspace.");
-    return false;
-  }
-  return true;
+// The resource-reservation catalogue is available to every active human account,
+// managers included (management roles add capabilities, they never remove the
+// basic reservation capability). Named for that capability, not for "student".
+async function requireReservationWorkspace(req: express.Request, res: express.Response) {
+  return ensureReserveResources(req, res);
 }
 
 /* -------------------------------------
@@ -99,7 +93,7 @@ app.get("/availability/:assetId", async (req, res) => {
 app.get("/availability/persistent/:persistentAssetId", async (req, res) => {
   const { persistentAssetId } = req.params;
   const { start, end } = req.query;
-  if (!await requireStudent(req, res)) return;
+  if (!await requireReservationWorkspace(req, res)) return;
   if (!start || !end) return buildErrorResponse(res, 400, "Missing start or end query parameters");
   const startDate = new Date(String(start));
   const endDate = new Date(String(end));
@@ -179,7 +173,7 @@ app.get("/by-guid-latest/:modelId/:guid", async (req, res) => {
 /* Global student catalogue: one query, optional logical model line filter. */
 app.get("/persistent/reservable", async (req, res) => {
   try {
-    if (!await requireStudent(req, res)) return;
+    if (!await requireReservationWorkspace(req, res)) return;
     const raw = req.query.modelLineId;
     const modelLineId = raw == null || raw === "" ? null : Number(raw);
     if (modelLineId !== null && (!Number.isInteger(modelLineId) || modelLineId <= 0)) {
@@ -196,7 +190,7 @@ app.get("/persistent/reservable", async (req, res) => {
 /* Resolves a visible IFC element only through its binding in the current version. */
 app.get("/persistent/current-binding/:modelLineId/:guid", async (req, res) => {
   try {
-    if (!await requireStudent(req, res)) return;
+    if (!await requireReservationWorkspace(req, res)) return;
     const modelLineId = Number(req.params.modelLineId);
     if (!Number.isInteger(modelLineId) || modelLineId <= 0 || !req.params.guid) {
       return buildErrorResponse(res, 400, "Valid model line ID and IFC GUID are required");

@@ -30,7 +30,7 @@ test("current version download preserves session, backend status and authorizati
   assert.match(viewer, /\/api\/model\/version\/\$\{selectedModel\.currentVersionId\}\/download/);
   assert.match(versionProxy, /headers\.set\("cookie", cookie\)/);
   assert.match(versionProxy, /status: response\.status/);
-  assert.match(modelRoute, /requireWorkspace\(req, res, \["student", "manager"\]\)/);
+  assert.match(modelRoute, /requireWorkspace\(req, res\)/);
   assert.match(modelContextProxy, /cache: "no-store"/);
 });
 
@@ -68,7 +68,7 @@ test("only a current persistent binding makes an IFC element reservable", () => 
 
 test("global catalogue is session-bound, read-only, deduplicated and classified", () => {
   assert.match(assetRoute, /app\.get\("\/persistent\/reservable"/);
-  assert.match(assetRoute, /requireStudent\(req, res\)/);
+  assert.match(assetRoute, /requireReservationWorkspace\(req, res\)/);
   assert.match(catalogueDb, /ROW_NUMBER\(\) OVER \(PARTITION BY ab\.asset_id/);
   assert.match(catalogueDb, /WHEN cb\.asset_id IS NOT NULL THEN 'modelled'/);
   assert.match(catalogueDb, /a\.source = 'graph' AND a\.semantic_uri IS NOT NULL THEN 'non_modelled'/);
@@ -113,9 +113,13 @@ test("model selection opens the same request dialog instead of an inline reserva
   assert.match(reservationModal, /Selecionado através do modelo/);
 });
 
-test("manager navigation exposes the two existing workspaces", () => {
-  assert.match(managerNav, />Gerir modelos</);
-  assert.match(managerNav, />Reservas e decisões</);
+test("manager navigation exposes the three capability-driven workspaces with user-facing labels", () => {
+  assert.match(managerNav, />Reservar recursos</);
+  assert.match(managerNav, />Gestão BIM</);
+  assert.match(managerNav, />Gestão operacional</);
+  assert.match(managerNav, /capabilities\.bimManagement/);
+  assert.match(managerNav, /capabilities\.operationalManagement/);
   assert.match(managerNav, /href="\/dashboard"/);
   assert.match(managerNav, /href="\/dashboard\/reservations"/);
+  assert.match(managerNav, /href="\/student"/);
 });

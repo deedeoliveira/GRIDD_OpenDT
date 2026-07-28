@@ -1,15 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ReservationApprovalError, ReservationApprovalService } from '../../reservationApproval/reservationApprovalService.ts';
+import { ReservationApprovalService } from '../../reservationApproval/reservationApprovalService.ts';
 
 const reservation = { id: 25, actor_id: 'pg202405', asset_id: 9, status: 'pending', start_time: '2030-09-01 19:45:00', end_time: '2030-09-01 20:30:00' };
 
 class ReviewDatabaseHarness {
   scoped = true;
+  everQueriedScopes = false;
   row = { ...reservation };
   async connect() {} async checkConnection() {}
   connection = { execute: async (sql: string) => {
-    if (sql.includes('FROM reservation_management_scopes')) return [this.scoped ? [{ id: 1, asset_id: 9, scope_uuid: 'scope-9' }] : []];
+    if (sql.includes('FROM reservation_management_scopes')) { this.everQueriedScopes = true; return [this.scoped ? [{ id: 1, asset_id: 9, scope_uuid: 'scope-9' }] : []]; }
     if (sql.includes('FROM res_reservations r')) return [[this.row]];
     throw new Error(`Unexpected query: ${sql}`);
   } };
@@ -75,9 +76,13 @@ test('an expired current review is explicitly marked expired before a replacemen
   assert.deepEqual(reviews.expired, [1]); assert.equal(reviews.rows.at(-1).status, 'current');
 });
 
-test('manager role/scope remains mandatory for open and refresh', async () => {
+test('open and refresh are global: the service does not gate on asset scopes (the route enforces operationalManagement)', async () => {
+  // Scopes are dormant; the absence of any scope must not affect the service.
   const db = new ReviewDatabaseHarness(); db.scoped = false;
   const service = new ReservationApprovalService(db as any, new ReviewsHarness() as any, async () => true, evidenceHarness() as any);
-  await assert.rejects(() => service.detail(7, 'manager-session-a', 25), (error: any) => error instanceof ReservationApprovalError && error.httpStatus === 403);
-  await assert.rejects(() => service.reviewReservation(7, 'manager-session-a', 25, true), (error: any) => error instanceof ReservationApprovalError && error.httpStatus === 403);
+  const opened = await service.detail(7, 'manager-session-a', 25);
+  assert.equal(opened.reviewEvidence.status, 'current');
+  const refreshed = await service.reviewReservation(7, 'manager-session-a', 25, true);
+  assert.equal(refreshed.reviewEvidence.status, 'current');
+  assert.ok(!db.everQueriedScopes, 'the service never queries reservation_management_scopes');
 });

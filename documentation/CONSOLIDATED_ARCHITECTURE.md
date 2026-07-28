@@ -341,20 +341,30 @@ flowchart TD
   a local audit boundary. Legacy actor snapshots remain only for disabled-mode
   compatibility.
 - Local synthetic login is development-only and startup refuses it in
-  production. The server resolves `applicationArea=manager` from an active
-  `reservation_manager` application role; the browser cannot choose that area
-  or a role. Building onboarding remains future work.
+  production. The server resolves additive **capabilities**
+  (`reserveResources`, `bimManagement`, `operationalManagement`) from active
+  role grants and account status; the browser cannot choose a capability or a
+  role. `applicationArea` remains only a temporary compatibility alias, not an
+  authorization authority. Building onboarding remains future work.
 
-## 15.18 Reservation approval (Prompt 7H; ADR-0046/0047)
+## 15.18 Reservation approval and additive manager roles (Prompt 7H; ADR-0046/0047/0050)
 
-- `reservation_manager` grants access to the manager workspace and controlled
-  model intake, while active asset scopes grant reservation-listing and
-  decision authority only for their assets. A manager without scopes sees an
-  empty queue and cannot open, refresh, approve, reject, or cancel a
-  reservation.
-- Roles and asset scopes are application authorization, never institutional
-  roles or semantic policy results. This limited demonstrator boundary is not
-  complete production RBAC.
+- Management roles are additive (ADR-0050). `bim_manager` grants the
+  `bimManagement` capability (BIM/model-intake workspace); `operational_manager`
+  grants the `operationalManagement` capability (reservation decisions). Every
+  active human account also has `reserveResources` for the normal reservation
+  workspace, managers included.
+- Operational authority is **global** for this phase: `operationalManagement`
+  alone permits listing, opening, refreshing evidence, approving, rejecting and
+  cancelling any reservation. The `reservation_management_scopes` table is
+  retained but dormant future-granularity infrastructure and is never consulted.
+  This supersedes the mandatory per-asset scope of ADR-0046.
+- The transitional key `reservation_manager` is still recognised as
+  `operationalManagement`, but the API, new snapshots and setup normalise the
+  role to `operational_manager`. Historical decision snapshots are not rewritten.
+- Capabilities are application authorization, never institutional roles or
+  semantic policy results. This limited demonstrator boundary is not complete
+  production RBAC.
 - Pending requests can coexist across actors. Approval locks and rechecks SQL
   availability, appends an audit record, and remains a human decision.
 

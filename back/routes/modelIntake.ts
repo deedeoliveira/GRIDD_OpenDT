@@ -10,7 +10,7 @@ import { getPreflightRun } from "../modelIntake/modelIntakeRunStore.ts";
 import { loadModelIntakeConfig } from "../modelIntake/modelIntakeConfig.ts";
 import { SemanticValidationService, publicShapes, publicValidation } from "../semanticValidation/semanticValidationService.ts";
 import { SemanticValidationError } from "../semanticValidation/semanticValidationTypes.ts";
-import { ApplicationIdentityDatabase } from "../applicationIdentity/applicationIdentityDatabase.ts";
+import { requireBimManagement } from "../applicationIdentity/applicationAuthorization.ts";
 
 const app = express.Router();
 const service = new ModelIntakeService();
@@ -21,14 +21,9 @@ fs.mkdirSync(tempRoot, { recursive: true });
 const upload = multer({ dest: tempRoot, limits: { files: 2, fileSize: 50 * 1024 * 1024, fields: 8 } });
 const shapesUpload = multer({ dest: tempRoot, limits: { files: 1, fileSize: 2 * 1024 * 1024, fields: 8 } });
 
-async function requireManagerWorkspace(req: express.Request, res: express.Response, next: express.NextFunction) {
-    if (!req.applicationIdentity) return buildErrorResponse(res, 401, "A local development session is required.");
-    const area = await new ApplicationIdentityDatabase().applicationArea(Number(req.applicationIdentity.accountId));
-    if (area !== "manager") return buildErrorResponse(res, 403, "This workspace is available only to an active reservation manager.");
-    next();
-}
-
-app.use(requireManagerWorkspace);
+// The BIM management workspace requires the bimManagement capability (global for
+// this phase). It is independent of operational management and of asset scopes.
+app.use(requireBimManagement);
 
 function files(req: express.Request): { ifcFile: Express.Multer.File | undefined; idsFile: Express.Multer.File | undefined } {
     const value = req.files as Record<string, Express.Multer.File[]> | undefined;

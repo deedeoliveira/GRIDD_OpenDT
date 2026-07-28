@@ -71,7 +71,8 @@ export default function StudentPage() {
     void fetchJson("/api/auth/session", { cache: "no-store" }).then(({ response, payload }) => {
       const session = payload?.data;
       if (cancelled) return;
-      if (response.ok && session?.applicationArea === "manager") return window.location.assign("/dashboard");
+      // Every active human account — managers included — may use the resource
+      // reservation workspace. Managers are no longer redirected away.
       if (response.ok && typeof session?.accountKey === "string") setActorId(session.accountKey);
       if (response.status === 401) window.location.assign("/login");
     });

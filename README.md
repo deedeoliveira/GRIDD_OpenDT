@@ -264,9 +264,29 @@ semantic evidence and new reservation retain separate, linked records. See
 
 ## Prompt 7H reservation approval
 
-Scoped application managers review pending requests at `/dashboard/reservations`.
+Operational managers review pending requests at `/dashboard/reservations`.
 Approval is an explicit audited operational decision with a transactional SQL
 conflict recheck; semantic evidence remains shadow-only.
+
+## Additive manager roles (BIM vs operational)
+
+Account roles are additive. Every active human account can reserve resources at
+`/student`. Two independent, global management capabilities add workspaces:
+`bim_manager` → **Gestão BIM** (`/dashboard`, model intake) and
+`operational_manager` → **Gestão operacional** (`/dashboard/reservations`). An
+account may hold neither, either or both. Authorization uses server-resolved
+capabilities (`reserveResources`, `bimManagement`, `operationalManagement`);
+`applicationArea` is only a temporary compatibility alias. Operational authority
+is global for this phase — `reservation_management_scopes` is retained but
+dormant. The legacy `reservation_manager` role is renamed in place to
+`operational_manager` (kept as a transitional compatibility key); historical
+decision snapshots are not rewritten. The scoped migration is
+`database/migrations/2026-07-27_manager_role_separation.sql`; verify it first on a
+disposable database (`cd back && npx tsx scripts/migrationSelfTest.ts`), and
+before applying it to the active development/demo database create a fresh backup
+and review the plan — the archived post-presentation backup/tag baseline must
+remain untouched. See
+[ADR-0050](./documentation/adr/ADR-0050-additive-manager-role-separation.md).
 
 ## Prompt 7J-A institutional visual language and student workflow
 

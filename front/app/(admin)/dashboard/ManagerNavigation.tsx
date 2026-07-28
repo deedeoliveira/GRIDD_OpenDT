@@ -2,18 +2,24 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { capabilitiesOf, hasAnyManagement, noCapabilities, type Capabilities } from "@/lib/sessionCapabilities.mts";
 
 export default function ManagerNavigation() {
   const [label, setLabel] = useState("Gestor");
+  const [capabilities, setCapabilities] = useState<Capabilities>(noCapabilities);
 
   useEffect(() => {
     void fetch("/api/auth/session", { cache: "no-store" }).then(async (response) => {
       const payload = await response.json().catch(() => null);
       const session = payload?.data;
-      if (!response.ok || session?.applicationArea !== "manager") {
-        window.location.assign(session?.applicationArea === "student" ? "/student" : "/login");
+      const derived = capabilitiesOf(session);
+      // Management navigation requires at least one management capability. An
+      // account with only reserveResources belongs in the reservation workspace.
+      if (!response.ok || !hasAnyManagement(derived)) {
+        window.location.assign(derived.reserveResources ? "/student" : "/login");
         return;
       }
+      setCapabilities(derived);
       if (typeof session.displayLabel === "string") setLabel(session.displayLabel);
     }).catch(() => window.location.assign("/login"));
   }, []);
@@ -27,8 +33,9 @@ export default function ManagerNavigation() {
     <div><p className="text-xs uppercase tracking-[.2em]" style={{ color: "var(--uminho-primary)" }}>Sessão de gestor</p><p className="text-sm" style={{ color: "var(--text-secondary)" }}>{label}</p></div>
     <div className="flex flex-wrap items-center gap-2">
       <a className="rounded-lg px-3 py-2" href="/dashboard">Início</a>
-      <Link className="rounded-lg px-3 py-2" href="/dashboard?workspace=models">Gerir modelos</Link>
-      <Link className="rounded-lg px-3 py-2" href="/dashboard/reservations">Reservas e decisões</Link>
+      <Link className="rounded-lg px-3 py-2" href="/student">Reservar recursos</Link>
+      {capabilities.bimManagement && <Link className="rounded-lg px-3 py-2" href="/dashboard?workspace=models">Gestão BIM</Link>}
+      {capabilities.operationalManagement && <Link className="rounded-lg px-3 py-2" href="/dashboard/reservations">Gestão operacional</Link>}
       <button className="uminho-secondary-button px-3 py-2" onClick={logout}>Terminar sessão</button>
     </div>
   </nav>;
