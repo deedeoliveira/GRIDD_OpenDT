@@ -116,7 +116,8 @@ test("model selection opens the same request dialog instead of an inline reserva
 test("manager navigation exposes the three capability-driven workspaces with user-facing labels", () => {
   assert.match(managerNav, />Reservar recursos</);
   assert.match(managerNav, />Gestão BIM</);
-  assert.match(managerNav, />Gestão operacional</);
+  assert.match(managerNav, />Gestão de reservas</);
+  assert.doesNotMatch(managerNav, /Gestão operacional/);
   assert.match(managerNav, /capabilities\.bimManagement/);
   assert.match(managerNav, /capabilities\.operationalManagement/);
   assert.match(managerNav, /href="\/dashboard"/);

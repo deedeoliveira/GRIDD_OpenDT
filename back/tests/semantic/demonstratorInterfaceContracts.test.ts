@@ -25,8 +25,10 @@ test("navigation is resolved from server-derived capabilities and separates the 
 
 test("dashboard cards and page guards are derived from explicit capabilities", () => {
   // The landing chooser offers Reservar recursos always and the two management
-  // cards only for the matching capability.
-  assert.match(intake, /Reservar recursos/); assert.match(intake, /Gestão BIM/); assert.match(intake, /Gestão operacional/);
+  // cards only for the matching capability. The reservation-management workspace
+  // is labelled "Gestão de reservas" (not "Gestão operacional").
+  assert.match(intake, /Reservar recursos/); assert.match(intake, /Gestão BIM/); assert.match(intake, /Gestão de reservas/);
+  assert.doesNotMatch(intake, /Gestão operacional/);
   assert.match(intake, /capabilities\.bimManagement &&/); assert.match(intake, /capabilities\.operationalManagement &&/);
   // A BIM-only account cannot load the operational page and vice-versa (capability guards).
   assert.match(intake, /!derived\.bimManagement/);

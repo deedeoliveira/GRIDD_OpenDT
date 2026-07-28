@@ -99,9 +99,22 @@ post-presentation backup/tag baseline must remain untouched.
 - BIM and operational management are independently grantable; both-role accounts
   see both workspaces plus resource reservation.
 - The front end derives navigation cards and page guards from capabilities:
-  *Reservar recursos*, *Gestão BIM*, *Gestão operacional*. BIM-only accounts
-  cannot load the operational page and vice-versa.
-- Manager accounts can use the normal `/student` reservation workspace.
+  *Reservar recursos*, *Gestão BIM*, *Gestão de reservas*. BIM-only accounts
+  cannot load the reservation-management page and vice-versa.
+- **User-facing vs internal naming.** The internal role and capability stay
+  `operational_manager` / `operationalManagement` (unchanged API contract,
+  database role, decision snapshots and authorization helpers). The *user-facing*
+  workspace label is **Gestão de reservas** (refined from the earlier "Gestão
+  operacional"); technical and authorization documentation may still use
+  "operational management" to describe the concept. The page-specific heading
+  *Reservas e decisões* remains as it describes the concrete page contents.
+- Manager accounts can use the reservation workspace. It is **role-neutral**
+  (labelled *Reservar recursos*, never "Área do estudante") and is currently
+  served by `/student`, a legacy-compatible technical route kept for this phase
+  (a route rename is out of scope). A management account inside it sees a compact
+  *Voltar à gestão* action to `/dashboard`, shown only when the server-resolved
+  session has `bimManagement` or `operationalManagement` (never from
+  `applicationArea`).
 - The scope table stays available for a future re-tightening of operational
   granularity without a schema change.
 - This ADR deliberately excludes RDF graph-versioning research, which is a

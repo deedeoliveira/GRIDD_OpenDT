@@ -6,6 +6,7 @@ import { Viewer } from "./Viewer";
 import ReservationModal from "./ReservationModal";
 import type { StudentModelContext } from "@/types/model";
 import { formatLisbonDateTime, lisbonTimeZoneLabel } from "@/lib/lisbonDateTime";
+import { capabilitiesOf, hasAnyManagement, noCapabilities, type Capabilities } from "@/lib/sessionCapabilities.mts";
 
 type StudentMode = "model" | "catalogue" | "manage" | null;
 type LoadState = "not_selected" | "selected" | "loading" | "loaded" | "no_current" | "failed" | "unavailable" | "unauthorized" | "error";
@@ -48,6 +49,7 @@ export default function StudentPage() {
   const [search, setSearch] = useState("");
   const [selectedAsset, setSelectedAsset] = useState<StudentAsset | null>(null);
   const [actorId, setActorId] = useState("");
+  const [capabilities, setCapabilities] = useState<Capabilities>(noCapabilities);
   const [reservations, setReservations] = useState<ReservationRow[]>([]);
   const [reservationOpen, setReservationOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -72,8 +74,11 @@ export default function StudentPage() {
       const session = payload?.data;
       if (cancelled) return;
       // Every active human account — managers included — may use the resource
-      // reservation workspace. Managers are no longer redirected away.
+      // reservation workspace. Managers are no longer redirected away. Reuse this
+      // one session response for the capability-aware "Voltar à gestão" action;
+      // no second session request is made.
       if (response.ok && typeof session?.accountKey === "string") setActorId(session.accountKey);
+      if (response.ok) setCapabilities(capabilitiesOf(session));
       if (response.status === 401) window.location.assign("/login");
     });
     void fetchJson("/api/model/student-contexts", { cache: "no-store" }).then(({ response, payload }) => {
@@ -146,10 +151,10 @@ export default function StudentPage() {
 
   async function logout() { await fetch("/api/auth/logout", { method: "POST" }); window.location.assign("/login"); }
 
-  if (!mode) return <main className="uminho-page p-6"><div className="mx-auto max-w-6xl"><StudentHeader logout={logout} /><div className="grid gap-5 md:grid-cols-3">{modes.map((item) => <button className="uminho-mode-card" key={item.key} onClick={() => chooseMode(item.key)}><h2 className="text-xl font-semibold">{item.title}</h2><p className="mt-2" style={{ color: "var(--text-secondary)" }}>{item.description}</p></button>)}</div></div></main>;
+  if (!mode) return <main className="uminho-page p-6"><div className="mx-auto max-w-6xl"><StudentHeader logout={logout} backToManagement={hasAnyManagement(capabilities)} /><div className="grid gap-5 md:grid-cols-3">{modes.map((item) => <button className="uminho-mode-card" key={item.key} onClick={() => chooseMode(item.key)}><h2 className="text-xl font-semibold">{item.title}</h2><p className="mt-2" style={{ color: "var(--text-secondary)" }}>{item.description}</p></button>)}</div></div></main>;
 
   return <main className="uminho-page min-h-screen">
-    <StudentWorkspaceHeader mode={mode} chooseMode={chooseMode} logout={logout} />
+    <StudentWorkspaceHeader mode={mode} chooseMode={chooseMode} logout={logout} backToManagement={hasAnyManagement(capabilities)} />
     {mode === "model" && <section role="tabpanel" aria-label="Reservar através do modelo" className="relative min-h-[calc(100vh-5rem)]">
       <div className="relative z-20 mx-auto grid max-w-7xl gap-4 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(19rem,25rem)]">
         <div className="uminho-card p-4">
@@ -197,9 +202,9 @@ export default function StudentPage() {
   </main>;
 }
 
-function StudentHeader({ logout }: { logout: () => void }) { return <header className="mb-8 flex items-start justify-between gap-4"><div><p className="text-sm font-semibold uppercase tracking-[.16em]" style={{ color: "var(--uminho-primary)" }}>Universidade do Minho</p><h1 className="mt-2 text-3xl font-semibold">Área do estudante</h1><p className="mt-2" style={{ color: "var(--text-secondary)" }}>Escolha o espaço de trabalho para esta sessão.</p></div><button className="uminho-secondary-button px-3 py-2" onClick={logout}>Terminar sessão</button></header>; }
+function StudentHeader({ logout, backToManagement }: { logout: () => void; backToManagement: boolean }) { return <header className="mb-8 flex items-start justify-between gap-4"><div><p className="text-sm font-semibold uppercase tracking-[.16em]" style={{ color: "var(--uminho-primary)" }}>Universidade do Minho</p><h1 className="mt-2 text-3xl font-semibold">Reservar recursos</h1><p className="mt-2" style={{ color: "var(--text-secondary)" }}>Escolha o espaço de trabalho para esta sessão.</p></div><div className="flex flex-wrap items-center gap-2">{backToManagement && <a className="uminho-secondary-button px-3 py-2" href="/dashboard">Voltar à gestão</a>}<button className="uminho-secondary-button px-3 py-2" onClick={logout}>Terminar sessão</button></div></header>; }
 
-function StudentWorkspaceHeader({ mode, chooseMode, logout }: { mode: Exclude<StudentMode, null>; chooseMode: (mode: Exclude<StudentMode, null>) => void; logout: () => void }) { return <header className="relative z-30 flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4" style={{ borderColor: "var(--border)", background: "var(--surface)" }}><div><p className="text-xs font-semibold uppercase tracking-[.16em]" style={{ color: "var(--uminho-primary)" }}>Universidade do Minho</p><h1 className="text-xl font-semibold">Área do estudante</h1></div><div className="flex flex-wrap items-center gap-2"><nav className="flex flex-wrap rounded-lg border p-1" style={{ borderColor: "var(--border)" }} aria-label="Espaço de trabalho">{modes.map((item) => <button key={item.key} role="tab" aria-selected={mode === item.key} className={`rounded px-3 py-2 text-sm ${mode === item.key ? "text-white" : ""}`} style={mode === item.key ? { background: "var(--uminho-primary)" } : undefined} onClick={() => chooseMode(item.key)}>{item.title}</button>)}</nav><button className="uminho-secondary-button px-3 py-2 text-sm" onClick={logout}>Terminar sessão</button></div></header>; }
+function StudentWorkspaceHeader({ mode, chooseMode, logout, backToManagement }: { mode: Exclude<StudentMode, null>; chooseMode: (mode: Exclude<StudentMode, null>) => void; logout: () => void; backToManagement: boolean }) { return <header className="relative z-30 flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4" style={{ borderColor: "var(--border)", background: "var(--surface)" }}><div><p className="text-xs font-semibold uppercase tracking-[.16em]" style={{ color: "var(--uminho-primary)" }}>Universidade do Minho</p><h1 className="text-xl font-semibold">Reservar recursos</h1></div><div className="flex flex-wrap items-center gap-2"><nav className="flex flex-wrap rounded-lg border p-1" style={{ borderColor: "var(--border)" }} aria-label="Espaço de trabalho">{modes.map((item) => <button key={item.key} role="tab" aria-selected={mode === item.key} className={`rounded px-3 py-2 text-sm ${mode === item.key ? "text-white" : ""}`} style={mode === item.key ? { background: "var(--uminho-primary)" } : undefined} onClick={() => chooseMode(item.key)}>{item.title}</button>)}</nav>{backToManagement && <a className="uminho-secondary-button px-3 py-2 text-sm" href="/dashboard">Voltar à gestão</a>}<button className="uminho-secondary-button px-3 py-2 text-sm" onClick={logout}>Terminar sessão</button></div></header>; }
 
 function AssetCatalogue({ assets, search, selected, select }: { assets: StudentAsset[]; search: string; selected: StudentAsset | null; select: (asset: StudentAsset) => void }) {
   const term = search.trim().toLocaleLowerCase("pt");

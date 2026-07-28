@@ -35,7 +35,7 @@ export default function ManagerNavigation() {
       <a className="rounded-lg px-3 py-2" href="/dashboard">Início</a>
       <Link className="rounded-lg px-3 py-2" href="/student">Reservar recursos</Link>
       {capabilities.bimManagement && <Link className="rounded-lg px-3 py-2" href="/dashboard?workspace=models">Gestão BIM</Link>}
-      {capabilities.operationalManagement && <Link className="rounded-lg px-3 py-2" href="/dashboard/reservations">Gestão operacional</Link>}
+      {capabilities.operationalManagement && <Link className="rounded-lg px-3 py-2" href="/dashboard/reservations">Gestão de reservas</Link>}
       <button className="uminho-secondary-button px-3 py-2" onClick={logout}>Terminar sessão</button>
     </div>
   </nav>;

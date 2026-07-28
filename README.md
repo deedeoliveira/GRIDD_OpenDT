@@ -270,15 +270,23 @@ conflict recheck; semantic evidence remains shadow-only.
 
 ## Additive manager roles (BIM vs operational)
 
-Account roles are additive. Every active human account can reserve resources at
-`/student`. Two independent, global management capabilities add workspaces:
-`bim_manager` → **Gestão BIM** (`/dashboard`, model intake) and
-`operational_manager` → **Gestão operacional** (`/dashboard/reservations`). An
-account may hold neither, either or both. Authorization uses server-resolved
-capabilities (`reserveResources`, `bimManagement`, `operationalManagement`);
-`applicationArea` is only a temporary compatibility alias. Operational authority
-is global for this phase — `reservation_management_scopes` is retained but
-dormant. The legacy `reservation_manager` role is renamed in place to
+Account roles are additive. Every active human account can reserve resources in
+the **role-neutral** resource-reservation workspace, currently served by the
+legacy-compatible technical route `/student` (labelled *Reservar recursos*, not
+"student"). Two independent, global management capabilities add workspaces:
+`bim_manager` → **Gestão BIM** (`/dashboard`, model intake) and the internal
+`operational_manager` role → the user-facing **Gestão de reservas** workspace
+(`/dashboard/reservations`). An account may hold neither, either or both.
+Authorization uses server-resolved capabilities (`reserveResources`,
+`bimManagement`, `operationalManagement`); `applicationArea` is only a temporary
+compatibility alias. A management account inside `/student` sees a compact
+*Voltar à gestão* action back to `/dashboard`. Operational authority is global
+for this phase — `reservation_management_scopes` is retained but dormant.
+
+> User-facing vs internal names: the workspace is shown to users as **Gestão de
+> reservas**; the internal role/capability remain `operational_manager` /
+> `operationalManagement` (unchanged), and technical/authorization docs may still
+> say "operational management" for the concept. The legacy `reservation_manager` role is renamed in place to
 `operational_manager` (kept as a transitional compatibility key); historical
 decision snapshots are not rewritten. The scoped migration is
 `database/migrations/2026-07-27_manager_role_separation.sql`; verify it first on a
