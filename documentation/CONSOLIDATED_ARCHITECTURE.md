@@ -70,6 +70,24 @@ sequenceDiagram
 - Identidade por `Pset_SpaceCommon.Reference` via provider substituível.
   Reference IDENTIFICA; nunca determina reservabilidade.
 - Espaços ausentes da versão corrente → `absent` (nunca apagados).
+- **Identidade-alvo aprovada (ADR-0051): `linked_model_id + IfcSpace.GlobalId`**,
+  comparação byte-exact/case-sensitive. A **Stage 0A** apenas acrescenta a base de
+  esquema — coluna canónica `spaces.ifc_global_id` (`CHAR(22) ascii_bin`), índice
+  único `uq_spaces_linked_model_ifc_global_id` e backfill determinístico a partir
+  de `space_bindings.ifc_guid` — sem trocar a autoridade em runtime. **O runtime
+  continua a resolver por Reference** até etapas posteriores; Reference passa a
+  metadado administrativo opcional.
+- Executor de migração (`back/scripts/migrations/spaceGlobalId.ts`): DDL não é
+  transacional (o `ALTER TABLE` faz commit implícito), por isso a segurança de
+  restart exige **verificação EXATA de metadados** (coluna/índice/CHECK
+  classificados ABSENT/EXACT/CONFLICTING — nomes iguais com forma diferente são
+  recusados, nunca substituídos). O **backfill é atómico** (preflight completo de
+  conflitos antes do primeiro UPDATE, escrita set-based numa transação). A CLI
+  (`runSpaceGlobalIdMigration.ts`) exige `--confirm-database`==`DB_NAME`==`SELECT
+  DATABASE()` e `--maintenance-confirmed`, recusa esquemas de sistema, e usa um
+  advisory lock que só impede executores duplicados. **O backend tem de ser
+  parado** durante a migração (a coluna permanece NULLable na Stage 0A). O
+  rollback recusa artefactos com o nome esperado mas forma inesperada.
 
 ## 15.4 Persistent Asset Identity (Prompt 4; ADR-0010..0015)
 
