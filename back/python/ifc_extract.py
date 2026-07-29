@@ -11,6 +11,9 @@ parser.add_argument("--ifc", required=True)
 args = parser.parse_args()
 print(json.dumps({
     "inventoryData": ifcopenshell_utils.extract_inventory_by_space(args.ifc),
+    # Lossless, ordered per-IfcSpace occurrences — the ONLY source that can reveal a
+    # duplicate exact GlobalId (inventoryData is keyed by GlobalId and collapses them).
+    "spaceOccurrences": ifcopenshell_utils.extract_space_occurrences(args.ifc),
     "uncontainedProxies": ifcopenshell_utils.extract_model_context(args.ifc)["uncontainedProxies"],
     "schema": ifcopenshell_utils.extract_model_context(args.ifc)["schema"],
 }))

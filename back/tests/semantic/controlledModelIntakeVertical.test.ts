@@ -20,6 +20,11 @@ test("researcher-selected multipart inputs are genuinely extracted and executed:
     const extracted = await extractIfcModelFromFile(ifc);
     assert.equal(extracted.schema, "IFC4");
     assert.equal(extracted.inventoryData["0V1SpaceSynthetic001"]?.psets?.Pset_SpaceCommon?.Reference, "R-101");
+    // Lossless per-IfcSpace occurrences (ADR-0051 §1) are emitted alongside the
+    // GlobalId-keyed inventory; extraction copies all psets and names none.
+    assert.ok(Array.isArray(extracted.spaceOccurrences) && extracted.spaceOccurrences.length >= 1);
+    assert.ok(extracted.spaceOccurrences!.some((o) => o.guid === "0V1SpaceSynthetic001"
+        && o.psets?.Pset_SpaceCommon?.Reference === "R-101"));
     const visiblePass = await provider.validateProfile(metadata(idsPass), crypto.randomUUID(), 30000);
     const visibleFail = await provider.validateProfile(metadata(idsFail), crypto.randomUUID(), 30000);
     assert.notEqual(visiblePass.profileSha256, visibleFail.profileSha256);

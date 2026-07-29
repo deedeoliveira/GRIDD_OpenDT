@@ -45,10 +45,41 @@ export interface ModelRequirementsContext {
     modelVersionId: number;
 }
 
+/**
+ * One lossless record per IfcSpace ENTITY (ADR-0051 Stage 0B §1). Emitted by the
+ * Python extraction as an ordered list BEFORE any GlobalId-keyed collapse, so two
+ * IfcSpace occurrences that share the same exact GlobalId are both retained — the
+ * only way duplicate-GlobalId detection can be correct.
+ */
+export interface SpaceOccurrence {
+    entityId: number | null;
+    guid: string;
+    name: string | null;
+    longName: string | null;
+    /**
+     * Per-occurrence storey name (ADR-0051 §3-v3), derived for THIS IfcSpace entity
+     * during extraction, so two occurrences sharing one GlobalId keep their own storey.
+     */
+    storeyName?: string | null;
+    /**
+     * All property sets, copied verbatim (extraction names none). The identity
+     * Reference is interpreted only in the Node identity/model-intake layer, never
+     * here — see the architecture guard in tests/spaces/providerGuards.test.ts.
+     */
+    psets: Record<string, any> | null;
+}
+
 /** Modelo extraído pelo Python (a extração não decide nada). */
 export interface ExtractedIfcModel {
-    /** guid do espaço → dados (formato do inventário por espaço). */
+    /** guid do espaço → dados (formato do inventário por espaço; COLAPSA duplicados). */
     inventoryData: Record<string, any>;
+    /**
+     * Ocorrências lossless por IfcSpace (uma por entidade, ordenadas). Fonte ÚNICA
+     * para deteção de GlobalId duplicado. Opcional para compatibilidade com fontes
+     * de extração que ainda não a fornecem; nesse caso deriva-se de inventoryData
+     * (uma ocorrência por chave — sem poder revelar duplicados).
+     */
+    spaceOccurrences?: SpaceOccurrence[];
     /** IfcBuildingElementProxy fora de qualquer IfcSpace (regras PROXY-*). */
     uncontainedProxies: any[];
     /** Schema declarado no header (perfil suportado/testado: IFC4). */

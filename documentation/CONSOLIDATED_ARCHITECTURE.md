@@ -67,8 +67,97 @@ sequenceDiagram
 
 - `spaces` = identidade persistente (space_uuid); `space_bindings` =
   representação por model_version.
-- Identidade por `Pset_SpaceCommon.Reference` via provider substituível.
-  Reference IDENTIFICA; nunca determina reservabilidade.
+- **Stage 0B (ADR-0051): a identidade persistente é `linked_model_id +
+  IfcSpace.GlobalId`** (byte-exact/case-sensitive) — `spaceIdentityService` e o
+  preview de model-intake resolvem por GlobalId (`findByScopeAndGlobalId`),
+  preservando `spaces.id`/`space_uuid` e os bindings históricos. Mesmo GlobalId +
+  Reference diferente = mesmo espaço (só a Reference administrativa corrente é
+  atualizada — mas se a nova Reference pertencer a **outro** espaço a atualização é
+  bloqueada antes de qualquer `UPDATE`). GlobalId diferente + mesma Reference =
+  identidade diferente, ainda **bloqueada** pela restrição legada transitória
+  `uq_spaces_scope_code` (`TransitionalReferenceCollisionError`), sem fallback por
+  Reference. A validade completa do GlobalId (`^[0-9A-Za-z_$]{22}$`, sem trimming,
+  validador partilhado `utils/ifcGlobalId.ts`) é verificada na aplicação **antes**
+  de qualquer escrita; o `CHECK` do Stage 0A é a defesa final. Erros de chave
+  duplicada mysql2 são classificados por `code`/`errno`/`sqlState`+nome do índice
+  (`utils/mysqlDuplicateKey.ts`): só o índice canónico é corrida de identidade, só
+  `uq_spaces_scope_code` é colisão de Reference, qualquer outro é re-lançado. Uma
+  pré-condição de esquema (Stage 0A) falha com erro operacional preciso se a coluna
+  canónica/índice faltarem — nunca corre migração nem faz fallback; a capacidade é
+  cacheada **por base de dados selecionada** (`SELECT DATABASE()`), com verificação
+  EXACTA da forma (coluna char(22) ascii_bin, CHECK aplicado, índices canónico e
+  legado) partilhada entre escrita e preview (`utils/spaceCanonicalSchema.ts`) —
+  ABSENT e CONFLICTING bloqueiam, só EXACT é cacheado, sem autorizar outra base nem
+  esconder inconsistências por-âmbito. A deteção de GlobalId duplicado usa uma lista
+  lossless `spaceOccurrences` (o Python extrai todos os psets e não nomeia nenhum;
+  o dicionário por-GlobalId colapsaria duplicados). **Ambos** os caminhos de extração
+  a emitem — o controlado (CLI `ifc_extract.py`) e o **ordinário** (Flask `main.py` →
+  `fetchInventory`/`preprocessService`); para escrita a lista é **obrigatória**
+  (`preflightSpaceOccurrences` bloqueia com `lossless_space_occurrences_missing` e
+  nada é persistido; o dicionário colapsado nunca é aceite como prova de unicidade).
+  O preflight puro de GlobalId corre **antes de `saveInventorySnapshot`**, pelo que um
+  GlobalId duplicado não gera sequer `INSERT INTO entities`. O preview mostra TODOS os
+  candidatos com códigos estáveis na precedência `invalid_globalid` >
+  `duplicate_candidate_globalid` > `missing_reference` > esquema/integridade >
+  `existing`/`new`/`transitional_reference_collision` — a falha de esquema **veda** os
+  lookups mas nunca **esconde** um erro local do candidato. `createBinding` é
+  `INSERT…SELECT` juntando `spaces → model_versions → models`: insere só com igualdade
+  byte-a-byte binding↔canónico **e** cadeia `models.linked_parent_id =
+  spaces.linked_model_id` coincidente (zero linhas → `canonical_inconsistency` com
+  causa diagnosticada). Alterações de Reference numa reutilização são race-safe (dup
+  traduzido pelo **catch real do serviço**) e protegidas por um lock cooperativo do
+  MySQL com âmbito no `linked_model` (`GET_LOCK`, conexão dedicada — nunca mutex de
+  processo) mantido desde antes da mutação até à compensação; linked_models diferentes
+  são independentes, o mesmo linked_model serializa. A restauração é condicional (0
+  linhas = "mudança mais recente venceu"; falha de restauração é registada como
+  integridade de compensação no motivo da versão). Verificado num esquema MySQL
+  descartável por `scripts/spaceGlobalIdRuntimeSelfTest.ts` (cadeia do binding, corrida
+  de UPDATE via serviço, lock; nunca seleciona `digital_twin`; limpeza fatal incl.
+  pool) e por um fixture Python real com dois IfcSpace de GlobalId idêntico.
+- **Correções v3:** a lista lossless é obrigatória em `persistSpaceIdentities` (não só
+  no orquestrador) via um validador partilhado que reconcilia EXATAMENTE o conjunto de
+  GlobalIds das ocorrências com o dos candidatos e exige entity ids distintos
+  (`lossless_space_occurrences_inconsistent`); nunca `occurrences ?? candidates`. A
+  precedência do preview corre ANTES de qualquer acesso à BD — a pré-condição de
+  esquema é obtida preguiçosamente e só quando algum candidato precisa de resolução
+  (zero queries caso contrário); `checkConnection` está DENTRO do try controlado. Cada
+  ocorrência tem `ifcEntityId` e URIs de manifestação/candidato distintas mesmo com
+  GlobalId partilhado, e storey por ocorrência (`storeyName` na lista lossless). O nome
+  do lock inclui um hash do `SELECT DATABASE()` real (esquemas distintos com o mesmo
+  `linked_model` id não colidem; ≤64 chars). `withNamedLock` distingue timeout (0) de
+  erro (NULL), exige RELEASE_LOCK=1 e DESTRÓI a conexão dedicada se a libertação falhar
+  (nunca devolve ao pool um lock ainda seguro); o erro do callback é preservado; sucesso
+  do callback + falha de libertação após ativação não aciona compensação de negócio. O
+  restauro de Reference é um compare-and-swap da projeção COMPLETA (raw + normalizado +
+  nome), nunca sobrepondo uma alteração mais recente. A corrida real de UPDATE usa uma
+  barreira genuína de duas conexões (hook de teste após o pré-check real); os testes de
+  lock usam barreiras deterministas. **Limitação honesta:** o journal de compensação é
+  em memória por chamada (mantido sob o lock até à compensação), não durável — um crash
+  duro entre a mudança e a compensação deixaria a projeção administrativa alterada até
+  ao próximo upload autoritativo reconciliar; a identidade (id/uuid/GlobalId) nunca está
+  em risco.
+- **Correções v4:** um erro na QUERY de GET_LOCK (ou resultado NULL) tem desfecho
+  DESCONHECIDO — a conexão dedicada é DESTRUÍDA (nunca devolvida ao pool) e é lançado
+  `lock_error` distinto do timeout, com causa sanitizada (sem segredos); um timeout (0)
+  devolve a conexão, destruindo-a só se `release()` falhar. O nome do lock é derivado NA
+  própria conexão que segura o GET_LOCK (`withNamedLock` aceita uma factory que a recebe;
+  `withReferenceLock` usa `referenceLockNameFactory`), garantindo que o esquema que
+  delimita o lock e a sessão que o segura são a mesma conexão. O erro do callback é sempre
+  primário e nunca substituído: valores não-Error são normalizados (original em `cause`) e
+  uma falha simultânea de libertação anexa metadados (`lockReleaseFailed`,
+  `lockReleaseErrorCode`, mensagem sanitizada). O restauro de Reference é BYTE-EXACT
+  (`BINARY`), independente da collation case/accent-insensitive da tabela — uma alteração
+  mais recente só de maiúsculas/acentos já não é sobreposta. O validador lossless verifica
+  a FORMA de cada ocorrência (objeto; `entityId` inteiro positivo; campos opcionais bem
+  tipados) antes de a desreferenciar, produzindo `lossless_space_occurrences_inconsistent`
+  (nunca `TypeError`), e corre no INÍCIO de `persistSpaceIdentities`, antes de qualquer
+  acesso à BD. O endpoint Flask ordinário constrói o corpo por `build_inventory_payload`,
+  a mesma função que o teste invoca. O teste de lock de dois esquemas usa duas conexões
+  REALMENTE selecionadas em esquemas distintos.
+- A `Pset_SpaceCommon.Reference` continua a ser extraída e **transitoriamente
+  obrigatória** (IDS/esquema atuais), guardada como metadado administrativo
+  corrente e snapshot de versão; já **não** identifica o espaço. Reference nunca
+  determina reservabilidade.
 - Espaços ausentes da versão corrente → `absent` (nunca apagados).
 - **Identidade-alvo aprovada (ADR-0051): `linked_model_id + IfcSpace.GlobalId`**,
   comparação byte-exact/case-sensitive. A **Stage 0A** apenas acrescenta a base de
