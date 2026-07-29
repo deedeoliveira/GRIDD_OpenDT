@@ -17,10 +17,179 @@ import { loadModelIntakeConfig } from "./modelIntakeConfig.ts";
 import { getPreflightRun, storePreflightRun } from "./modelIntakeRunStore.ts";
 import { MappingProfileService } from "./mappingProfileService.ts";
 import { buildMinimalRdf } from "./rdfMaterialiser.ts";
-import type { IntakeProfile, PreflightRun, PreviewAsset, PreviewSpace } from "./modelIntakeTypes.ts";
+import type { IntakeProfile, PreflightRun, PreviewAsset, PreviewSpace, PreviewSpaceStatus, PreviewSpaceCode } from "./modelIntakeTypes.ts";
+import { isValidIfcGlobalId } from "../utils/ifcGlobalId.ts";
+import { deriveSpaceOccurrences } from "../services/spatialPreflightService.ts";
 import { loadSemanticValidationConfig } from "../semanticValidation/semanticValidationConfig.ts";
 
 interface UploadedFile { path: string; originalname: string; size: number; }
+
+/**
+ * Stage 0B (ADR-0051 §7) preview classification for one IfcSpace candidate.
+ * Identity is resolved by GlobalId; Reference is administrative metadata. Pure
+ * function so it is directly unit-testable (§9 A/B/C). Returns a coarse status
+ * plus a stable machine-readable code, and a concise operational message — never
+ * raw SQL or a stack trace. Codes:
+ *  - existing: matched an existing persistent space by GlobalId (Reference may
+ *    have changed → referenceChanged);
+ *  - new: a new GlobalId with no legacy Reference conflict;
+ *  - invalid_globalid: the GlobalId is missing/malformed (fails ^[0-9A-Za-z_$]{22}$);
+ *  - duplicate_candidate_globalid: the same exact GlobalId appears twice in the version;
+ *  - transitional_reference_collision: the candidate Reference is still owned by a
+ *    DIFFERENT persistent space (blocked by the legacy uniqueness index) — whether
+ *    the candidate GlobalId is new (§7) or an existing space is changing its
+ *    Reference (§2 C).
+ */
+export function classifyPreviewSpaceIdentity(input: {
+    guid: string;
+    reference: string;
+    referencePresent: boolean;
+    duplicateGuid: boolean;
+    existingByGlobalId: { id: number; space_uuid: string; inventory_code_normalized: string } | null;
+    referenceOwner: { id: number } | null;
+}): { persistentSpaceStatus: PreviewSpaceStatus; blockingCode: PreviewSpaceCode | null; blockingError: string | null; referenceChanged: boolean; existingReference: string | null } {
+    // §1: full GlobalId validity is the first line of defence, before any status.
+    if (!isValidIfcGlobalId(input.guid)) {
+        return { persistentSpaceStatus: "invalid", blockingCode: "invalid_globalid",
+            blockingError: `IfcSpace GlobalId is missing or malformed (expected exactly 22 characters from 0-9 A-Z a-z _ $).`,
+            referenceChanged: false, existingReference: null };
+    }
+    if (input.duplicateGuid) {
+        return { persistentSpaceStatus: "invalid", blockingCode: "duplicate_candidate_globalid",
+            blockingError: `Duplicate IfcSpace GlobalId '${input.guid}' within this model version.`,
+            referenceChanged: false, existingReference: null };
+    }
+    // §2: a valid, non-duplicate GlobalId with a missing/blank Reference is still
+    // blocking (IDS/schema require it transitionally) but the candidate stays visible.
+    if (!input.referencePresent) {
+        return { persistentSpaceStatus: "missing_reference", blockingCode: "missing_reference",
+            blockingError: `IfcSpace has a valid GlobalId but no Pset_SpaceCommon.Reference, which is still required during the transition.`,
+            referenceChanged: false, existingReference: null };
+    }
+    if (input.existingByGlobalId) {
+        // Same persistent space (identity by GlobalId). If the administrative
+        // Reference changed, it must not collide with a DIFFERENT space (§2 A/B/C).
+        const existingReference = input.existingByGlobalId.inventory_code_normalized;
+        const referenceChanged = existingReference !== input.reference;
+        if (referenceChanged && input.referenceOwner && input.referenceOwner.id !== input.existingByGlobalId.id) {
+            return { persistentSpaceStatus: "transitional_reference_collision", blockingCode: "transitional_reference_collision",
+                blockingError: `This space keeps its identity, but its new Reference '${input.reference}' is still assigned to a different persistent space (id ${input.referenceOwner.id}) while the transitional legacy uniqueness constraint uq_spaces_scope_code is active.`,
+                referenceChanged: true, existingReference };
+        }
+        return { persistentSpaceStatus: "existing", blockingCode: "existing", blockingError: null, referenceChanged, existingReference };
+    }
+    if (input.referenceOwner) {
+        return { persistentSpaceStatus: "transitional_reference_collision", blockingCode: "transitional_reference_collision",
+            blockingError: `A different persistent space (id ${input.referenceOwner.id}) already uses Reference '${input.reference}'. This new GlobalId cannot reuse it while the transitional legacy uniqueness constraint uq_spaces_scope_code is active.`,
+            referenceChanged: false, existingReference: null };
+    }
+    return { persistentSpaceStatus: "new", blockingCode: "new", blockingError: null, referenceChanged: false, existingReference: null };
+}
+
+/**
+ * Build the space-preview entries from the LOSSLESS occurrences (ADR-0051 §1/§2/§3).
+ * EVERY occurrence yields exactly one PreviewSpace — invalid GlobalIds, Reference-less
+ * spaces and duplicate GlobalIds included (no silent `continue`). Precedence per
+ * candidate (§3): invalid_globalid > duplicate_candidate_globalid > missing_reference
+ * > canonical_schema_missing/canonical_inconsistency > existing/new/
+ * transitional_reference_collision. A failing Stage 0A precondition therefore blocks
+ * a candidate that is otherwise valid (and gates its DB identity lookups) but never
+ * hides a more fundamental candidate-local error. Exported and dependency-injected so
+ * it is directly testable without the heavy preflight pipeline.
+ */
+export async function buildSpacePreviewEntries(input: {
+    occurrences: Array<{ guid: string; name?: string | null; longName?: string | null; entityId?: number | null; storeyName?: string | null; psets?: Record<string, any> | null }>;
+    /**
+     * LAZY Stage 0A precondition (§2-v3): invoked at most ONCE, and ONLY if at least one
+     * candidate actually requires database resolution (valid GlobalId, not a duplicate,
+     * Reference present). An invalid-only / duplicate-only / Reference-less-only set
+     * never triggers it, so zero schema queries run when no DB resolution is needed.
+     */
+    precondition: () => Promise<{ code: "ok" | "canonical_schema_missing" | "canonical_inconsistency"; message: string | null }>;
+    baseUri: string;
+    runUuid: string;
+    storeyOf: (guid: string) => string | null;
+    findByGlobalId: (guid: string) => Promise<any | null>;
+    findByReference: (reference: string) => Promise<any | null>;
+}): Promise<PreviewSpace[]> {
+    const guidCounts = new Map<string, number>();
+    for (const o of input.occurrences) guidCounts.set(o.guid, (guidCounts.get(o.guid) ?? 0) + 1);
+
+    // §2-v3 precedence: derive candidate-local facts for EVERY occurrence FIRST, with no
+    // database access, so an invalid/duplicate/Reference-less candidate is classified
+    // even when MySQL is unavailable. The schema precondition is fetched lazily and only
+    // when some candidate truly needs identity resolution.
+    const derived = input.occurrences.map((occ) => {
+        const referenceRaw = occ.psets?.Pset_SpaceCommon?.Reference;
+        const referencePresent = typeof referenceRaw === "string" && referenceRaw.trim().length > 0;
+        return {
+            occ,
+            validGuid: isValidIfcGlobalId(occ.guid),
+            duplicateGuid: guidCounts.get(occ.guid)! > 1,
+            referencePresent,
+            reference: referencePresent ? referenceRaw.trim() : "",
+        };
+    });
+    const anyNeedsResolution = derived.some((d) => d.validGuid && !d.duplicateGuid && d.referencePresent);
+    // Fetch the precondition at most once, only when a candidate requires DB resolution.
+    let preconditionResult: { code: "ok" | "canonical_schema_missing" | "canonical_inconsistency"; message: string | null } | null = null;
+    if (anyNeedsResolution) preconditionResult = await input.precondition();
+
+    const out: PreviewSpace[] = [];
+    for (const d of derived) {
+        const { occ, validGuid, duplicateGuid, referencePresent, reference } = d;
+        const guid = occ.guid;
+        const name = occ.name ?? null;
+        const longName = occ.longName ?? null;
+        const label = longName ?? name;
+        // Per-occurrence storey (§3-v3): prefer the lossless occurrence's own storey; fall
+        // back to the (collapsed) inventory lookup for compatibility.
+        const storey = occ.storeyName ?? input.storeyOf(guid);
+        const entityId = occ.entityId ?? null;
+
+        let cls: { persistentSpaceStatus: PreviewSpaceStatus; blockingCode: PreviewSpaceCode | null;
+            blockingError: string | null; referenceChanged: boolean; existingReference: string | null };
+        let existing: any = null;
+
+        if (!validGuid || duplicateGuid || !referencePresent) {
+            // Candidate-local error: classified with NO database access.
+            cls = classifyPreviewSpaceIdentity({
+                guid, reference, referencePresent, duplicateGuid,
+                existingByGlobalId: null, referenceOwner: null,
+            });
+        } else if (preconditionResult && preconditionResult.code !== "ok") {
+            // Schema/integrity failure: controlled code, no identity lookup.
+            cls = { persistentSpaceStatus: "schema_error", blockingCode: preconditionResult.code,
+                blockingError: preconditionResult.message, referenceChanged: false, existingReference: null };
+        } else {
+            existing = await input.findByGlobalId(guid);
+            const referenceChangedForExisting = !!existing && existing.inventory_code_normalized !== reference;
+            const needReferenceOwner = !existing || referenceChangedForExisting;
+            const referenceOwner = needReferenceOwner ? await input.findByReference(reference) : null;
+            cls = classifyPreviewSpaceIdentity({
+                guid, reference, referencePresent, duplicateGuid,
+                existingByGlobalId: existing, referenceOwner,
+            });
+        }
+
+        // §3-v3: keep candidate/manifestation URIs DISTINCT even when two occurrences
+        // share one GlobalId — the occurrence token is the IFC entity id (descriptive
+        // GlobalId retained as a suffix). entityId is never a persistent identity source.
+        const occToken = entityId != null ? `occ-${entityId}` : `guid-${encodeURIComponent(guid)}`;
+        const persistentUuid = existing?.space_uuid ?? "candidate";
+        const persistentUri = existing
+            ? `${input.baseUri}/space/${existing.space_uuid}`
+            : `${input.baseUri}/candidate/${input.runUuid}/space/${occToken}/${encodeURIComponent(guid)}`;
+        out.push({ persistentUuid, reference, label,
+            ifcGuid: guid, ifcClass: "IfcSpace", storey, persistentUri,
+            manifestationUri: `${input.baseUri}/model-version/candidate-${input.runUuid}/manifestation/${occToken}/${encodeURIComponent(guid)}`,
+            ifcGlobalId: guid, ifcEntityId: entityId, name, longName,
+            persistentSpaceStatus: cls.persistentSpaceStatus, blockingCode: cls.blockingCode,
+            existingSpaceId: existing?.id ?? null, existingSpaceUuid: existing?.space_uuid ?? null,
+            existingReference: cls.existingReference, referenceChanged: cls.referenceChanged, blockingError: cls.blockingError });
+    }
+    return out;
+}
 
 function sha256(filePath: string): string {
     return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
@@ -175,18 +344,30 @@ export class ModelIntakeService {
             if (!graph.configured) throw new IntakeError("graph_not_configured", graph.reason, 503);
             const spaces: PreviewSpace[] = [];
             const assets: PreviewAsset[] = [];
+            const linkedModelId = Number(modelContext.linked_model_id);
+            // ---- SPACE preview over LOSSLESS occurrences (ADR-0051 §1/§2/§3) ----
+            // Iterate one entry per IfcSpace occurrence (never the GlobalId-keyed dict,
+            // which has already collapsed duplicates). EVERY candidate is emitted —
+            // including invalid GlobalIds and Reference-less spaces — with a stable code.
+            // The canonical precondition is passed LAZILY: candidate-local classification
+            // runs first, and the schema/integrity DB check is invoked only if a candidate
+            // actually needs identity resolution (§2-v3).
+            spaces.push(...await buildSpacePreviewEntries({
+                occurrences: deriveSpaceOccurrences(extracted),
+                precondition: () => this.database.checkCanonicalPreconditionForScope(linkedModelId),
+                baseUri: graph.config.baseUri,
+                runUuid,
+                storeyOf: (guid) => (extracted.inventoryData as any)?.[guid]?.storeyName ?? null,
+                findByGlobalId: (guid) => this.database.findSpaceByGlobalId(linkedModelId, guid),
+                findByReference: (ref) => this.database.findSpaceByReference(linkedModelId, ref),
+            }));
+
+            // ---- ASSET preview (equipment semantics unchanged): one pass over the
+            // inventory, gated on a present Reference exactly as before. ----
             for (const [guid, space] of Object.entries(extracted.inventoryData) as [string, any][]) {
                 const referenceRaw = space.psets?.Pset_SpaceCommon?.Reference;
                 if (typeof referenceRaw !== "string" || !referenceRaw.trim()) continue;
                 const reference = referenceRaw.trim();
-                const existing = await this.database.findSpaceIdentity(Number(modelContext.linked_model_id), reference);
-                const persistentUuid = existing?.space_uuid ?? "candidate";
-                const persistentUri = existing
-                    ? `${graph.config.baseUri}/space/${existing.space_uuid}`
-                    : `${graph.config.baseUri}/candidate/${runUuid}/space/${encodeURIComponent(reference)}`;
-                spaces.push({ persistentUuid, reference, label: space.spaceLongName ?? space.spaceName ?? null,
-                    ifcGuid: guid, ifcClass: "IfcSpace", storey: space.storeyName ?? null, persistentUri,
-                    manifestationUri: `${graph.config.baseUri}/model-version/candidate-${runUuid}/manifestation/${encodeURIComponent(guid)}` });
                 for (const element of space.elements ?? []) {
                     const classification = getEquipmentClassifier().classify({ guid: element.guid, ifcClass: element.type,
                         name: element.name ?? null, predefinedType: element.predefinedType ?? null, objectType: element.objectType ?? null,

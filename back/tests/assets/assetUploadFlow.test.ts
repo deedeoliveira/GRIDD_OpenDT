@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { installFakeMySQL, fakeConnection, respond } from "../helpers/fakeDb.ts";
+import { schemaRoutes, SCOPE_CLEAN, occurrencesFromInventory } from "../helpers/spaceSchemaFixtures.ts";
 
 installFakeMySQL();
 process.env.IFCOPENSHELL_FLASK_API_ROUTE ??= "http://flask.test/api";
@@ -26,8 +27,8 @@ const VERSION_ID = 999601;
 
 /** 1 espaço válido + 1 equipamento com Tag EQP- + 1 sensor com Tag. */
 const INVENTORY = {
-    "space-A": {
-        spaceGuid: "space-A", spaceName: "Sala A", spaceLongName: "Sala Grande A",
+    "3VKKG6_QDBqgUlHMH5Q4EB": {
+        spaceGuid: "3VKKG6_QDBqgUlHMH5Q4EB", spaceName: "Sala A", spaceLongName: "Sala Grande A",
         psets: { Pset_SpaceCommon: { Reference: "R-A" } },
         elements: [
             { guid: "g-eq", type: "IfcFurniture", name: "Mesa 01", tag: "EQP-1", psets: {} },
@@ -38,8 +39,8 @@ const INVENTORY = {
 
 /** Versão posterior: mesma Tag mas serial DIVERGENTE (caso de reconciliação). */
 const INVENTORY_SERIAL_CONFLICT = {
-    "space-A": {
-        spaceGuid: "space-A", spaceName: "Sala A", spaceLongName: null,
+    "3VKKG6_QDBqgUlHMH5Q4EB": {
+        spaceGuid: "3VKKG6_QDBqgUlHMH5Q4EB", spaceName: "Sala A", spaceLongName: null,
         psets: { Pset_SpaceCommon: { Reference: "R-A" } },
         elements: [{ guid: "g-eq2", type: "IfcFurniture", name: "Mesa substituída", tag: "EQP-1",
                      psets: { Pset_ManufacturerOccurrence: { SerialNumber: "SN-NOVO" } } }],
@@ -48,8 +49,8 @@ const INVENTORY_SERIAL_CONFLICT = {
 
 /** Equipamento gerido SEM Tag (deve falhar no preflight EQUIPMENT-001). */
 const INVENTORY_MISSING_TAG = {
-    "space-A": {
-        spaceGuid: "space-A", spaceName: "Sala A", spaceLongName: null,
+    "3VKKG6_QDBqgUlHMH5Q4EB": {
+        spaceGuid: "3VKKG6_QDBqgUlHMH5Q4EB", spaceName: "Sala A", spaceLongName: null,
         psets: { Pset_SpaceCommon: { Reference: "R-A" } },
         elements: [{ guid: "g-semtag", type: "IfcFurniture", name: "Mesa sem tag", psets: {} }],
     },
@@ -57,8 +58,8 @@ const INVENTORY_MISSING_TAG = {
 
 /** Proxy sem ObjectType (deve falhar no preflight PROXY-001). */
 const INVENTORY_INVALID_PROXY = {
-    "space-A": {
-        spaceGuid: "space-A", spaceName: "Sala A", spaceLongName: null,
+    "3VKKG6_QDBqgUlHMH5Q4EB": {
+        spaceGuid: "3VKKG6_QDBqgUlHMH5Q4EB", spaceName: "Sala A", spaceLongName: null,
         psets: { Pset_SpaceCommon: { Reference: "R-A" } },
         elements: [{ guid: "g-px", type: "IfcBuildingElementProxy", name: "Proxy", tag: "EQP-9", psets: {} }],
     },
@@ -90,9 +91,11 @@ function routes(overrides: [RegExp, any][] = []): [RegExp, any][] {
         [/spatial_authority_model_id/i, [[{ spatial_authority_model_id: null, model_count: 1, single_model_id: MODEL_ID }]]],
         [/SELECT COUNT\(\*\) as count[\s\S]*FROM entities/i, [[{ count: 0 }]]],
         [/INSERT INTO entities/i, () => [{ insertId: entityId++ }]],
+        ...schemaRoutes(),
+        ...SCOPE_CLEAN,
         [/SELECT \* FROM spaces/i, [[]]],
         [/INSERT INTO spaces/i, [{ insertId: 300 }]],
-        [/INSERT INTO space_bindings/i, [{ insertId: 400 }]],
+        [/INSERT INTO space_bindings/i, [{ insertId: 400, affectedRows: 1 }]],
         [/UPDATE spaces SET status/i, [{}]],
         [/SELECT \* FROM assets WHERE space_id/i, [[]]],
         [/FROM assets[\s\S]*asset_code = :tag/i, [[]]],
@@ -120,7 +123,7 @@ beforeEach(() => {
     requirementsProvider.resetModelRequirementsValidator();
     delete process.env.ASSET_IDENTITY_PROVIDER;
     inventoryPayload = INVENTORY;
-    (globalThis as any).fetch = async () => ({ ok: true, json: async () => ({ data: inventoryPayload }) });
+    (globalThis as any).fetch = async () => ({ ok: true, json: async () => ({ data: inventoryPayload, spaceOccurrences: occurrencesFromInventory(inventoryPayload) }) });
     fs.rmSync(path.join(STORAGE_ROOT, `models/${MODEL_ID}`), { recursive: true, force: true });
 });
 
@@ -227,7 +230,7 @@ test("proxy sem ObjectType → 422 PROXY-001 com diagnóstico (classe, guid, nom
 
 test("proxy com ObjectType mas Tag inválida → 422 PROXY-002", async () => {
     const inventory = JSON.parse(JSON.stringify(INVENTORY_INVALID_PROXY));
-    inventory["space-A"].elements[0] = { guid: "g-px", type: "IfcBuildingElementProxy",
+    inventory["3VKKG6_QDBqgUlHMH5Q4EB"].elements[0] = { guid: "g-px", type: "IfcBuildingElementProxy",
         name: "Proxy", tag: "SEM-PREFIXO", objectType: "Betoneira", psets: {} };
     await expectRequirementsFailure(inventory, "PROXY-002",
         /without a valid equipment Tag starting with EQP-/);
@@ -235,7 +238,7 @@ test("proxy com ObjectType mas Tag inválida → 422 PROXY-002", async () => {
 
 test("Tags duplicadas na mesma versão → 422 EQUIPMENT-003", async () => {
     const inventory = JSON.parse(JSON.stringify(INVENTORY));
-    inventory["space-A"].elements = [
+    inventory["3VKKG6_QDBqgUlHMH5Q4EB"].elements = [
         { guid: "g-1", type: "IfcFurniture", name: "Mesa A", tag: "EQP-DUP", psets: {} },
         { guid: "g-2", type: "IfcFurniture", name: "Mesa B", tag: "EQP-DUP", psets: {} },
     ];

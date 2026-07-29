@@ -56,16 +56,11 @@ def inventory_model(modelId):
     with open("source_model.ifc", "wb") as modelFile:
         modelFile.write(res.data)
 
-    inventory = ifcopenshell_utils.extract_inventory_by_space()
-    context = ifcopenshell_utils.extract_model_context()
-
-    # "data" mantém o formato anterior (dict de espaços) por compatibilidade;
-    # o contexto do modelo (schema, proxies não contidos) segue em campos
-    # irmãos para o model_requirements_preflight do Node.js.
-    return {
-        "status": "success",
-        "data": inventory,
-        "schema": context["schema"],
-        "uncontainedProxies": context["uncontainedProxies"],
-        "ok": True
-    }, 200
+    # The response body is built by the SINGLE pure function build_inventory_payload
+    # (ADR-0051 Stage 0B §7-v4), so the endpoint and the tests exercise the same code.
+    # It carries "data" (GlobalId-keyed, for backward compatibility) alongside the
+    # ordered LOSSLESS "spaceOccurrences" list (one record per IfcSpace ENTITY, before
+    # any GlobalId collapse — the dict in "data" can never reveal two IfcSpace instances
+    # that share one exact GlobalId; this list can) plus the model context, all consumed
+    # by the Node.js model_requirements_preflight and the identity preflight.
+    return ifcopenshell_utils.build_inventory_payload(), 200

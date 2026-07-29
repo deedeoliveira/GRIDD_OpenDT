@@ -55,6 +55,47 @@ def _space_entry(sp):
         "elements": []
     }
 
+def _space_occurrence(sp):
+    """
+    One LOSSLESS record per IfcSpace ENTITY (ADR-0051 Stage 0B §1). Emitted as an
+    ordered list BEFORE any GlobalId-keyed collapse, so two IfcSpace instances that
+    share the same exact GlobalId are both retained for duplicate detection — which
+    `extract_inventory_by_space` (a dict keyed by GlobalId) can never reveal.
+
+    The extraction stays DUMB: it copies ALL property sets verbatim and names none.
+    Interpreting a specific pset (e.g. the identity Reference) is the Node.js
+    identity/model-intake layer's responsibility, never Python's.
+    """
+    try:
+        psets = ifcopenshell.util.element.get_psets(sp)
+    except Exception:
+        psets = {}
+
+    # Per-occurrence storey (ADR-0051 §3-v3): two IfcSpace occurrences that share one
+    # GlobalId may sit under different storeys, so the storey is derived PER OCCURRENCE
+    # here rather than looked up from the GlobalId-collapsed inventory.
+    try:
+        container = ifcopenshell.util.element.get_aggregate(sp)
+        storey_name = getattr(container, "Name", None) if container and container.is_a("IfcBuildingStorey") else None
+    except Exception:
+        storey_name = None
+
+    return {
+        "entityId": sp.id(),
+        "guid": sp.GlobalId,
+        "name": getattr(sp, "Name", None),
+        "longName": getattr(sp, "LongName", None),
+        "storeyName": storey_name,
+        "psets": psets,
+    }
+
+
+def extract_space_occurrences(file_path="source_model.ifc"):
+    """Ordered, lossless list of every IfcSpace occurrence (no GlobalId collapse)."""
+    model = ifcopenshell.open(file_path)
+    return [_space_occurrence(sp) for sp in model.by_type("IfcSpace")]
+
+
 def extract_inventory_by_space(file_path="source_model.ifc"):
     model = ifcopenshell.open(file_path)
 
@@ -109,6 +150,33 @@ def _element_entry(el):
         "objectType": getattr(el, "ObjectType", None),
         "predefinedType": str(predefined) if predefined is not None else None,
         "psets": el_psets
+    }
+
+
+def build_inventory_payload(file_path="source_model.ifc"):
+    """
+    Build the EXACT body of the ordinary `/api/model/inventory/<modelId>` response
+    (ADR-0051 Stage 0B §7-v4). The Flask endpoint calls THIS function, so a test that
+    invokes it exercises the real endpoint-used implementation — not a hand-assembled
+    reconstruction. It stays a dumb extractor: it copies raw property sets and never
+    interprets a Reference. Fields:
+      - `data`               — GlobalId-keyed inventory (duplicates already collapsed);
+      - `spaceOccurrences`   — ordered LOSSLESS list, one record per IfcSpace entity,
+                               each carrying its own `entityId` and `storeyName`, so two
+                               IfcSpace instances sharing one exact GlobalId are BOTH kept;
+      - `schema`             — declared IFC schema;
+      - `uncontainedProxies` — proxies outside any IfcSpace (PROXY-* rules).
+    """
+    inventory = extract_inventory_by_space(file_path)
+    occurrences = extract_space_occurrences(file_path)
+    context = extract_model_context(file_path)
+    return {
+        "status": "success",
+        "data": inventory,
+        "spaceOccurrences": occurrences,
+        "schema": context["schema"],
+        "uncontainedProxies": context["uncontainedProxies"],
+        "ok": True,
     }
 
 

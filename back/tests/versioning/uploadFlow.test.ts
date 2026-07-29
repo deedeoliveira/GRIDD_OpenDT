@@ -10,6 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { installFakeMySQL, fakeConnection, respond } from "../helpers/fakeDb.ts";
+import { schemaRoutes, SCOPE_CLEAN, occurrencesFromInventory } from "../helpers/spaceSchemaFixtures.ts";
 
 installFakeMySQL();
 process.env.IFCOPENSHELL_FLASK_API_ROUTE ??= "http://flask.test/api";
@@ -25,7 +26,7 @@ const VERSION_ID = 999201;
 // (Revisão P4) equipamentos com IfcElement.Tag EQP- (exigida pelo
 // model_requirements_preflight em qualquer modelo com candidatos geridos)
 const INVENTORY = {
-    "space-g": { spaceGuid: "space-g", spaceName: "Sala", elements: [
+    "2TYxeEXST7MP9bl8QCa9Ti": { spaceGuid: "2TYxeEXST7MP9bl8QCa9Ti", spaceName: "Sala", elements: [
         { guid: "elem-g", type: "IfcFurniture", name: "Mesa", tag: "EQP-MESA-1" },
         { guid: "sensor-g", type: "IfcSensor", name: "Sensor", tag: "EQP-SEN-1" },
     ]},
@@ -34,7 +35,7 @@ const INVENTORY = {
 /* ---- fetch do Flask simulado ---- */
 const realFetch = globalThis.fetch;
 let fetchCalls: { url: string; body: string | null }[] = [];
-let fetchBehavior: () => any = () => ({ ok: true, json: async () => ({ data: INVENTORY }) });
+let fetchBehavior: () => any = () => ({ ok: true, json: async () => ({ data: INVENTORY, spaceOccurrences: occurrencesFromInventory(INVENTORY) }) });
 
 function installFakeFetch() {
     (globalThis as any).fetch = async (url: any, opts: any) => {
@@ -65,6 +66,9 @@ function successRoutes(overrides: Partial<Record<string, any>> = {}): [RegExp, a
         [/UPDATE model_versions SET storage_key/i, [{}]],
         [/SELECT COUNT\(\*\) as count[\s\S]*FROM entities/i, [[{ count: 0 }]]],
         [/INSERT INTO entities/i, overrides.insertEntities ?? (() => [{ insertId: entityId++ }])],
+        // Stage 0B EXACT canonical-schema precondition + scope integrity (ADR-0051 §3/§4).
+        ...schemaRoutes(),
+        ...SCOPE_CLEAN,
         // (Prompt 4) fluxo de ativos persistentes
         [/SELECT \* FROM assets WHERE space_id/i, [[]]],
         [/FROM assets[\s\S]*asset_code = :tag/i, [[]]],
@@ -88,7 +92,7 @@ beforeEach(() => {
     fakeConnection.reset();
     providers.resetPolicyProviders();
     fetchCalls = [];
-    fetchBehavior = () => ({ ok: true, json: async () => ({ data: INVENTORY }) });
+    fetchBehavior = () => ({ ok: true, json: async () => ({ data: INVENTORY, spaceOccurrences: occurrencesFromInventory(INVENTORY) }) });
     installFakeFetch();
     fs.rmSync(path.join(STORAGE_ROOT, `models/${MODEL_ID}`), { recursive: true, force: true });
 });

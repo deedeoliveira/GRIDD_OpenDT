@@ -27,6 +27,8 @@ export type ConcurrencyEventType =
     | "concurrency_retry_exhausted"
     | "deadlock_detected"
     | "lock_timeout"
+    | "lock_error"
+    | "lock_release_failed"
     | "model_upload_concurrency"
     | "reconciliation_conflict"
     | "semantic_sync_concurrency"
@@ -46,10 +48,35 @@ export function newCorrelationId(): string {
 }
 
 export class ConcurrencyError extends Error {
-    constructor(public readonly code: "lock_timeout" | "deadlock_retry_exhausted" | "transition_conflict", message: string) {
+    /**
+     * Sanitized diagnostic cause of the failure (never the raw driver error, so
+     * connection secrets/passwords are never carried): typically `{ message, code,
+     * errno }`. Present only when an underlying failure was captured.
+     */
+    cause?: unknown;
+    constructor(
+        public readonly code: "lock_timeout" | "lock_error" | "lock_release_failed" | "deadlock_retry_exhausted" | "transition_conflict",
+        message: string,
+        cause?: unknown,
+    ) {
         super(message);
         this.name = "ConcurrencyError";
+        if (cause !== undefined) this.cause = cause;
     }
+}
+
+/**
+ * Reduce an arbitrary thrown value to a SANITIZED diagnostic shape — never the raw
+ * driver error object (which may carry connection configuration/secrets). Keeps only
+ * a truncated message plus the stable `code`/`errno` a driver error exposes.
+ */
+export function sanitizeErrorCause(error: unknown): { message: string; code?: string; errno?: number } {
+    const anyErr = error as any;
+    const message = String(anyErr?.message ?? anyErr ?? "unknown error").replace(/\s+/g, " ").trim().slice(0, 200);
+    const out: { message: string; code?: string; errno?: number } = { message };
+    if (typeof anyErr?.code === "string") out.code = anyErr.code;
+    if (typeof anyErr?.errno === "number") out.errno = anyErr.errno;
+    return out;
 }
 
 function isDeadlock(error: any): boolean {

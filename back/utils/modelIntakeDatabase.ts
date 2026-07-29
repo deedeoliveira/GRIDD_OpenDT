@@ -1,5 +1,17 @@
 import crypto from "node:crypto";
 import MySQLDatabase from "./mysqlDatabase.ts";
+import { inspectCanonicalSpaceSchema, firstNonExactArtifact, findScopeCanonicalInconsistencies } from "./spaceCanonicalSchema.ts";
+
+/**
+ * Controlled Stage 0A precondition result for the model-intake preview (ADR-0051
+ * Stage 0B §3). Carries a stable machine code and a concise operational message —
+ * never SQL, driver text or a stack trace.
+ */
+export type PreviewCanonicalPreconditionCode = "ok" | "canonical_schema_missing" | "canonical_inconsistency";
+export interface PreviewCanonicalPrecondition {
+    code: PreviewCanonicalPreconditionCode;
+    message: string | null;
+}
 
 export interface MaterialisationCreateInput {
     materialisationUuid: string;
@@ -46,10 +58,59 @@ export class ModelIntakeDatabase {
         return rows.find((row) => Number(row.model_id) === modelId) ?? null;
     }
 
-    async findSpaceIdentity(linkedModelId: number, reference: string): Promise<any | null> {
+    /**
+     * Stage 0A precondition for the preview (§3): verify the selected database and
+     * the EXACT canonical schema, then the per-scope canonical integrity. Returns a
+     * controlled code — never a raw SQL/driver error. Uses the SAME shared
+     * inspection as the write path so preview and persistence cannot diverge.
+     */
+    async checkCanonicalPreconditionForScope(linkedModelId: number): Promise<PreviewCanonicalPrecondition> {
+        try {
+            // checkConnection is INSIDE the controlled try (§2-v3): a connection-setup
+            // failure returns a stable operational code, never a raw driver error.
+            await this.db.checkConnection();
+            const [dbRows]: any = await this.db.connection.execute("SELECT DATABASE() AS db", {});
+            const selected = dbRows?.[0]?.db;
+            if (typeof selected !== "string" || selected.length === 0) {
+                return { code: "canonical_schema_missing", message: "No database is selected; the canonical IfcSpace identity schema cannot be verified." };
+            }
+            const bad = firstNonExactArtifact(await inspectCanonicalSpaceSchema(this.db.connection));
+            if (bad) {
+                return { code: "canonical_schema_missing", message: `The Stage 0A canonical identity schema is not exactly present (${bad.artifact}: ${bad.state}).` };
+            }
+            const inc = await findScopeCanonicalInconsistencies(this.db.connection, linkedModelId);
+            if (inc.nullCanonical.length > 0 || inc.bindingMismatch.length > 0) {
+                return { code: "canonical_inconsistency", message: "Existing spaces or bindings are inconsistent with the canonical GlobalId; refusing to preview without repair." };
+            }
+            return { code: "ok", message: null };
+        } catch {
+            // Never surface a raw driver/SQL error to the BIM Manager.
+            return { code: "canonical_schema_missing", message: "The canonical IfcSpace identity schema could not be verified." };
+        }
+    }
+
+    /**
+     * Stage 0B canonical preview lookup (ADR-0051): identity is
+     * linked_model_id + exact case-sensitive IfcSpace.GlobalId. BINARY on both
+     * sides makes the comparison byte-exact regardless of literal collation.
+     */
+    async findSpaceByGlobalId(linkedModelId: number, ifcGlobalId: string): Promise<any | null> {
         await this.db.checkConnection();
         const [rows]: any = await this.db.connection.execute(`
-            SELECT id, space_uuid, inventory_code, name FROM spaces
+            SELECT id, space_uuid, ifc_global_id, inventory_code, inventory_code_normalized, name FROM spaces
+            WHERE linked_model_id = :linkedModelId AND BINARY ifc_global_id = BINARY :ifcGlobalId LIMIT 1
+        `, { linkedModelId, ifcGlobalId });
+        return rows[0] ?? null;
+    }
+
+    /**
+     * Reference lookup RETAINED only to surface the transitional legacy
+     * Reference-uniqueness collision in the preview — never an identity key.
+     */
+    async findSpaceByReference(linkedModelId: number, reference: string): Promise<any | null> {
+        await this.db.checkConnection();
+        const [rows]: any = await this.db.connection.execute(`
+            SELECT id, space_uuid, ifc_global_id, inventory_code, inventory_code_normalized, name FROM spaces
             WHERE linked_model_id = :linkedModelId AND inventory_code_normalized = :reference LIMIT 1
         `, { linkedModelId, reference: reference.trim() });
         return rows[0] ?? null;

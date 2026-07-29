@@ -43,6 +43,12 @@ export async function fetchInventory(modelId: number, fileUrl?: string): Promise
 
   return {
     inventoryData: invPayload.data,
+    // Lossless per-IfcSpace occurrences (ADR-0051 Stage 0B §1). Propagated verbatim
+    // so the ORDINARY upload path (not only the controlled CLI extractor) can prove
+    // GlobalId uniqueness before any persistence. When the bridge omits it (an older
+    // Flask), it stays undefined: the write path then blocks with
+    // `lossless_space_occurrences_missing` rather than trusting the collapsed dict.
+    spaceOccurrences: Array.isArray(invPayload.spaceOccurrences) ? invPayload.spaceOccurrences : undefined,
     uncontainedProxies: invPayload.uncontainedProxies ?? [],
     schema: invPayload.schema ?? null,
   };

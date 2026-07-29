@@ -22,8 +22,33 @@ export interface IntakeProfile extends IdsProfileMetadata {
     requirements: VisibleIdsRequirement[];
 }
 
+/** Stage 0B persistent-space resolution status for an IfcSpace candidate. */
+export type PreviewSpaceStatus =
+    | "existing"
+    | "new"
+    | "invalid"
+    | "missing_reference"
+    | "transitional_reference_collision"
+    | "schema_error";
+
+/**
+ * Stable machine-readable code for a preview outcome (ADR-0051 §7, Stage 0B §2/§3).
+ * Exposed alongside a concise operational message so the BIM Manager UI never has
+ * to parse prose — and never sees raw SQL or internal stack traces.
+ */
+export type PreviewSpaceCode =
+    | "existing"
+    | "new"
+    | "invalid_globalid"
+    | "duplicate_candidate_globalid"
+    | "missing_reference"
+    | "transitional_reference_collision"
+    | "canonical_schema_missing"
+    | "canonical_inconsistency";
+
 export interface PreviewSpace {
     persistentUuid: string | "candidate";
+    /** Candidate Reference (current administrative metadata; still required). */
     reference: string;
     label: string | null;
     ifcGuid: string;
@@ -31,6 +56,33 @@ export interface PreviewSpace {
     storey: string | null;
     persistentUri: string;
     manifestationUri: string;
+    // ---- Stage 0B (ADR-0051): GlobalId is the identity authority ----
+    // Optional so the RDF/version-resource builders (which project already-persisted
+    // versions) are unaffected; the intake preview always populates every field.
+    /** IfcSpace.GlobalId — the persistent identity key (exact, case-sensitive). */
+    ifcGlobalId?: string;
+    /**
+     * IFC entity occurrence id (ADR-0051 §3-v3). Distinguishes two IfcSpace occurrences
+     * that share one GlobalId; used only for the manifestation/candidate URI and
+     * diagnostics — NEVER a persistent identity source. Null when the display-only
+     * fallback (no lossless list) was used.
+     */
+    ifcEntityId?: number | null;
+    name?: string | null;
+    longName?: string | null;
+    /** Resolution against existing persistent identity by GlobalId. */
+    persistentSpaceStatus?: PreviewSpaceStatus;
+    /** Stable machine-readable code paired with the status (§7). */
+    blockingCode?: PreviewSpaceCode | null;
+    /** Existing persistent space when matched by GlobalId. */
+    existingSpaceId?: number | null;
+    existingSpaceUuid?: string | null;
+    /** Current stored Reference of the matched persistent space (if existing). */
+    existingReference?: string | null;
+    /** True when the candidate Reference differs from the stored current Reference. */
+    referenceChanged?: boolean;
+    /** Populated for a blocking status (transitional_reference_collision/invalid). */
+    blockingError?: string | null;
 }
 
 export interface PreviewAsset {

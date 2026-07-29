@@ -1,6 +1,30 @@
 import spaceDb from "../utils/spaceDatabase.ts";
 import { getSpaceIdentityResolver } from "../identity/spaceIdentityProvider.ts";
+import { isValidIfcGlobalId } from "../utils/ifcGlobalId.ts";
 import type { SpaceIdentityResult } from "../identity/types.ts";
+import type { ExtractedIfcModel, SpaceOccurrence } from "../requirements/modelRequirementsTypes.ts";
+
+/**
+ * Lossless per-IfcSpace occurrences (ADR-0051 Stage 0B §1). Uses the Python
+ * `spaceOccurrences` list when present — the only source that can reveal a
+ * duplicate exact GlobalId. Falls back to one occurrence per inventoryData key
+ * (which, being GlobalId-keyed, has already collapsed duplicates and therefore
+ * cannot reveal them) so older extraction sources keep working without claiming
+ * duplicate detection.
+ */
+export function deriveSpaceOccurrences(extracted: Pick<ExtractedIfcModel, "spaceOccurrences" | "inventoryData">): SpaceOccurrence[] {
+    if (Array.isArray(extracted.spaceOccurrences)) return extracted.spaceOccurrences;
+    // Fallback carries the raw psets verbatim (this layer names no pset); the
+    // identity Reference is interpreted only in the identity/model-intake layer.
+    return Object.entries(extracted.inventoryData ?? {}).map(([guid, s]: [string, any]) => ({
+        entityId: null,
+        guid,
+        name: s?.spaceName ?? null,
+        longName: s?.spaceLongName ?? null,
+        storeyName: s?.storeyName ?? null,
+        psets: s?.psets ?? null,
+    }));
+}
 
 /**
  * spatial_preflight (revisão do Prompt 3): validação obrigatória dos
@@ -74,6 +98,24 @@ export function groupDuplicateReferences<T extends { result: SpaceIdentityResult
         byCode.get(code)!.push(entry);
     }
     return new Map([...byCode].filter(([, group]) => group.length > 1));
+}
+
+/**
+ * Groups candidate IfcSpaces by EXACT case-sensitive GlobalId and returns the
+ * duplicated groups. Under the Stage 0B byte-exact identity contract, GlobalIds
+ * differing only by letter case are DISTINCT and never grouped. Shared with the
+ * persistence path as the user-facing duplicate detector (not a DB exception).
+ */
+export function groupDuplicateGlobalIds<T extends { guid: string }>(candidates: T[]): Map<string, T[]> {
+    const byGuid = new Map<string, T[]>();
+    for (const c of candidates) {
+        // Only VALID GlobalIds participate in duplicate detection; an invalid one
+        // is handled by the invalid-GlobalId gate, not misreported as a duplicate.
+        if (!isValidIfcGlobalId(c.guid)) continue;
+        if (!byGuid.has(c.guid)) byGuid.set(c.guid, []);
+        byGuid.get(c.guid)!.push(c);
+    }
+    return new Map([...byGuid].filter(([, group]) => group.length > 1));
 }
 
 function logPreflight(event: string, payload: Record<string, unknown>) {

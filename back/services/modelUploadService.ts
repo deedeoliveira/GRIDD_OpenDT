@@ -7,9 +7,10 @@ import { fetchInventory } from "./preprocessService.ts";
 import { getModelRequirementsValidator } from "../requirements/modelRequirementsProvider.ts";
 import { ModelRequirementsError } from "../requirements/modelRequirementsTypes.ts";
 import { ModelRequirementsValidationService } from "../requirements/modelRequirementsValidationService.ts";
-import { persistSpaceIdentities, reconcileSpaceStatusesAfterActivation, type SpaceCandidateInput } from "./spaceIdentityService.ts";
+import { persistSpaceIdentities, preflightSpaceOccurrences, reconcileSpaceStatusesAfterActivation, type SpaceCandidateInput } from "./spaceIdentityService.ts";
 import { persistAssetsForVersion, reconcileAssetLifecycleAfterActivation } from "./assetInventoryService.ts";
 import persistentAssetDb from "../utils/persistentAssetDatabase.ts";
+import { classifyDuplicateKey } from "../utils/mysqlDuplicateKey.ts";
 import { hashFile, promoteFile, removeTempFile, removeVersionDir, resolveStorageKey, versionStorageKey } from "../utils/storage.ts";
 import { extractIfcModelFromFile } from "../requirements/ifcFileExtraction.ts";
 import type { IntakeProfile } from "../modelIntake/modelIntakeTypes.ts";
@@ -84,6 +85,48 @@ function logUploadFailure(stage: string, error: any, context: Record<string, unk
     }));
 }
 
+/**
+ * Compensating restore of the administrative-Reference projections this operation
+ * applied to REUSED (pre-existing) spaces (ADR-0051 §6). Called while the
+ * linked_model Reference lock is STILL held. Each restore is CONDITIONAL on the
+ * value we applied still being current (`restoreCurrentReference`), so a newer
+ * concurrent successful change is never clobbered (§6.5). Returns human-readable
+ * compensation-integrity notes for the version failure reason:
+ *  - zero rows restored (§6.6): our value is no longer current (a newer change won,
+ *    or the row is gone) — explained via a structured log, not treated as a failure;
+ *  - a duplicate-key or other restore error (§6.7): an explicit compensation-integrity
+ *    failure, surfaced in the failure reason rather than merely logged.
+ * spaces.id / space_uuid / ifc_global_id are never changed by compensation (§6.8).
+ */
+async function restoreReferenceProjections(
+    updates: Array<{ spaceId: number; appliedInventoryCode: string; appliedInventoryCodeNormalized: string; appliedName: string | null;
+        previousInventoryCode: string | null; previousInventoryCodeNormalized: string | null; previousName: string | null }>,
+    ctx: { modelId: number | null; versionId: number | null },
+): Promise<string[]> {
+    const issues: string[] = [];
+    for (const u of updates) {
+        try {
+            const rows = await spaceDb.restoreCurrentReference(u);
+            if (rows === 0) {
+                // §6.6: the FULL applied projection (raw+normalized+name) is no longer
+                // current — a newer projection won or the row is gone. Visible in the
+                // structured compensation report, never a silent success.
+                logUploadFailure("compensation_reference_noop",
+                    new Error("restore matched 0 rows: the applied Reference projection is no longer current (a newer change won, or the row is absent) — left as-is, never overwritten"),
+                    { ...ctx, spaceId: u.spaceId, appliedInventoryCodeNormalized: u.appliedInventoryCodeNormalized });
+                issues.push(`space ${u.spaceId} Reference restore matched 0 rows (newer projection won or row absent; left as-is)`);
+            }
+        } catch (e: any) {
+            logUploadFailure("compensation_reference_failed", e, { ...ctx, spaceId: u.spaceId });
+            const cause = classifyDuplicateKey(e) === "legacy_reference"
+                ? "previous Reference was reclaimed by another persistent space"
+                : String(e?.code ?? e?.message ?? e);
+            issues.push(`space ${u.spaceId} Reference restore failed (${cause})`);
+        }
+    }
+    return issues;
+}
+
 export async function handleModelUpload(input: UploadInput): Promise<UploadResult> {
     let stage = "before_version";
     let modelId = input.modelId ?? null;
@@ -93,6 +136,10 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
     let isNewModel = false;
     let createdSpaceIds: number[] = [];
     let createdAssetIds: number[] = [];
+    // Administrative-Reference changes applied to REUSED spaces (§6.B) — restored on
+    // failure (deleting orphan spaces never undoes an UPDATE to a pre-existing row).
+    let referenceUpdates: Array<{ spaceId: number; appliedInventoryCodeNormalized: string;
+        previousInventoryCode: string | null; previousInventoryCodeNormalized: string | null; previousName: string | null }> = [];
     let previousCurrentVersionId: number | null = null;
     let semanticMaterialisation: any | null = null;
 
@@ -187,92 +234,172 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
             );
         }
 
-        /* -------- 6. inventário de entities (snapshot da versão) -------- */
+        /* -------- 6. pure GlobalId preflight (ADR-0051 §2): the lossless
+                       occurrence contract, malformed GlobalIds and duplicate exact
+                       GlobalIds are validated BEFORE saveInventorySnapshot, so no
+                       `entities`/`spaces`/`bindings`/asset row is ever written for a
+                       duplicate. The write path keeps the same checks as defence in
+                       depth, but is no longer the first detector. -------- */
+        stage = "space_globalid_preflight";
+        const { occurrences } = preflightSpaceOccurrences({
+            extracted, modelVersionId: versionId, linkedModelId: linkedParentId,
+        });
+
+        /* -------- 7. inventário de entities (snapshot da versão) -------- */
         stage = "inventory";
         const { spaceEntityIdsByGuid, elementEntityIdsByGuid } =
             await inventoryDb.saveInventorySnapshot(versionId, inventoryData);
 
-        /* -------- 7. identidade persistente dos espaços (Prompt 3) -------- */
-        stage = "spatial_identity";
-        let presentNormalizedCodes: string[] = [];
-        let spaceInfoByGuid: Record<string, { spaceId: number; code: string }> = {};
+        /* -------- 8–11. identidade persistente, ativos, materialização e
+                          ativação correm sob um LOCK cooperativo com âmbito no
+                          linked_model (ADR-0051 §6). O lock é adquirido ANTES de
+                          qualquer mutação de Reference e mantido até a compensação
+                          de Reference terminar, pelo que, durante esta janela,
+                          nenhuma operação cooperante do MESMO linked_model pode
+                          reclamar a Reference anterior. Uploads de linked_models
+                          DIFERENTES usam nomes de lock distintos e permanecem
+                          independentes. -------- */
+        // Non-null captures for the closure (both are guaranteed set by this point):
+        // the model was reused/created above and the version was reserved.
+        const activeModelId: number = modelId!;
+        const activeVersionId: number = versionId!;
+        const runIdentityAndActivation = async (): Promise<{ presentNormalizedCodes: string[] }> => {
+            stage = "spatial_identity";
+            let presentNormalizedCodes: string[] = [];
+            let spaceInfoByGuid: Record<string, { spaceId: number; code: string }> = {};
 
-        if (linkedParentId !== null) {
-            const candidates: SpaceCandidateInput[] = Object.entries(inventoryData as Record<string, any>)
-                .filter(([guid]) => spaceEntityIdsByGuid[guid] !== undefined)
-                .map(([guid, space]) => ({
-                    guid,
-                    name: space.spaceName ?? null,
-                    longName: space.spaceLongName ?? null,
-                    psets: space.psets ?? null,
-                    entityId: spaceEntityIdsByGuid[guid]!,
-                }));
+            if (linkedParentId !== null) {
+                const candidates: SpaceCandidateInput[] = Object.entries(inventoryData as Record<string, any>)
+                    .filter(([guid]) => spaceEntityIdsByGuid[guid] !== undefined)
+                    .map(([guid, space]) => ({
+                        guid,
+                        name: space.spaceName ?? null,
+                        longName: space.spaceLongName ?? null,
+                        psets: space.psets ?? null,
+                        entityId: spaceEntityIdsByGuid[guid]!,
+                    }));
 
-            const spatial = await persistSpaceIdentities({
-                linkedModelId: linkedParentId,
-                modelId,
-                modelVersionId: versionId,
-                candidates,
-            });
-
-            createdSpaceIds = spatial.createdSpaceIds;
-            presentNormalizedCodes = spatial.presentNormalizedCodes;
-            spaceInfoByGuid = spatial.spaceInfoByGuid;
-        }
-
-        /* -------- 8. ativos persistentes: reconciliação de identidade,
-                       política de reservabilidade e bindings (Prompt 4) -------- */
-        stage = "asset_reconciliation";
-        if (linkedParentId !== null) {
-            const assetOutcome = await persistAssetsForVersion({
-                linkedModelId: linkedParentId,
-                modelId,
-                modelVersionId: versionId,
-                inventoryData,
-                spaceEntityIdsByGuid,
-                elementEntityIdsByGuid,
-                spaceInfoByGuid,
-            });
-            createdAssetIds = assetOutcome.createdAssetIds;
-        }
-
-        /* -------- 9. materialização semântica controlada (Prompt 7D) -------- */
-        if (input.controlledIntake) {
-            stage = "semantic_materialisation";
-            const intakeConfig = loadModelIntakeConfig();
-            try {
-                semanticMaterialisation = await new SemanticMaterialisationService().materialise({
-                    versionId,
-                    extractedModel: extracted,
-                    ids: input.controlledIntake.idsProfile,
+                const spatial = await persistSpaceIdentities({
+                    linkedModelId: linkedParentId,
+                    modelId: activeModelId,
+                    modelVersionId: activeVersionId,
+                    candidates,
+                    // Lossless occurrences so a duplicate exact GlobalId is detected and
+                    // blocks BEFORE any persistent write (§1); candidates alone are
+                    // GlobalId-collapsed and cannot reveal it.
+                    occurrences,
                 });
-            } catch (error) {
-                if (intakeConfig.mode === "required") throw error;
-                semanticMaterialisation = {
-                    status: "failed_retryable",
-                    message: "Semantic materialisation failed; IFC version continued in best_effort mode.",
-                };
+
+                createdSpaceIds = spatial.createdSpaceIds;
+                referenceUpdates = spatial.referenceUpdates;
+                presentNormalizedCodes = spatial.presentNormalizedCodes;
+                spaceInfoByGuid = spatial.spaceInfoByGuid;
             }
-        }
 
-        /* -------- 10. ativação e troca da versão corrente -------- */
-        stage = "activation";
-        await versionDb.activateVersion(modelId, versionId);
+            /* -------- ativos persistentes: reconciliação de identidade,
+                        política de reservabilidade e bindings (Prompt 4) -------- */
+            stage = "asset_reconciliation";
+            if (linkedParentId !== null) {
+                const assetOutcome = await persistAssetsForVersion({
+                    linkedModelId: linkedParentId,
+                    modelId: activeModelId,
+                    modelVersionId: activeVersionId,
+                    inventoryData,
+                    spaceEntityIdsByGuid,
+                    elementEntityIdsByGuid,
+                    spaceInfoByGuid,
+                });
+                createdAssetIds = assetOutcome.createdAssetIds;
+            }
 
-        /* -------- 10. reconciliação pós-ativação: estados dos espaços e
+            /* -------- materialização semântica controlada (Prompt 7D) -------- */
+            if (input.controlledIntake) {
+                stage = "semantic_materialisation";
+                const intakeConfig = loadModelIntakeConfig();
+                try {
+                    semanticMaterialisation = await new SemanticMaterialisationService().materialise({
+                        versionId: activeVersionId,
+                        extractedModel: extracted,
+                        ids: input.controlledIntake.idsProfile,
+                    });
+                } catch (error) {
+                    if (intakeConfig.mode === "required") throw error;
+                    semanticMaterialisation = {
+                        status: "failed_retryable",
+                        message: "Semantic materialisation failed; IFC version continued in best_effort mode.",
+                    };
+                }
+            }
+
+            /* -------- ativação e troca da versão corrente -------- */
+            stage = "activation";
+            await versionDb.activateVersion(activeModelId, activeVersionId);
+
+            /* -------- reconciliação pós-ativação: estados dos espaços e
                         ciclo de vida dos ativos (nunca apaga) -------- */
-        if (linkedParentId !== null) {
-            await reconcileSpaceStatusesAfterActivation({
+            if (linkedParentId !== null) {
+                await reconcileSpaceStatusesAfterActivation({
+                    linkedModelId: linkedParentId,
+                    modelId: activeModelId,
+                    presentNormalizedCodes,
+                });
+            }
+            await reconcileAssetLifecycleAfterActivation({
                 linkedModelId: linkedParentId,
-                modelId,
-                presentNormalizedCodes,
+                modelId: activeModelId,
+                currentVersionId: activeVersionId,
             });
+            return { presentNormalizedCodes };
+        };
+
+        if (linkedParentId !== null) {
+            // linked_model-scoped cooperative lock (§6). Held across persistence,
+            // activation AND the Reference compensation below. `activationSucceeded` is
+            // set INSIDE the callback so that a lock-WRAPPER failure occurring AFTER the
+            // callback (e.g. a RELEASE_LOCK/connection-cleanup failure, §5-v3) is not
+            // mistaken for a business failure that must roll back a committed activation.
+            let activationSucceeded = false;
+            try {
+                await spaceDb.withReferenceLock(linkedParentId, async () => {
+                    try {
+                        await runIdentityAndActivation();
+                        activationSucceeded = true;
+                    } catch (rawError: any) {
+                        // Normalize non-Error throwables before attaching metadata (§5.5).
+                        const error = rawError instanceof Error ? rawError : new Error(String(rawError));
+                        // §6.3/§6.4: restore the failed operation's Reference projection
+                        // while the lock is STILL held, so no cooperating same-linked_model
+                        // operation can claim the previous Reference during this window.
+                        const notes = await restoreReferenceProjections(
+                            [...referenceUpdates, ...((rawError && rawError.referenceUpdates) ?? [])], { modelId, versionId });
+                        if (notes.length) (error as any).compensationIntegrity = notes;
+                        // Restoration is complete; the remaining orphan-row/file cleanup does
+                        // not touch the Reference projection and runs outside the lock.
+                        (error as any).referenceUpdates = [];
+                        referenceUpdates = [];
+                        throw error;
+                    }
+                });
+            } catch (lockError: any) {
+                if (activationSucceeded) {
+                    // §5-v3 case C: the callback (persistence + activation) COMMITTED, but
+                    // the lock wrapper failed afterwards (RELEASE_LOCK/cleanup). The named
+                    // lock was already force-freed by destroying the session in
+                    // withNamedLock. Do NOT enter the business-compensation path (it would
+                    // wrongly roll back a committed activation and assume a Reference
+                    // restore that never happened). Surface a precise operational warning
+                    // and continue as success.
+                    logUploadFailure("lock_release_after_activation", lockError,
+                        { modelId, versionId, note: "activation committed; named lock force-freed via session close; no business compensation" });
+                } else {
+                    // Acquisition failure or callback failure → outer compensation.
+                    throw lockError;
+                }
+            }
+        } else {
+            // No linked_model → no persistent-space Reference projection → no lock.
+            await runIdentityAndActivation();
         }
-        await reconcileAssetLifecycleAfterActivation({
-            linkedModelId: linkedParentId,
-            modelId,
-            currentVersionId: versionId,
-        });
 
         return {
             modelId,
@@ -314,13 +441,22 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
             } catch (e) {
                 logUploadFailure("compensation_spaces", e, { modelId, versionId });
             }
+            // Administrative-Reference changes applied to REUSED (pre-existing) spaces
+            // are restored INSIDE the linked_model Reference lock (§6), before this
+            // outer compensation runs — so the previous Reference cannot be reclaimed
+            // by a cooperating same-linked_model operation during the restore window.
+            // Any restore anomaly is carried on error.compensationIntegrity and folded
+            // into the recorded failure reason below (§6.7).
             try { await inventoryDb.deleteInventoryForVersion(versionId); } catch (e) {
                 logUploadFailure("compensation_inventory", e, { modelId, versionId });
             }
             try {
                 const failedStage = error?.uploadStage ?? stage;
                 const reason = error?.failureReason ?? error?.message ?? String(error);
-                await versionDb.markFailed(versionId, `${failedStage}: ${reason}`);
+                const compNote = Array.isArray(error?.compensationIntegrity) && error.compensationIntegrity.length
+                    ? ` | compensation_integrity: ${error.compensationIntegrity.join("; ")}`
+                    : "";
+                await versionDb.markFailed(versionId, `${failedStage}: ${reason}${compNote}`);
             } catch (e) {
                 logUploadFailure("compensation_mark_failed", e, { modelId, versionId });
             }

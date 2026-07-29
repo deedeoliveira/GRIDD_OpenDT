@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { installFakeMySQL, fakeConnection, respond } from "../helpers/fakeDb.ts";
+import { schemaRoutes, SCOPE_CLEAN, occurrencesFromInventory } from "../helpers/spaceSchemaFixtures.ts";
 
 installFakeMySQL();
 process.env.IFCOPENSHELL_FLASK_API_ROUTE ??= "http://flask.test/api";
@@ -17,6 +18,7 @@ process.env.PORT ??= "3001";
 const { handleModelUpload } = await import("../../services/modelUploadService.ts");
 const providers = await import("../../policies/policyProvider.ts");
 const identityProvider = await import("../../identity/spaceIdentityProvider.ts");
+const { resetCanonicalSchemaCache } = await import("../../utils/spaceDatabase.ts");
 const { STORAGE_ROOT } = await import("../../utils/storage.ts");
 
 const MODEL_ID = 999301;
@@ -24,12 +26,12 @@ const VERSION_ID = 999401;
 
 /** Inventário totalmente válido (regra estrita satisfeita). */
 const INVENTORY_ALL_VALID = {
-    "space-A": {
-        spaceGuid: "space-A", spaceName: "Sala A", spaceLongName: "Sala Grande A",
+    "3VKKG6_QDBqgUlHMH5Q4EB": {
+        spaceGuid: "3VKKG6_QDBqgUlHMH5Q4EB", spaceName: "Sala A", spaceLongName: "Sala Grande A",
         psets: { Pset_SpaceCommon: { Reference: "R-A" } }, elements: [],
     },
-    "space-B": {
-        spaceGuid: "space-B", spaceName: "Sala B", spaceLongName: null,
+    "2TYxeEXST7MP9bl8QCa9Ti": {
+        spaceGuid: "2TYxeEXST7MP9bl8QCa9Ti", spaceName: "Sala B", spaceLongName: null,
         psets: { Pset_SpaceCommon: { Reference: "R-B" } }, elements: [],
     },
 };
@@ -37,15 +39,15 @@ const INVENTORY_ALL_VALID = {
 /** Inventário com um espaço sem código (viola a regra estrita no autoritativo). */
 const INVENTORY_ONE_MISSING = {
     ...INVENTORY_ALL_VALID,
-    "space-semcod": {
-        spaceGuid: "space-semcod", spaceName: "Sem Código", spaceLongName: null,
+    "2TYxeEXST7MP9bl8QCa9Od": {
+        spaceGuid: "2TYxeEXST7MP9bl8QCa9Od", spaceName: "Sem Código", spaceLongName: null,
         psets: {}, elements: [],
     },
 };
 
 const INVENTORY_DUPLICATED = {
-    "space-A": { spaceGuid: "space-A", spaceName: "Sala A", psets: { Pset_SpaceCommon: { Reference: "R-DUP" } }, elements: [] },
-    "space-B": { spaceGuid: "space-B", spaceName: "Sala B", psets: { Pset_SpaceCommon: { Reference: "R-DUP" } }, elements: [] },
+    "3VKKG6_QDBqgUlHMH5Q4EB": { spaceGuid: "3VKKG6_QDBqgUlHMH5Q4EB", spaceName: "Sala A", psets: { Pset_SpaceCommon: { Reference: "R-DUP" } }, elements: [] },
+    "2TYxeEXST7MP9bl8QCa9Ti": { spaceGuid: "2TYxeEXST7MP9bl8QCa9Ti", spaceName: "Sala B", psets: { Pset_SpaceCommon: { Reference: "R-DUP" } }, elements: [] },
 };
 
 const realFetch = globalThis.fetch;
@@ -77,9 +79,12 @@ function routes(authority: "single" | "other" = "single"): [RegExp, any][] {
         [/spatial_authority_model_id/i, [[authorityRow]]],
         [/SELECT COUNT\(\*\) as count[\s\S]*FROM entities/i, [[{ count: 0 }]]],
         [/INSERT INTO entities/i, () => [{ insertId: entityId++ }]],
+        // Stage 0B EXACT canonical-schema precondition + scope integrity (ADR-0051 §3/§4).
+        ...schemaRoutes(),
+        ...SCOPE_CLEAN,
         [/SELECT \* FROM spaces/i, [[]]],
         [/INSERT INTO spaces/i, (() => { let id = 300; return () => [{ insertId: id++ }]; })()],
-        [/INSERT INTO space_bindings/i, [{ insertId: 400 }]],
+        [/INSERT INTO space_bindings/i, [{ insertId: 400, affectedRows: 1 }]],
         [/UPDATE spaces SET status/i, [{}]],
         // (Prompt 4) ativos persistentes
         [/SELECT \* FROM assets WHERE space_id/i, [[]]],
@@ -103,9 +108,94 @@ beforeEach(() => {
     fakeConnection.reset();
     providers.resetPolicyProviders();
     identityProvider.resetSpaceIdentityResolver();
+    resetCanonicalSchemaCache();
     inventoryPayload = INVENTORY_ALL_VALID;
-    (globalThis as any).fetch = async () => ({ ok: true, json: async () => ({ data: inventoryPayload }) });
+    // The ordinary Flask bridge now emits the lossless spaceOccurrences list; the
+    // write path requires it. Derive it from the inventory dict for each mock.
+    (globalThis as any).fetch = async () => ({ ok: true, json: async () => ({ data: inventoryPayload, spaceOccurrences: occurrencesFromInventory(inventoryPayload) }) });
     fs.rmSync(path.join(STORAGE_ROOT, `models/${MODEL_ID}`), { recursive: true, force: true });
+});
+
+/* ---- §6.B: a Reference change on a REUSED space is RESTORED when the upload
+        later fails (deleting orphan spaces cannot undo an UPDATE to an existing row). ---- */
+const GA_VALID = "3VKKG6_QDBqgUlHMH5Q4EB";
+const INVENTORY_ONE_REUSED = {
+    [GA_VALID]: { spaceGuid: GA_VALID, spaceName: "Sala", spaceLongName: null,
+        psets: { Pset_SpaceCommon: { Reference: "R-NEW" } }, elements: [] },
+};
+
+test("§6.B: failed binding creation on a reused space restores its prior administrative Reference", async () => {
+    inventoryPayload = INVENTORY_ONE_REUSED;
+    const base = routes();
+    // Reused existing space (GlobalId match) currently holding R-OLD; new Reference
+    // R-NEW is free; the UPDATE succeeds; then the BINDING insert fails → compensation
+    // must restore R-OLD (conditional on our applied R-NEW still being current).
+    respond([
+        [/SELECT \* FROM spaces[\s\S]*BINARY ifc_global_id = BINARY/i,
+            [[{ id: 55, space_uuid: "u55", inventory_code: "R-OLD", inventory_code_normalized: "R-OLD", name: "Old" }]]],
+        [/SELECT \* FROM spaces[\s\S]*inventory_code_normalized/i, [[]]],
+        [/INSERT INTO space_bindings/i, () => { throw new Error("boom binding"); }],
+        ...base,
+    ]);
+    const temp = makeTempIfc();
+    await assert.rejects(handleModelUpload({ tempFilePath: temp, originalFilename: "v.ifc", modelId: MODEL_ID }));
+
+    // The administrative Reference was updated to R-NEW during persistence…
+    const applied = fakeConnection.calls.filter((c) => /UPDATE spaces\s+SET inventory_code/i.test(c.sql) && !/:appliedInventoryCodeNormalized/i.test(c.sql));
+    assert.equal(applied.length, 1, "current Reference was updated to R-NEW");
+    assert.equal(applied[0]!.params.inventoryCodeNormalized, "R-NEW");
+    // …and the compensation issued a CONDITIONAL restore back to R-OLD (byte-exact CAS).
+    const restore = fakeConnection.calls.filter((c) => /UPDATE spaces\s+SET inventory_code[\s\S]*BINARY inventory_code_normalized = BINARY :appliedInventoryCodeNormalized/i.test(c.sql));
+    assert.equal(restore.length, 1, "prior Reference restored by compensation");
+    assert.equal(restore[0]!.params.spaceId, 55);
+    assert.equal(restore[0]!.params.previousInventoryCodeNormalized, "R-OLD");
+    assert.equal(restore[0]!.params.appliedInventoryCodeNormalized, "R-NEW");
+    // spaces.id / space_uuid are never modified; no space row deleted for the reused space.
+    assert.equal(fakeConnection.callsMatching(/INSERT INTO spaces/i).length, 0, "reused space is never recreated");
+});
+
+/* ---- §1/§2: the lossless occurrence contract is MANDATORY for writes, and the
+       pure GlobalId preflight runs BEFORE saveInventorySnapshot (no entity written). ---- */
+
+test("§1: ordinary bridge WITHOUT spaceOccurrences → blocked (lossless_space_occurrences_missing), nothing written", async () => {
+    respond(routes());
+    // Simulate an OLD Flask that does not emit the lossless list.
+    (globalThis as any).fetch = async () => ({ ok: true, json: async () => ({ data: INVENTORY_ALL_VALID }) });
+    const temp = makeTempIfc();
+    let caught: any = null;
+    try { await handleModelUpload({ tempFilePath: temp, originalFilename: "x.ifc", modelId: MODEL_ID }); assert.fail("should reject"); }
+    catch (e) { caught = e; }
+    assert.equal(caught.code, "lossless_space_occurrences_missing");
+    assert.equal(caught.statusCode, 422);
+    // Nothing persisted: the block happens before saveInventorySnapshot.
+    assert.equal(fakeConnection.callsMatching(/INSERT INTO entities/i).length, 0);
+    assert.equal(fakeConnection.callsMatching(/INSERT INTO spaces/i).length, 0);
+    assert.equal(fakeConnection.callsMatching(/INSERT INTO space_bindings/i).length, 0);
+    assert.equal(fakeConnection.callsMatching(/INSERT INTO assets/i).length, 0);
+});
+
+test("§2: duplicate EXACT GlobalId (lossless) → blocked BEFORE entity persistence; no entities/spaces/bindings/assets/Reference UPDATE", async () => {
+    respond(routes());
+    const GA = "3VKKG6_QDBqgUlHMH5Q4EB";
+    // The dict is GlobalId-keyed and collapses to one entry; the lossless list retains
+    // BOTH occurrences of the same exact GlobalId.
+    (globalThis as any).fetch = async () => ({ ok: true, json: async () => ({
+        data: { [GA]: { spaceGuid: GA, spaceName: "A", psets: { Pset_SpaceCommon: { Reference: "R-1" } }, elements: [] } },
+        spaceOccurrences: [
+            { entityId: 1, guid: GA, name: "A1", longName: null, psets: { Pset_SpaceCommon: { Reference: "R-1" } } },
+            { entityId: 2, guid: GA, name: "A2", longName: null, psets: { Pset_SpaceCommon: { Reference: "R-1" } } },
+        ],
+    }) });
+    const temp = makeTempIfc();
+    let caught: any = null;
+    try { await handleModelUpload({ tempFilePath: temp, originalFilename: "x.ifc", modelId: MODEL_ID }); assert.fail("should reject"); }
+    catch (e) { caught = e; }
+    assert.equal(caught.code, "duplicate_candidate_globalid");
+    assert.equal(fakeConnection.callsMatching(/INSERT INTO entities/i).length, 0, "no entity written for a duplicate GlobalId");
+    assert.equal(fakeConnection.callsMatching(/INSERT INTO spaces/i).length, 0);
+    assert.equal(fakeConnection.callsMatching(/INSERT INTO space_bindings/i).length, 0);
+    assert.equal(fakeConnection.callsMatching(/INSERT INTO assets/i).length, 0);
+    assert.equal(fakeConnection.callsMatching(/UPDATE spaces\s+SET inventory_code/i).length, 0, "no administrative Reference UPDATE");
 });
 
 /** Asserções comuns às falhas de preflight: NADA persistido, compensação completa. */

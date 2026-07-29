@@ -57,7 +57,7 @@ test("--apply cria espaço e binding apenas para códigos verificáveis; missing
         [/SELECT id FROM space_bindings WHERE entity_id/i, [[]]],
         [/SELECT id FROM spaces/i, [[]]],
         [/INSERT INTO spaces/i, [{ insertId: 50 }]],
-        [/INSERT INTO space_bindings/i, [{ insertId: 60 }]],
+        [/INSERT INTO space_bindings/i, [{ insertId: 60, affectedRows: 1 }]],
     ]);
 
     await runSpacesBackfill(true);
@@ -114,7 +114,7 @@ test("reprocessamento usa o fluxo Node–Python existente (download da versão v
         [/SELECT id FROM space_bindings WHERE entity_id/i, [[]]],
         [/SELECT id FROM spaces/i, [[]]],
         [/INSERT INTO spaces/i, [{ insertId: 50 }]],
-        [/INSERT INTO space_bindings/i, [{ insertId: 60 }]],
+        [/INSERT INTO space_bindings/i, [{ insertId: 60, affectedRows: 1 }]],
     ]);
 
     await runSpacesBackfill(true);
