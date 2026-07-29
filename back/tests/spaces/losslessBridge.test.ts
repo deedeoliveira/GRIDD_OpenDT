@@ -23,13 +23,20 @@ test("fetchInventory propagates the lossless spaceOccurrences from the ordinary 
         { entityId: 10, guid: GA, name: "A1", longName: null, psets: { Pset_SpaceCommon: { Reference: "R-1" } } },
         { entityId: 11, guid: GA, name: "A2", longName: null, psets: { Pset_SpaceCommon: { Reference: "R-2" } } },
     ];
-    (globalThis as any).fetch = async () => ({ ok: true, json: async () => ({
-        data: { [GA]: { spaceGuid: GA, spaceName: "A", elements: [] } },
-        spaceOccurrences: occurrences,
-        schema: "IFC4",
-        uncontainedProxies: [],
-    }) });
-    const extracted = await fetchInventory(1, "http://x/download");
+    let sentBody: string | undefined;
+    (globalThis as any).fetch = async (_url: string, init?: any) => {
+        sentBody = init?.body;
+        return { ok: true, json: async () => ({
+            data: { [GA]: { spaceGuid: GA, spaceName: "A", elements: [] } },
+            spaceOccurrences: occurrences,
+            schema: "IFC4",
+            uncontainedProxies: [],
+        }) };
+    };
+    const extracted = await fetchInventory(1, 2);
+    // The Node side sends only an opaque numeric version id — never a URL/path — so the
+    // Python service constructs the authenticated download URL itself.
+    assert.equal(sentBody, "versionId=2");
     assert.ok(Array.isArray(extracted.spaceOccurrences));
     assert.equal(extracted.spaceOccurrences!.length, 2, "both occurrences of the duplicate GlobalId are carried through");
     assert.deepEqual(extracted.spaceOccurrences!.map((o) => o.entityId), [10, 11]);

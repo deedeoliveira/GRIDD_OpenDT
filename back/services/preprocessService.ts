@@ -13,20 +13,26 @@ import type { ExtractedIfcModel } from "../requirements/modelRequirementsTypes.t
  * IFC4) e `uncontainedProxies` (IfcBuildingElementProxy fora de espaços,
  * abrangidos pelas regras PROXY-*).
  *
- * @param fileUrl URL de onde o Python deve descarregar o IFC. Quando fornecido
- *   (fluxo de versionamento: aponta para o download da versão em processamento),
- *   é passado no campo de formulário `path`, que o main.py já suporta. Quando
- *   omitido, o Python usa MODEL_DOWNLOAD_ROUTE/<modelId> (ficheiro corrente).
+ * SEGURANÇA: o Node envia apenas um IDENTIFICADOR NUMÉRICO de versão — nunca um
+ * URL. O Python constrói o URL do download autenticado a partir da sua própria
+ * configuração de confiança (MODEL_VERSION_DOWNLOAD_BASE_URL) e só então anexa o
+ * token de serviço interno. Assim um chamador não pode escolher o destino do
+ * pedido autenticado (o antigo campo `path` foi removido). Quando `versionId` é
+ * omitido, o Python usa o download LEGADO por modelId (rota não autenticada, sem
+ * token) — comportamento preservado para os chamadores do ficheiro corrente.
+ *
+ * @param versionId id (inteiro positivo) da versão em processamento.
  */
-export async function fetchInventory(modelId: number, fileUrl?: string): Promise<ExtractedIfcModel> {
+export async function fetchInventory(modelId: number, versionId?: number): Promise<ExtractedIfcModel> {
 
+  const sendsVersion = Number.isInteger(versionId) && (versionId as number) > 0;
   const invResp = await fetch(
     `${process.env.IFCOPENSHELL_FLASK_API_ROUTE}/model/inventory/${modelId}`,
-    fileUrl
+    sendsVersion
       ? {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: `path=${encodeURIComponent(fileUrl)}`,
+          body: `versionId=${encodeURIComponent(String(versionId))}`,
         }
       : { method: 'POST' }
   );
