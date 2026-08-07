@@ -22,9 +22,9 @@ async function assertSemanticError(promise: Promise<unknown>, code: string): Pro
     await assert.rejects(promise, (error: unknown) => error instanceof SemanticArtifactError && error.code === code);
 }
 
-test("public manifest: six Turtle files, one governed IDS, and one governed IFC-to-RDF mapping are declared", async () => {
+test("public manifest: nine Turtle files, two governed IDS versions, and two governed IFC-to-RDF mapping versions are declared", async () => {
     const manifest = await loadPublicArtifactManifest(MANIFEST_PATH);
-    assert.equal(manifest.artifacts.length, 10);
+    assert.equal(manifest.artifacts.length, 13);
     assert.deepEqual(
         new Set(manifest.artifacts.map((entry) => entry.sourceFilename)),
         APPROVED_PUBLIC_SOURCE_FILENAMES
@@ -41,7 +41,7 @@ test("integrity: all committed source hashes and byte sizes match the public man
     const manifest = await loadPublicArtifactManifest(MANIFEST_PATH);
     const validation = new ArtifactValidationService(new FilesystemArtifactSource(ROOT));
     const results = await validation.validateManifestTree(manifest);
-    assert.equal(results.length, 10);
+    assert.equal(results.length, 13);
     assert.ok(results.every((result) => result.summary.sha256 === result.entry.sha256));
     assert.ok(results.every((result) => result.summary.byteSize === result.entry.byteSize));
 });
@@ -50,9 +50,9 @@ test("privacy tree guard: no undeclared semantic source file exists", async () =
     const source = new FilesystemArtifactSource(ROOT);
     const files = await source.listFiles();
     const rdfFiles = files.filter((file) => /\.(ttl|ids|json|rdf|csv|sparql)$/i.test(file) && file !== "semantic-artifacts-public-manifest.json");
-    assert.equal(rdfFiles.filter((file) => file.endsWith(".ttl")).length, 8);
-    assert.equal(rdfFiles.filter((file) => file.endsWith(".ids")).length, 1);
-    assert.equal(rdfFiles.filter((file) => file.endsWith(".json")).length, 1);
+    assert.equal(rdfFiles.filter((file) => file.endsWith(".ttl")).length, 9);
+    assert.equal(rdfFiles.filter((file) => file.endsWith(".ids")).length, 2);
+    assert.equal(rdfFiles.filter((file) => file.endsWith(".json")).length, 2);
     assert.equal(rdfFiles.filter((file) => !file.endsWith(".ttl") && !file.endsWith(".ids") && !file.endsWith(".json")).length, 0);
 });
 

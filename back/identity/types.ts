@@ -8,8 +8,9 @@
  *    fluxo de reservas?" (política).
  * Esta camada NÃO pertence ao policyProvider e não altera reservabilidade.
  *
- * Convenção/perfil de informação DESTE projeto (não é uma regra universal do
- * IFC): o código de inventário do espaço vem de Pset_SpaceCommon.Reference.
+ * Perfil IFC4x3 (ADR-0052): o código de inventário institucional do espaço vem
+ * de IfcSpace.Name. Pset_SpaceCommon.Reference NUNCA é lido. A identidade
+ * persistente permanece linked_model_id + IfcSpace.GlobalId.
  */
 
 export type SpaceIdentityStatus = "valid" | "missing" | "invalid" | "duplicate";

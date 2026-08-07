@@ -39,7 +39,13 @@ def process_model(modelId):
         return _download_error(error)
 
     _write_source_model(data)
-    sensorRoomMap = ifcopenshell_utils.process_ifc_file()
+    try:
+        sensorRoomMap = ifcopenshell_utils.process_ifc_file()
+    except ifcopenshell_utils.UnsupportedIfcSchemaError as error:
+        # IFC4x3-only profile (ADR-0052 §A): the legacy sensor route rejects non-IFC4x3
+        # files explicitly rather than silently accepting IFC4/IFC2X3.
+        return {"status": "error", "message": str(error),
+                "code": "unsupported_ifc_schema", "ok": False}, 422
     return {"status": "success", "data": sensorRoomMap, "ok": True}, 200
 
 

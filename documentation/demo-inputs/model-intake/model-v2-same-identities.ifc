@@ -2,7 +2,7 @@ ISO-10303-21;
 HEADER;
 FILE_DESCRIPTION(('ViewDefinition[DesignTransferView]'),'2;1');
 FILE_NAME('model-v2-same-identities.ifc','2026-07-20T13:00:00-04:00',('Synthetic Research Fixture'),('OSWADT'),'OSWADT','OSWADT','Synthetic');
-FILE_SCHEMA(('IFC4'));
+FILE_SCHEMA(('IFC4X3_ADD2'));
 ENDSEC;
 DATA;
 #1=IFCPROJECT('0V2ProjectSynthetic01',$,'Controlled Intake Synthetic Project Revision 2',$,$,$,$,$,$);

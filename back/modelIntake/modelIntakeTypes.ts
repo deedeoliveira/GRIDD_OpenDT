@@ -22,66 +22,66 @@ export interface IntakeProfile extends IdsProfileMetadata {
     requirements: VisibleIdsRequirement[];
 }
 
-/** Stage 0B persistent-space resolution status for an IfcSpace candidate. */
+/** Persistent-space resolution status for an IfcSpace candidate (ADR-0052). */
 export type PreviewSpaceStatus =
     | "existing"
     | "new"
     | "invalid"
-    | "missing_reference"
-    | "transitional_reference_collision"
+    | "missing_name"
+    | "inventory_code_collision"
     | "schema_error";
 
 /**
- * Stable machine-readable code for a preview outcome (ADR-0051 §7, Stage 0B §2/§3).
- * Exposed alongside a concise operational message so the BIM Manager UI never has
- * to parse prose — and never sees raw SQL or internal stack traces.
+ * Stable machine-readable code for a preview outcome (ADR-0052). Exposed alongside a
+ * concise operational message so the BIM Manager UI never has to parse prose — and never
+ * sees raw SQL or internal stack traces.
  */
 export type PreviewSpaceCode =
     | "existing"
     | "new"
     | "invalid_globalid"
     | "duplicate_candidate_globalid"
-    | "missing_reference"
-    | "transitional_reference_collision"
+    | "missing_space_name"
+    | "inventory_code_collision"
     | "canonical_schema_missing"
     | "canonical_inconsistency";
 
 export interface PreviewSpace {
     persistentUuid: string | "candidate";
-    /** Candidate Reference (current administrative metadata; still required). */
-    reference: string;
-    label: string | null;
+    /** Candidate institutional inventory code, from IfcSpace.Name (ADR-0052 §C). */
+    inventoryCode: string;
     ifcGuid: string;
     ifcClass: "IfcSpace";
     storey: string | null;
     persistentUri: string;
     manifestationUri: string;
-    // ---- Stage 0B (ADR-0051): GlobalId is the identity authority ----
+    // ---- ADR-0052: GlobalId is the identity authority ----
     // Optional so the RDF/version-resource builders (which project already-persisted
     // versions) are unaffected; the intake preview always populates every field.
     /** IfcSpace.GlobalId — the persistent identity key (exact, case-sensitive). */
     ifcGlobalId?: string;
     /**
-     * IFC entity occurrence id (ADR-0051 §3-v3). Distinguishes two IfcSpace occurrences
-     * that share one GlobalId; used only for the manifestation/candidate URI and
-     * diagnostics — NEVER a persistent identity source. Null when the display-only
-     * fallback (no lossless list) was used.
+     * IFC entity occurrence id. Distinguishes two IfcSpace occurrences that share one
+     * GlobalId; used only for the manifestation/candidate URI and diagnostics — NEVER a
+     * persistent identity source. Null when the display-only fallback was used.
      */
     ifcEntityId?: number | null;
+    /** IfcSpace.Name — the institutional inventory code (same value as inventoryCode). */
     name?: string | null;
+    /** IfcSpace.LongName — the informational label (ADR-0052 §D). */
     longName?: string | null;
     /** Resolution against existing persistent identity by GlobalId. */
     persistentSpaceStatus?: PreviewSpaceStatus;
-    /** Stable machine-readable code paired with the status (§7). */
+    /** Stable machine-readable code paired with the status. */
     blockingCode?: PreviewSpaceCode | null;
     /** Existing persistent space when matched by GlobalId. */
     existingSpaceId?: number | null;
     existingSpaceUuid?: string | null;
-    /** Current stored Reference of the matched persistent space (if existing). */
-    existingReference?: string | null;
-    /** True when the candidate Reference differs from the stored current Reference. */
-    referenceChanged?: boolean;
-    /** Populated for a blocking status (transitional_reference_collision/invalid). */
+    /** Current stored inventory code of the matched persistent space (if existing). */
+    existingInventoryCode?: string | null;
+    /** True when the candidate inventory code differs from the stored current one. */
+    inventoryCodeChanged?: boolean;
+    /** Populated for a blocking status (inventory_code_collision/invalid). */
     blockingError?: string | null;
 }
 
@@ -92,7 +92,21 @@ export interface PreviewAsset {
     manufacturer: string | null;
     ifcGuid: string;
     ifcClass: string;
+    /**
+     * Display-only, version-accurate inventory code of the containing space (from the
+     * IfcSpace.Name occurrence in preview, or the version's space-binding snapshot for a
+     * persisted version). NEVER the relationship key — a mutable inventory code must not
+     * decide the RDF equipment→space edge (ADR-0052 §F).
+     */
     containingSpace: string | null;
+    /**
+     * The persistent-space URI (`.../space/{uuid}`) of the containing space — the ONLY
+     * authority for the `project:containedInSpace` edge. Resolved from the containing
+     * IfcSpace occurrence GlobalId (preview) or `asset_bindings.space_id` (persisted
+     * version), so the location link stays valid across IfcSpace.Name / LongName changes
+     * and historical rematerialisation. Null when the asset has no located space.
+     */
+    containingSpacePersistentUri: string | null;
     persistentUri: string;
     manifestationUri: string;
 }

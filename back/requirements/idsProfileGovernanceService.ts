@@ -3,7 +3,7 @@ import path from "node:path";
 import { ArtifactRegistryService } from "../semantic/artifactRegistryService.ts";
 import { ArtifactValidationService } from "../semantic/artifactValidation.ts";
 import { loadSemanticArtifactConfig } from "../semantic/semanticArtifactConfig.ts";
-import { FilesystemArtifactSource, loadPublicArtifactManifest } from "../semantic/publicArtifactManifest.ts";
+import { FilesystemArtifactSource, loadPublicArtifactManifest, activeArtifactKey, ACTIVE_ARTIFACT_VERSION } from "../semantic/publicArtifactManifest.ts";
 import { SemanticArtifactDatabase, type SemanticArtifactDatabasePort } from "../utils/semanticArtifactDatabase.ts";
 import { IfcOpenShellIdsValidationProvider } from "./ifcOpenShellIdsValidationProvider.ts";
 import type { IdsProfileMetadata, IdsValidationProvider } from "./idsValidationTypes.ts";
@@ -17,9 +17,10 @@ export class IdsProfileGovernanceService {
     async validateManifestProfile(familyKey = "oswadt-ifc4-model-requirements") {
         const config = loadSemanticArtifactConfig();
         const manifest = await loadPublicArtifactManifest(config.manifestPath);
+        const activeKey = activeArtifactKey(familyKey);
         const entry = manifest.artifacts.find((candidate) => candidate.artifactType === "ids_profile"
-            && candidate.artifactKey.startsWith(`${familyKey}-`));
-        if (!entry) throw new Error(`Governed IDS family '${familyKey}' is absent from the public manifest.`);
+            && candidate.artifactKey === activeKey);
+        if (!entry) throw new Error(`Governed IDS family '${familyKey}' has no active ${ACTIVE_ARTIFACT_VERSION} manifestation in the public manifest.`);
         const validator = new ArtifactValidationService(new FilesystemArtifactSource(config.rootDir));
         const validated = await validator.validate(entry, true);
         const profile: IdsProfileMetadata = {

@@ -1,0 +1,11 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition [CoordinationView]'),'2;1');
+FILE_NAME('','2026-08-04T00:00:00',(''),(''),'OSWADT ADR-0052 fixture','OSWADT ADR-0052 fixture','');
+FILE_SCHEMA(('IFC2X3'));
+ENDSEC;
+DATA;
+#1=IFCPROJECT('1Viy4GlN163O$EcYgCv6db',$,'ITest',$,$,$,$,$,$);
+#2=IFCSPACE('0IFC2X3SPACE0000000001',$,'T-201',$,$,$,$,'Legacy IFC2X3 space',.ELEMENT.,.INTERNAL.,$);
+ENDSEC;
+END-ISO-10303-21;

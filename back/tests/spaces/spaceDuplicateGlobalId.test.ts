@@ -91,7 +91,7 @@ const previewDeps = {
     baseUri: "https://x", runUuid: "run-1",
     storeyOf: () => null,
     findByGlobalId: async () => null,
-    findByReference: async () => null,
+    findByInventoryCode: async () => null,
 };
 
 test("preview: duplicate GlobalId marks BOTH occurrences duplicate_candidate_globalid; every candidate is present", async () => {
@@ -110,20 +110,20 @@ test("preview: duplicate GlobalId marks BOTH occurrences duplicate_candidate_glo
     assert.equal(entries[2]!.blockingCode, "new");
 });
 
-test("preview: Reference-less and invalid candidates are VISIBLE with precise codes (no silent skip)", async () => {
+test("preview: Name-less and invalid candidates are VISIBLE with precise codes (no silent skip)", async () => {
     const entries = await buildSpacePreviewEntries({
         ...previewDeps,
         precondition: async () => ({ code: "ok", message: null }),
         occurrences: [
-            { guid: GA, name: "ok-noref", longName: null, psets: null },                                   // missing_reference
-            { guid: GB, name: "ok-wsref", longName: null, psets: { Pset_SpaceCommon: { Reference: "   " } } }, // whitespace-only → missing
+            { guid: GA, name: null, longName: null, psets: null },                                         // missing_space_name
+            { guid: GB, name: "   ", longName: null, psets: { Pset_SpaceCommon: { Reference: "R-x" } } },  // whitespace-only Name → missing (Reference ignored)
             { guid: "not-valid!!", name: "bad", longName: null, psets: null },                             // invalid_globalid (precedence)
-            { guid: GC, name: "ok", longName: "Long", psets: { Pset_SpaceCommon: { Reference: "R-9" } } }, // new
+            { guid: GC, name: "T-9", longName: "Long", psets: { Pset_SpaceCommon: { Reference: "R-9" } } }, // new (Name governs; Reference ignored)
         ],
     });
     assert.equal(entries.length, 4, "no candidate is dropped");
-    assert.equal(entries[0]!.blockingCode, "missing_reference");
-    assert.equal(entries[1]!.blockingCode, "missing_reference");
+    assert.equal(entries[0]!.blockingCode, "missing_space_name");
+    assert.equal(entries[1]!.blockingCode, "missing_space_name");
     assert.equal(entries[2]!.blockingCode, "invalid_globalid");
     assert.equal(entries[3]!.blockingCode, "new");
     // Visible identity metadata retained even when blocked.
@@ -136,22 +136,22 @@ test("preview precedence (§3): a candidate-local error is reported even when th
     const entries = await buildSpacePreviewEntries({
         ...previewDeps,
         findByGlobalId: async () => { lookups++; return null; },
-        findByReference: async () => { lookups++; return null; },
+        findByInventoryCode: async () => { lookups++; return null; },
         precondition: async () => ({ code: "canonical_schema_missing", message: "schema not exact" }),
         occurrences: [
             { guid: "not-valid!!", name: "bad", longName: null, psets: { Pset_SpaceCommon: { Reference: "R-1" } } }, // invalid_globalid
             { guid: GA, name: "d1", longName: null, psets: { Pset_SpaceCommon: { Reference: "R-1" } } },              // duplicate…
             { guid: GA, name: "d2", longName: null, psets: { Pset_SpaceCommon: { Reference: "R-1" } } },              // …duplicate
-            { guid: GB, name: "noref", longName: null, psets: null },                                                 // missing_reference
-            { guid: GC, name: "ok", longName: null, psets: { Pset_SpaceCommon: { Reference: "R-9" } } },              // → schema (only after clearing local)
+            { guid: GB, name: null, longName: null, psets: null },                                                    // missing_space_name
+            { guid: GC, name: "T-9", longName: null, psets: { Pset_SpaceCommon: { Reference: "R-9" } } },             // → schema (only after clearing local)
         ],
     });
-    // §3 precedence: invalid_globalid > duplicate_candidate_globalid > missing_reference
+    // §3 precedence: invalid_globalid > duplicate_candidate_globalid > missing_space_name
     // > canonical_schema_missing. A schema failure never HIDES a candidate-local error.
     assert.equal(entries[0]!.blockingCode, "invalid_globalid");
     assert.equal(entries[1]!.blockingCode, "duplicate_candidate_globalid");
     assert.equal(entries[2]!.blockingCode, "duplicate_candidate_globalid");
-    assert.equal(entries[3]!.blockingCode, "missing_reference");
+    assert.equal(entries[3]!.blockingCode, "missing_space_name");
     assert.equal(entries[4]!.blockingCode, "canonical_schema_missing");
     assert.equal(entries[4]!.persistentSpaceStatus, "schema_error");
     assert.equal(lookups, 0, "the schema failure still gates all DB identity lookups");
@@ -323,13 +323,13 @@ test("preview: precondition is NOT called when no candidate needs DB resolution 
             { guid: "bad!!", name: "x", longName: null, psets: { Pset_SpaceCommon: { Reference: "R-1" } } }, // invalid
             { guid: GA, name: "d", longName: null, psets: { Pset_SpaceCommon: { Reference: "R-1" } } },       // duplicate…
             { guid: GA, name: "d2", longName: null, psets: { Pset_SpaceCommon: { Reference: "R-1" } } },      // …duplicate
-            { guid: GB, name: "noref", longName: null, psets: null },                                         // missing_reference
+            { guid: GB, name: null, longName: null, psets: null },                                            // missing_space_name
         ],
     });
     assert.equal(preCalls, 0, "no candidate needs resolution → precondition never invoked");
     assert.equal(lookups, 0);
     assert.deepEqual(entries.map((e) => e.blockingCode),
-        ["invalid_globalid", "duplicate_candidate_globalid", "duplicate_candidate_globalid", "missing_reference"]);
+        ["invalid_globalid", "duplicate_candidate_globalid", "duplicate_candidate_globalid", "missing_space_name"]);
 });
 
 test("preview: precondition raising (checkConnection failure) still yields candidate-local codes; valid one gets schema code", async () => {
@@ -344,13 +344,13 @@ test("preview: precondition raising (checkConnection failure) still yields candi
             { guid: "bad!!", name: "x", longName: null, psets: { Pset_SpaceCommon: { Reference: "R-1" } } }, // invalid (no DB)
             { guid: GA, name: "d", longName: null, psets: { Pset_SpaceCommon: { Reference: "R-1" } } },       // duplicate (no DB)
             { guid: GA, name: "d2", longName: null, psets: { Pset_SpaceCommon: { Reference: "R-1" } } },      // duplicate (no DB)
-            { guid: GC, name: "ref-missing", longName: null, psets: null },                                   // missing_reference (no DB)
-            { guid: GB, name: "valid", longName: null, psets: { Pset_SpaceCommon: { Reference: "R-2" } } },   // needs DB → schema code
+            { guid: GC, name: null, longName: null, psets: null },                                            // missing_space_name (no DB)
+            { guid: GB, name: "T-2", longName: null, psets: { Pset_SpaceCommon: { Reference: "R-2" } } },     // needs DB → schema code
         ],
     });
     assert.equal(preCalls, 1, "precondition fetched once for the one candidate that needs resolution");
     assert.deepEqual(entries.map((e) => e.blockingCode),
-        ["invalid_globalid", "duplicate_candidate_globalid", "duplicate_candidate_globalid", "missing_reference", "canonical_schema_missing"]);
+        ["invalid_globalid", "duplicate_candidate_globalid", "duplicate_candidate_globalid", "missing_space_name", "canonical_schema_missing"]);
     assert.doesNotMatch(entries[4]!.blockingError ?? "", /MySQL down|SELECT|at \w+\./i);
 });
 

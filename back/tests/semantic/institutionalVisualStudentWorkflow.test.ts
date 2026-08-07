@@ -77,7 +77,7 @@ test("the selected resource panel precedes the viewer and keeps the model select
   assert.match(student, /data-testid="selected-resource-panel"/);
   assert.match(student, /lg:grid-cols-\[minmax\(0,1fr\)_minmax\(19rem,25rem\)\]/);
   assert.match(student, /Carregue um modelo e selecione um elemento para iniciar um pedido/);
-  assert.match(student, /Localização: \{asset\.location\.name/);
+  assert.match(student, /Localização: \{formatLocation\(asset\.location\)/);
 });
 
 test("manager starts with an explicit workspace choice and uses accessible evidence banners", () => {

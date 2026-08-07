@@ -31,8 +31,8 @@ export const PROJECT_PROFILE_VERSION = "2026-07";
 /** Mapeamento estável dos códigos do validador espacial para requirement IDs. */
 const SPATIAL_REQUIREMENT_IDS: Record<string, string> = {
     no_ifcspace: "SPACE-001",
-    invalid_references: "SPACE-002",
-    duplicate_references: "SPACE-003",
+    invalid_space_names: "SPACE-002",
+    duplicate_inventory_codes: "SPACE-003",
 };
 
 export class ProjectProfileRequirementsValidator implements ModelInformationRequirementsValidator {

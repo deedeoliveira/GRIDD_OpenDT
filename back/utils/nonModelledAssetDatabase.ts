@@ -433,8 +433,9 @@ class NonModelledAssetDatabase {
         const [rows]: any = await this.db.connection.execute(`
             WITH current_bindings AS (
                 SELECT ab.asset_id, m.id AS model_line_id, m.name AS model_line_name,
-                       lm.id AS linked_model_id, bs.name AS binding_space_name,
-                       bs.inventory_code AS binding_space_reference,
+                       lm.id AS linked_model_id,
+                       bs.id AS binding_space_id, bs.space_uuid AS binding_space_uuid,
+                       bs.inventory_code AS binding_space_code, bs.long_name AS binding_space_long_name,
                        ROW_NUMBER() OVER (PARTITION BY ab.asset_id ORDER BY m.id ASC, ab.id ASC) AS rn
                 FROM asset_bindings ab
                 INNER JOIN model_versions mv ON mv.id = ab.model_version_id
@@ -448,8 +449,10 @@ class NonModelledAssetDatabase {
                    CASE WHEN cb.asset_id IS NOT NULL THEN 'modelled'
                         WHEN a.source = 'graph' AND a.semantic_uri IS NOT NULL THEN 'non_modelled'
                         ELSE 'undetermined' END AS representation_kind,
-                   COALESCE(cb.binding_space_name, ls.name) AS location_name,
-                   COALESCE(cb.binding_space_reference, ls.inventory_code) AS location_reference
+                   COALESCE(cb.binding_space_id, ls.id) AS location_space_id,
+                   COALESCE(cb.binding_space_uuid, ls.space_uuid) AS location_space_uuid,
+                   COALESCE(cb.binding_space_code, ls.inventory_code) AS location_inventory_code,
+                   COALESCE(cb.binding_space_long_name, ls.long_name) AS location_long_name
             FROM assets a
             LEFT JOIN current_bindings cb ON cb.asset_id = a.id AND cb.rn = 1
             LEFT JOIN asset_location_assignments ala
@@ -458,6 +461,8 @@ class NonModelledAssetDatabase {
             WHERE a.asset_uuid IS NOT NULL
               AND a.lifecycle_status = 'active'
               AND a.reservable = 1
+              -- ADR-0052 §F: a space is never a reservable resource; only equipment/tools.
+              AND a.asset_type IN ('equipment', 'tool')
               AND (a.source <> 'graph' OR a.semantic_uri IS NOT NULL)
               AND (:modelLineId IS NULL OR cb.model_line_id = :modelLineId)
             ORDER BY representation_kind ASC, a.name ASC, a.asset_uuid ASC
@@ -466,7 +471,12 @@ class NonModelledAssetDatabase {
             persistentAssetId: String(row.asset_uuid),
             name: String(row.name),
             tag: row.asset_code ?? null,
-            location: { name: row.location_name ?? null, reference: row.location_reference ?? null },
+            location: {
+                spaceId: row.location_space_id != null ? Number(row.location_space_id) : null,
+                spaceUuid: row.location_space_uuid ?? null,
+                inventoryCode: row.location_inventory_code ?? null,
+                longName: row.location_long_name ?? null,
+            },
             representation: row.representation_kind === "modelled" ? {
                 kind: "modelled",
                 modelLineId: Number(row.model_line_id),

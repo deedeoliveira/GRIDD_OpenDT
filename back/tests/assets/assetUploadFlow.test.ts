@@ -123,7 +123,7 @@ beforeEach(() => {
     requirementsProvider.resetModelRequirementsValidator();
     delete process.env.ASSET_IDENTITY_PROVIDER;
     inventoryPayload = INVENTORY;
-    (globalThis as any).fetch = async () => ({ ok: true, json: async () => ({ data: inventoryPayload, spaceOccurrences: occurrencesFromInventory(inventoryPayload) }) });
+    (globalThis as any).fetch = async () => ({ ok: true, json: async () => ({ data: inventoryPayload, spaceOccurrences: occurrencesFromInventory(inventoryPayload), schema: "IFC4X3_ADD2" }) });
     fs.rmSync(path.join(STORAGE_ROOT, `models/${MODEL_ID}`), { recursive: true, force: true });
 });
 
@@ -137,9 +137,11 @@ test("primeira versão: cria ativos persistentes + bindings ANTES da ativação;
 
     await handleModelUpload({ tempFilePath: temp, originalFilename: "v1.ifc", modelId: MODEL_ID });
 
-    // espaço + equipamento EQ-1; sensor negado pela política (comportamento legado)
-    assert.equal(fakeConnection.callsMatching(/INSERT INTO assets/i).length, 2);
-    assert.equal(fakeConnection.callsMatching(/INSERT INTO asset_bindings/i).length, 2);
+    // ADR-0052 §F: o espaço NÃO vira ativo; só o equipamento EQ-1 (sensor negado pela política).
+    const assetInserts = fakeConnection.callsMatching(/INSERT INTO assets/i);
+    assert.equal(assetInserts.length, 1);
+    assert.equal(fakeConnection.callsMatching(/INSERT INTO asset_bindings/i).length, 1);
+    assert.ok(assetInserts.every((c) => c.params.assetType !== "space"), "nunca insere asset_type='space'");
     assert.equal(fakeConnection.callsMatching(/INSERT INTO asset_reconciliation_cases/i).length, 0);
 
     const sqls = fakeConnection.calls.map((c) => c.sql);
@@ -163,7 +165,7 @@ test("nova versão do mesmo modelo: identidades reutilizadas (0 ativos novos), b
     assert.equal(fakeConnection.callsMatching(/INSERT INTO assets/i).length, 0,
         "invariante: nova versão NUNCA cria nova identidade para o mesmo recurso");
     const bindings = fakeConnection.callsMatching(/INSERT INTO asset_bindings/i);
-    assert.deepEqual(bindings.map((b) => b.params.assetId).sort(), [55, 77, 78], "Mesa=77, Sensor=78 pela Tag");
+    assert.deepEqual(bindings.map((b) => b.params.assetId).sort(), [77, 78], "Mesa=77, Sensor=78 pela Tag (o espaço nunca vira ativo)");
     assert.equal(fakeConnection.callsMatching(/UPDATE models SET current_version_id/i).length, 1);
 });
 

@@ -75,8 +75,11 @@ export async function buildMinimalRdf(input: RdfBuildInput): Promise<RdfPreview>
     for (const space of input.spaces) {
         addType(space.persistentUri, `${bot}Space`);
         addLiteral(space.persistentUri, `${p}persistentUuid`, space.persistentUuid);
-        addLiteral(space.persistentUri, `${p}reference`, space.reference);
-        if (space.label) addLiteral(space.persistentUri, `${dct}title`, space.label);
+        // ADR-0052 §C/§D: institutional inventory code from IfcSpace.Name (project:inventoryCode)
+        // and the optional human label from IfcSpace.LongName (project:longName). The deprecated
+        // project:reference predicate is removed — Reference is never emitted as space inventory.
+        addLiteral(space.persistentUri, `${p}inventoryCode`, space.inventoryCode);
+        if (space.longName) addLiteral(space.persistentUri, `${p}longName`, space.longName);
         addType(space.manifestationUri, `${p}IfcManifestation`);
         addIri(space.manifestationUri, `${prov}specializationOf`, space.persistentUri);
         addIri(space.manifestationUri, `${p}modelVersion`, versionUri);
@@ -95,7 +98,13 @@ export async function buildMinimalRdf(input: RdfBuildInput): Promise<RdfPreview>
         addIri(asset.manifestationUri, `${p}modelVersion`, versionUri);
         addLiteral(asset.manifestationUri, `${p}ifcClass`, asset.ifcClass);
         addLiteral(asset.manifestationUri, `${p}ifcGuid`, asset.ifcGuid);
-        const space = input.spaces.find((item) => item.reference === asset.containingSpace);
+        // ADR-0052 §F: the equipment→space location edge is keyed on the PERSISTENT space
+        // resource (URI), never on the mutable inventory code. Match the containing space by
+        // its persistent URI so the link survives IfcSpace.Name / LongName changes and the
+        // rematerialisation of an older version whose snapshot code differs from the current.
+        const space = asset.containingSpacePersistentUri
+            ? input.spaces.find((item) => item.persistentUri === asset.containingSpacePersistentUri)
+            : undefined;
         if (space) addIri(asset.manifestationUri, `${p}containedInSpace`, space.persistentUri);
     }
 

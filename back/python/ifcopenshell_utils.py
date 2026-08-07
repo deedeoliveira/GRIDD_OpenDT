@@ -1,15 +1,81 @@
+
 import ifcopenshell
 import ifcopenshell.util.selector
 import ifcopenshell.util.element #Andressa
 
+
+# ---------------------------------------------------------------------------
+# IFC4x3-only application profile (ADR-0052 §A).
+#
+# The operational profile accepts ONLY the IFC4x3 family and rejects IFC2X3 and
+# IFC4 with an explicit unsupported-schema result. Acceptance is a PRECISE
+# allowlist, not a prefix test: exactly the four IFC4x3 identifiers the installed
+# IfcOpenShell 0.8 toolchain can parse — IFC4X3, IFC4X3_ADD1, IFC4X3_ADD2,
+# IFC4X3_TC1. Pre-release IFC4X3_RC<number> forms are NOT accepted: IfcOpenShell
+# 0.8 raises SchemaError on them, so admitting them would advertise a variant the
+# toolchain cannot process. An invented IFC4X3_* variant (e.g. IFC4X3_ADD3) is NOT
+# accepted merely because it begins with "IFC4X3". This allowlist is checked
+# BEFORE any bare "IFC4" branch because "IFC4X3".startswith("IFC4") is also true.
+# Kept byte-for-byte in sync with back/utils/ifcSchemaSupport.ts (one shared policy).
+# ---------------------------------------------------------------------------
+
+SUPPORTED_IFC4X3_IDENTIFIERS = frozenset({
+    "IFC4X3", "IFC4X3_ADD1", "IFC4X3_ADD2", "IFC4X3_TC1",
+})
+
+
+def classify_ifc_schema(schema):
+    """Classify a declared header schema identifier against the precise IFC4x3 allowlist.
+
+    Mirrors back/utils/ifcSchemaSupport.ts EXACTLY (one shared policy). Accepts only the
+    four verified IFC4x3 release identifiers (IFC4X3, IFC4X3_ADD1/ADD2, IFC4X3_TC1) that
+    IfcOpenShell can parse; a pre-release IFC4X3_RC<number> or an invented IFC4X3_* variant
+    is 'unsupported_other', NOT 'unsupported_ifc4'. Returns one of: 'supported'
+    | 'unsupported_ifc4' | 'unsupported_ifc2x3' | 'unsupported_other' | 'unknown'
+    (None/blank). Never raises.
+    """
+    if not schema or not isinstance(schema, str):
+        return "unknown"
+    ident = schema.strip().upper()
+    if ident in SUPPORTED_IFC4X3_IDENTIFIERS:
+        return "supported"
+    if ident.startswith("IFC4X3"):
+        return "unsupported_other"
+    if ident.startswith("IFC2X3"):
+        return "unsupported_ifc2x3"
+    if ident.startswith("IFC4"):
+        return "unsupported_ifc4"
+    return "unsupported_other"
+
+
+def is_supported_ifc4x3_schema(schema):
+    """True iff the declared schema belongs to the accepted IFC4x3 family."""
+    return classify_ifc_schema(schema) == "supported"
+
+
+class UnsupportedIfcSchemaError(ValueError):
+    """Raised when an operational entry point receives a non-IFC4x3 file."""
+
+    def __init__(self, schema):
+        self.schema = schema
+        super().__init__(
+            f"Unsupported IFC schema {schema!r}: the application profile requires IFC4x3 (ADR-0052)."
+        )
+
+
 def process_ifc_file():
     model = ifcopenshell.open("source_model.ifc")
-    
+
     schema = model.header.file_schema.schema_identifiers[0]
 
-    ifcSensorType = "IfcSensor" if schema.startswith("IFC4") else "IfcDistributionControlElement"
+    # IFC4x3-only gate (ADR-0052 §A). This legacy sensor-extraction route is still an
+    # ACTIVE operational entry point; it must apply the SAME precise IFC4x3 allowlist as
+    # the versioning intake so it cannot become an alternate IFC4/IFC2X3-compatible path.
+    # IFC4x3 defines IfcSensor, so there is no longer any IFC2X3 fallback class.
+    if not is_supported_ifc4x3_schema(schema):
+        raise UnsupportedIfcSchemaError(schema)
 
-    sensors = ifcopenshell.util.selector.filter_elements(model, ifcSensorType)
+    sensors = ifcopenshell.util.selector.filter_elements(model, "IfcSensor")
 
     sensorData = {}
 
@@ -30,10 +96,13 @@ def process_ifc_file():
 #Andressa
 def _space_entry(sp):
     """
-    Extrai os dados brutos de um IfcSpace, incluindo todos os property sets.
-    A extração NÃO decide nada: identidade persistente, reservabilidade e
-    validação de códigos são responsabilidade da camada de domínio no Node.js
-    (o provider de identidade escolhe que property set/propriedade usar).
+    Extrai os dados de um IfcSpace de forma lossless. Contrato do código de
+    inventário do IfcSpace (ADR-0052): GlobalId copiado exatamente; Name copiado
+    como fonte do código de inventário institucional; LongName copiado como
+    rótulo informativo opcional; a Reference (deprecada) é IGNORADA — nunca é a
+    fonte de identidade nem de código. Os property sets são copiados na íntegra
+    apenas para o processamento de EQUIPAMENTO (não do IfcSpace); a extração não
+    interpreta nenhum pset do espaço.
     """
     try:
         psets = ifcopenshell.util.element.get_psets(sp)
@@ -62,9 +131,11 @@ def _space_occurrence(sp):
     share the same exact GlobalId are both retained for duplicate detection — which
     `extract_inventory_by_space` (a dict keyed by GlobalId) can never reveal.
 
-    The extraction stays DUMB: it copies ALL property sets verbatim and names none.
-    Interpreting a specific pset (e.g. the identity Reference) is the Node.js
-    identity/model-intake layer's responsibility, never Python's.
+    Contrato IfcSpace (ADR-0052): GlobalId lossless; Name = fonte do código de
+    inventário institucional; LongName = rótulo informativo opcional; a Reference
+    (deprecada) é IGNORADA. Os property sets são copiados na íntegra apenas para o
+    processamento de equipamento a jusante; a extração não interpreta nenhum pset
+    do IfcSpace.
     """
     try:
         psets = ifcopenshell.util.element.get_psets(sp)
@@ -158,8 +229,10 @@ def build_inventory_payload(file_path="source_model.ifc"):
     Build the EXACT body of the ordinary `/api/model/inventory/<modelId>` response
     (ADR-0051 Stage 0B §7-v4). The Flask endpoint calls THIS function, so a test that
     invokes it exercises the real endpoint-used implementation — not a hand-assembled
-    reconstruction. It stays a dumb extractor: it copies raw property sets and never
-    interprets a Reference. Fields:
+    reconstruction. Per ADR-0052 the IfcSpace inventory-code contract is GlobalId
+    (lossless) + Name (institutional inventory code) + LongName (optional label); the
+    deprecated Reference is never interpreted (raw psets are copied only for downstream
+    equipment processing). Fields:
       - `data`               — GlobalId-keyed inventory (duplicates already collapsed);
       - `spaceOccurrences`   — ordered LOSSLESS list, one record per IfcSpace entity,
                                each carrying its own `entityId` and `storeyName`, so two
@@ -175,6 +248,8 @@ def build_inventory_payload(file_path="source_model.ifc"):
         "data": inventory,
         "spaceOccurrences": occurrences,
         "schema": context["schema"],
+        "schemaClassification": context["schemaClassification"],
+        "schemaSupported": context["schemaSupported"],
         "uncontainedProxies": context["uncontainedProxies"],
         "ok": True,
     }
@@ -183,7 +258,8 @@ def build_inventory_payload(file_path="source_model.ifc"):
 def extract_model_context(file_path="source_model.ifc"):
     """
     Contexto do modelo para o preflight de requisitos no Node.js:
-     - schema declarado no header (o perfil suportado/testado é IFC4);
+     - schema declarado no header + classificação IFC4x3 (ADR-0052 §A: apenas a
+       família IFC4x3 é suportada; IFC2X3 e IFC4 são rejeitados);
      - IfcBuildingElementProxy fora de qualquer IfcSpace (as regras PROXY-*
        aplicam-se a QUALQUER proxy do modelo, contido ou não).
     """
@@ -193,6 +269,8 @@ def extract_model_context(file_path="source_model.ifc"):
         schema = model.header.file_schema.schema_identifiers[0]
     except Exception:
         schema = None
+
+    schema_classification = classify_ifc_schema(schema)
 
     contained = set()
     for rel in model.by_type("IfcRelContainedInSpatialStructure"):
@@ -207,4 +285,9 @@ def extract_model_context(file_path="source_model.ifc"):
         if proxy.GlobalId not in contained
     ]
 
-    return {"schema": schema, "uncontainedProxies": uncontained_proxies}
+    return {
+        "schema": schema,
+        "schemaClassification": schema_classification,
+        "schemaSupported": schema_classification == "supported",
+        "uncontainedProxies": uncontained_proxies,
+    }

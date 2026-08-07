@@ -97,22 +97,23 @@ export class ModelIntakeDatabase {
     async findSpaceByGlobalId(linkedModelId: number, ifcGlobalId: string): Promise<any | null> {
         await this.db.checkConnection();
         const [rows]: any = await this.db.connection.execute(`
-            SELECT id, space_uuid, ifc_global_id, inventory_code, inventory_code_normalized, name FROM spaces
+            SELECT id, space_uuid, ifc_global_id, inventory_code, inventory_code_normalized, long_name FROM spaces
             WHERE linked_model_id = :linkedModelId AND BINARY ifc_global_id = BINARY :ifcGlobalId LIMIT 1
         `, { linkedModelId, ifcGlobalId });
         return rows[0] ?? null;
     }
 
     /**
-     * Reference lookup RETAINED only to surface the transitional legacy
-     * Reference-uniqueness collision in the preview — never an identity key.
+     * Inventory-code lookup used ONLY to surface an institutional inventory-code
+     * collision (uq_spaces_scope_code) in the preview — never an identity key. The
+     * inventory code comes from IfcSpace.Name (ADR-0052 §C).
      */
-    async findSpaceByReference(linkedModelId: number, reference: string): Promise<any | null> {
+    async findSpaceByInventoryCode(linkedModelId: number, inventoryCode: string): Promise<any | null> {
         await this.db.checkConnection();
         const [rows]: any = await this.db.connection.execute(`
-            SELECT id, space_uuid, ifc_global_id, inventory_code, inventory_code_normalized, name FROM spaces
-            WHERE linked_model_id = :linkedModelId AND inventory_code_normalized = :reference LIMIT 1
-        `, { linkedModelId, reference: reference.trim() });
+            SELECT id, space_uuid, ifc_global_id, inventory_code, inventory_code_normalized, long_name FROM spaces
+            WHERE linked_model_id = :linkedModelId AND inventory_code_normalized = :inventoryCode LIMIT 1
+        `, { linkedModelId, inventoryCode: inventoryCode.trim() });
         return rows[0] ?? null;
     }
 
@@ -137,16 +138,23 @@ export class ModelIntakeDatabase {
         if (!versions.length) return null;
         const [spaces]: any = await this.db.connection.execute(`
             SELECT s.id, s.space_uuid, s.inventory_code, sb.ifc_guid,
-                   sb.name_snapshot, sb.long_name_snapshot
+                   sb.inventory_code_snapshot, sb.long_name_snapshot
             FROM space_bindings sb INNER JOIN spaces s ON s.id = sb.space_id
             WHERE sb.model_version_id = :versionId ORDER BY sb.id
         `, { versionId });
+        // Modelled equipment location authority is ab.space_id (ADR-0052 §F). Expose the
+        // bound space's PERSISTENT uuid (the relationship key) and the version-accurate
+        // inventory-code SNAPSHOT for that same version (display only) — NEVER the mutable
+        // current spaces.inventory_code, which would rewrite historical version semantics.
         const [assets]: any = await this.db.connection.execute(`
             SELECT a.id, a.asset_uuid, a.asset_code, a.serial_number, a.name,
                    ab.ifc_guid, ab.name_snapshot, ab.type_snapshot, ab.space_id,
-                   s.space_uuid, s.inventory_code AS space_reference
+                   s.space_uuid,
+                   sbs.inventory_code_snapshot AS space_inventory_code_snapshot
             FROM asset_bindings ab INNER JOIN assets a ON a.id = ab.asset_id
             LEFT JOIN spaces s ON s.id = ab.space_id
+            LEFT JOIN space_bindings sbs
+                ON sbs.model_version_id = ab.model_version_id AND sbs.space_id = ab.space_id
             WHERE ab.model_version_id = :versionId AND a.asset_type = 'equipment'
             ORDER BY ab.id
         `, { versionId });

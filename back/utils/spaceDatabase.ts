@@ -36,47 +36,49 @@ const canonicalSchemaVerifiedByDatabase = new Set<string>();
 export function resetCanonicalSchemaCache(): void { canonicalSchemaVerifiedByDatabase.clear(); }
 
 /**
- * Timeout for the linked_model Reference lock (ADR-0051 §6). Exceeding it raises a
- * ConcurrencyError('lock_timeout') without automatic retry — the upload then fails
- * cleanly (the previous version stays current) rather than proceeding unprotected.
+ * Timeout for the linked_model space-metadata lock (ADR-0052 §8, was ADR-0051 §6).
+ * Exceeding it raises a ConcurrencyError('lock_timeout') without automatic retry — the
+ * upload then fails cleanly (the previous version stays current) rather than proceeding
+ * unprotected. The lock protects the mutable current space-metadata projection
+ * (inventory_code, inventory_code_normalized, long_name), NOT a Reference.
  */
-const REFERENCE_LOCK_TIMEOUT_SECONDS = 30;
+const SPACE_METADATA_LOCK_TIMEOUT_SECONDS = 30;
 
 /**
- * Build the linked_model Reference advisory-lock name (ADR-0051 §6/§4-v3). MySQL
+ * Build the linked_model space-metadata advisory-lock name (ADR-0052 §8). MySQL
  * `GET_LOCK` names are SERVER-WIDE, so the name MUST include an exact, database-specific
  * component — otherwise two independent schemas that happen to contain the same numeric
- * `linked_model_id` (e.g. the disposable Stage 0B self-test and `digital_twin`) would
- * contend. A short stable hash of the EXACT selected database (`SELECT DATABASE()`, not
- * merely DB_NAME) is used; the final name stays well within MySQL's 64-character limit
- * (`oswadt:space_ref:` 17 + 16 hex + `:lm:` 4 + up to ~10 digits ≈ 47).
+ * `linked_model_id` (e.g. the disposable self-test and `digital_twin`) would contend. A
+ * short stable hash of the EXACT selected database (`SELECT DATABASE()`, not merely
+ * DB_NAME) is used; the final name stays well within MySQL's 64-character limit
+ * (`oswadt:space_meta:` 18 + 16 hex + `:lm:` 4 + up to ~10 digits ≈ 48).
  */
-export function referenceLockName(selectedDatabase: string, linkedModelId: number): string {
+export function spaceMetadataLockName(selectedDatabase: string, linkedModelId: number): string {
     const dbHash = crypto.createHash("sha256").update(selectedDatabase).digest("hex").slice(0, 16);
-    return `oswadt:space_ref:${dbHash}:lm:${linkedModelId}`;
+    return `oswadt:space_meta:${dbHash}:lm:${linkedModelId}`;
 }
 
 /**
- * Build the lock-name FACTORY used by {@link SpaceDatabase.withReferenceLock} (ADR-0051
- * §3-v4). The returned factory runs `SELECT DATABASE()` ON the dedicated connection that
- * withNamedLock will use to hold GET_LOCK, rejects a null/empty selected database, and
- * derives the database-scoped name from that ACTUAL selected schema — so the schema that
- * scopes the lock and the session that holds it are guaranteed to be the same connection.
- * Exported so the disposable-MySQL self-test can drive the REAL helper against two
- * genuinely different selected schemas (§8-v4), not two arbitrary name strings.
+ * Build the lock-name FACTORY used by {@link SpaceDatabase.withSpaceMetadataLock}
+ * (ADR-0052 §8). The returned factory runs `SELECT DATABASE()` ON the dedicated
+ * connection that withNamedLock will use to hold GET_LOCK, rejects a null/empty selected
+ * database, and derives the database-scoped name from that ACTUAL selected schema — so
+ * the schema that scopes the lock and the session that holds it are guaranteed to be the
+ * same connection. Exported so the disposable-MySQL self-test can drive the REAL helper
+ * against two genuinely different selected schemas, not two arbitrary name strings.
  */
-export function referenceLockNameFactory(linkedModelId: number): (conn: any) => Promise<string> {
+export function spaceMetadataLockNameFactory(linkedModelId: number): (conn: any) => Promise<string> {
     return async (conn: any) => {
         const [rows]: any = await conn.query("SELECT DATABASE() AS db");
         const selectedDatabase = rows?.[0]?.db;
         if (typeof selectedDatabase !== "string" || selectedDatabase.length === 0) {
             throw new SpaceCanonicalSchemaError(
                 "canonical_schema_missing",
-                "No database is selected on the current connection; the linked_model Reference lock cannot be scoped safely.",
+                "No database is selected on the current connection; the linked_model space-metadata lock cannot be scoped safely.",
                 { selectedDatabase: selectedDatabase ?? null },
             );
         }
-        return referenceLockName(selectedDatabase, linkedModelId);
+        return spaceMetadataLockName(selectedDatabase, linkedModelId);
     };
 }
 
@@ -110,21 +112,22 @@ class SpaceDatabase {
      * server-side), so it serialises within AND across backend processes — never a
      * process-local mutex (§6.10). Released in finally by withNamedLock (§6.9).
      */
-    async withReferenceLock<T>(linkedModelId: number, fn: () => Promise<T>): Promise<T> {
+    async withSpaceMetadataLock<T>(linkedModelId: number, fn: () => Promise<T>): Promise<T> {
         await this.db.checkConnection();
-        // §3-v4: scope the lock to the ACTUAL selected database (SELECT DATABASE(), not
-        // merely DB_NAME) AND derive that name ON the very connection that will hold
-        // GET_LOCK, via a name factory. This guarantees the schema that scopes the lock
-        // and the dedicated session that holds it are the SAME connection — never a
-        // different pool connection whose selected database could differ.
-        return this.db.withNamedLock(referenceLockNameFactory(linkedModelId), REFERENCE_LOCK_TIMEOUT_SECONDS, fn);
+        // Scope the lock to the ACTUAL selected database (SELECT DATABASE(), not merely
+        // DB_NAME) AND derive that name ON the very connection that will hold GET_LOCK,
+        // via a name factory. This guarantees the schema that scopes the lock and the
+        // dedicated session that holds it are the SAME connection — never a different pool
+        // connection whose selected database could differ.
+        return this.db.withNamedLock(spaceMetadataLockNameFactory(linkedModelId), SPACE_METADATA_LOCK_TIMEOUT_SECONDS, fn);
     }
 
     /**
-     * Stage 0B: the persistent-space identity authority is
-     * linked_model_id + IfcSpace.GlobalId (ADR-0051). The Reference-based lookup
-     * below is RETAINED only to detect the transitional legacy Reference-uniqueness
-     * collision (uq_spaces_scope_code is still active). It is NEVER the identity key.
+     * Identity authority is linked_model_id + IfcSpace.GlobalId (ADR-0052 §B). This
+     * inventory-code lookup is used ONLY to detect an institutional inventory-code
+     * collision against the scope uniqueness constraint uq_spaces_scope_code (the
+     * inventory code now comes from IfcSpace.Name). It is NEVER the identity key and
+     * never a Reference lookup.
      */
     async findByScopeAndCode(linkedModelId: number, normalizedCode: string): Promise<any | null> {
         await this.db.checkConnection();
@@ -161,7 +164,7 @@ class SpaceDatabase {
         ifcGlobalId: string;
         inventoryCode: string;
         inventoryCodeNormalized: string;
-        name?: string | null;
+        longName?: string | null;
     }): Promise<{ spaceId: number; spaceUuid: string }> {
         if (!isValidIfcGlobalId(input.ifcGlobalId)) {
             throw new Error("createSpace requires a valid IFC GlobalId (^[0-9A-Za-z_$]{22}$).");
@@ -170,92 +173,94 @@ class SpaceDatabase {
 
         const spaceUuid = crypto.randomUUID();
 
-        // Every newly created spaces row receives its canonical ifc_global_id
-        // (ADR-0051 rule 9). The Reference columns are current administrative
-        // metadata, still NOT NULL during the transitional Stage 0B.
+        // Every newly created spaces row receives its canonical ifc_global_id (ADR-0052
+        // §B). inventory_code/_normalized come from IfcSpace.Name; long_name from
+        // IfcSpace.LongName (nullable).
         const [result]: any = await this.db.connection.execute(`
             INSERT INTO spaces
-                (space_uuid, ifc_global_id, inventory_code, inventory_code_normalized, linked_model_id, name, status)
+                (space_uuid, ifc_global_id, inventory_code, inventory_code_normalized, linked_model_id, long_name, status)
             VALUES
-                (:spaceUuid, :ifcGlobalId, :inventoryCode, :inventoryCodeNormalized, :linkedModelId, :name, 'active')
+                (:spaceUuid, :ifcGlobalId, :inventoryCode, :inventoryCodeNormalized, :linkedModelId, :longName, 'active')
         `, {
             spaceUuid,
             ifcGlobalId: input.ifcGlobalId,
             inventoryCode: input.inventoryCode,
             inventoryCodeNormalized: input.inventoryCodeNormalized,
             linkedModelId: input.linkedModelId,
-            name: input.name ?? null,
+            longName: input.longName ?? null,
         });
 
         return { spaceId: result.insertId, spaceUuid };
     }
 
     /**
-     * Update ONLY the current administrative Reference projection of a persistent
-     * space whose identity (linked_model + GlobalId) is unchanged. Historical
-     * binding snapshots are never touched (ADR-0051 §6). ifc_global_id, space_uuid
-     * and spaces.id are never modified here.
+     * Update ONLY the current mutable space-metadata projection of a persistent space
+     * whose identity (linked_model + GlobalId) is unchanged (ADR-0052 §8): the
+     * institutional inventory_code (from IfcSpace.Name), its normalized form, and the
+     * long_name (from IfcSpace.LongName). Historical binding snapshots are never touched;
+     * ifc_global_id, space_uuid and spaces.id are never modified here.
      */
-    async updateCurrentReference(input: {
+    async updateCurrentSpaceMetadata(input: {
         spaceId: number;
         inventoryCode: string;
         inventoryCodeNormalized: string;
-        name?: string | null;
+        longName?: string | null;
     }): Promise<void> {
         await this.db.checkConnection();
         await this.db.connection.execute(`
             UPDATE spaces
                SET inventory_code = :inventoryCode,
                    inventory_code_normalized = :inventoryCodeNormalized,
-                   name = :name
+                   long_name = :longName
              WHERE id = :spaceId
         `, {
             spaceId: input.spaceId,
             inventoryCode: input.inventoryCode,
             inventoryCodeNormalized: input.inventoryCodeNormalized,
-            name: input.name ?? null,
+            longName: input.longName ?? null,
         });
     }
 
     /**
-     * Compensating restore of a REUSED space's administrative Reference (§6.B). A FULL
-     * compare-and-swap (ADR-0051 §4-v4/§6): the restore reverts a row ONLY when its
-     * current projection still matches the COMPLETE projection this operation applied —
-     * raw `inventory_code`, `inventory_code_normalized` AND `name`. The comparison is
-     * BYTE-EXACT (explicit `BINARY`), independent of the table's case-insensitive
-     * collation, and NULL-safe for `name` (`BINARY name <=> BINARY :appliedName`). So a
-     * newer change to the raw Reference or the Name — even a CASE-only or ACCENT-only
-     * change that the default collation would treat as equal — is never clobbered.
-     * spaces.id / space_uuid / ifc_global_id are never touched. Returns the number of
-     * rows restored (0 = a newer projection won or the row is gone; left as-is).
+     * Compensating restore of a REUSED space's mutable metadata projection (ADR-0052 §8).
+     * A FULL compare-and-swap: the restore reverts a row ONLY when its current projection
+     * still matches the COMPLETE projection this operation applied — `inventory_code`
+     * (from IfcSpace.Name), `inventory_code_normalized` AND `long_name` (from
+     * IfcSpace.LongName). The comparison is BYTE-EXACT (explicit `BINARY`), independent of
+     * the table's case-insensitive collation, and NULL-safe for `long_name`
+     * (`BINARY long_name <=> BINARY :appliedLongName`). So a newer change to the inventory
+     * code or the long name — even a CASE-only or ACCENT-only change the default collation
+     * would treat as equal — is never clobbered. spaces.id / space_uuid / ifc_global_id
+     * are never touched. Returns the number of rows restored (0 = a newer projection won
+     * or the row is gone; left as-is).
      */
-    async restoreCurrentReference(input: {
+    async restoreSpaceMetadata(input: {
         spaceId: number;
         appliedInventoryCode: string;
         appliedInventoryCodeNormalized: string;
-        appliedName: string | null;
+        appliedLongName: string | null;
         previousInventoryCode: string | null;
         previousInventoryCodeNormalized: string | null;
-        previousName: string | null;
+        previousLongName: string | null;
     }): Promise<number> {
         await this.db.checkConnection();
         const [result]: any = await this.db.connection.execute(`
             UPDATE spaces
                SET inventory_code = :previousInventoryCode,
                    inventory_code_normalized = :previousInventoryCodeNormalized,
-                   name = :previousName
+                   long_name = :previousLongName
              WHERE id = :spaceId
                AND BINARY inventory_code = BINARY :appliedInventoryCode
                AND BINARY inventory_code_normalized = BINARY :appliedInventoryCodeNormalized
-               AND BINARY name <=> BINARY :appliedName
+               AND BINARY long_name <=> BINARY :appliedLongName
         `, {
             spaceId: input.spaceId,
             previousInventoryCode: input.previousInventoryCode,
             previousInventoryCodeNormalized: input.previousInventoryCodeNormalized,
-            previousName: input.previousName,
+            previousLongName: input.previousLongName,
             appliedInventoryCode: input.appliedInventoryCode,
             appliedInventoryCodeNormalized: input.appliedInventoryCodeNormalized,
-            appliedName: input.appliedName,
+            appliedLongName: input.appliedLongName,
         });
         return Number(result.affectedRows ?? 0);
     }
@@ -266,7 +271,6 @@ class SpaceDatabase {
         entityId: number;
         ifcGuid: string;
         inventoryCodeSnapshot: string;
-        nameSnapshot?: string | null;
         longNameSnapshot?: string | null;
     }): Promise<number> {
         if (!isValidIfcGlobalId(input.ifcGuid)) {
@@ -290,9 +294,9 @@ class SpaceDatabase {
         const [result]: any = await this.db.connection.execute(`
             INSERT INTO space_bindings
                 (space_id, model_version_id, entity_id, ifc_guid,
-                 inventory_code_snapshot, name_snapshot, long_name_snapshot, binding_status)
+                 inventory_code_snapshot, long_name_snapshot, binding_status)
             SELECT s.id, mv.id, :entityId, s.ifc_global_id,
-                   :inventoryCodeSnapshot, :nameSnapshot, :longNameSnapshot, 'active'
+                   :inventoryCodeSnapshot, :longNameSnapshot, 'active'
               FROM spaces s
               JOIN model_versions mv ON mv.id = :modelVersionId
               JOIN models m ON m.id = mv.model_id
@@ -305,7 +309,6 @@ class SpaceDatabase {
             entityId: input.entityId,
             ifcGuid: input.ifcGuid,
             inventoryCodeSnapshot: input.inventoryCodeSnapshot,
-            nameSnapshot: input.nameSnapshot ?? null,
             longNameSnapshot: input.longNameSnapshot ?? null,
         });
 

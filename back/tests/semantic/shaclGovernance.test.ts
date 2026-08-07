@@ -11,14 +11,14 @@ const root = path.resolve(process.cwd(), "..");
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "semantic/artifacts/semantic-artifacts-public-manifest.json"), "utf8"));
 
 test("governed model shapes are immutable, public, graph-backed, activatable, parseable, and versioned independently", () => {
-    const entry = manifest.artifacts.find((item: any) => item.artifactKey === "oswadt-model-rdf-structural-shapes-1.0.0");
+    const entry = manifest.artifacts.find((item: any) => item.artifactKey === "oswadt-model-rdf-structural-shapes-1.1.0");
     assert.ok(entry);
     assert.equal(entry.artifactType, "shacl_shapes");
     assert.equal(entry.storageMode, "graph_backed");
     assert.equal(entry.privacyClassification, "public_research_artifact");
     assert.equal(entry.activationAllowed, true);
     assert.equal(entry.testOnly, false);
-    assert.equal(entry.semanticVersion, "1.0.0");
+    assert.equal(entry.semanticVersion, "1.1.0");
     const bytes = fs.readFileSync(path.join(root, "semantic/artifacts", entry.relativePath));
     assert.equal(bytes.length, entry.byteSize);
     assert.equal(crypto.createHash("sha256").update(bytes).digest("hex"), entry.sha256);

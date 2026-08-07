@@ -15,9 +15,18 @@ type StudentAsset = {
   persistentAssetId: string;
   name: string;
   tag: string | null;
-  location: { name: string | null; reference: string | null };
+  // ADR-0052: a location is the persistent space matched by GlobalId — the institutional
+  // inventory code (IfcSpace.Name) and optional longName (IfcSpace.LongName). Never a "reference".
+  location: { spaceId: number | null; spaceUuid: string | null; inventoryCode: string | null; longName: string | null };
   representation: { kind: "modelled" | "non_modelled" | "undetermined"; modelLineId?: number; modelName?: string; linkedModelId?: number };
 };
+
+// Display a location as "<inventoryCode> — <longName>", or just "<inventoryCode>" when the
+// LongName is absent (ADR-0052 §8). Returns null when the asset has no located space.
+function formatLocation(location: StudentAsset["location"]): string | null {
+  if (!location.inventoryCode) return null;
+  return location.longName ? `${location.inventoryCode} — ${location.longName}` : location.inventoryCode;
+}
 type ModelReservationContext = { modelLineName: string; modelLineId: number; currentVersionId: number | null; currentVersionNumber: number | null };
 type ReservationRow = { id: number; asset_id: number; name?: string; asset_code?: string | null; start_time: string; end_time: string; status: string; decision?: { type: "approve" | "reject" | "cancel"; status: string; reason: string | null; decidedAt: string | null; decidedByRole: string | null } | null };
 
@@ -208,10 +217,10 @@ function StudentWorkspaceHeader({ mode, chooseMode, logout, backToManagement }: 
 
 function AssetCatalogue({ assets, search, selected, select }: { assets: StudentAsset[]; search: string; selected: StudentAsset | null; select: (asset: StudentAsset) => void }) {
   const term = search.trim().toLocaleLowerCase("pt");
-  const filtered = assets.filter((asset) => !term || [asset.name, asset.tag, asset.location.name, asset.location.reference].some((value) => value?.toLocaleLowerCase("pt").includes(term)));
+  const filtered = assets.filter((asset) => !term || [asset.name, asset.tag, asset.location.inventoryCode, asset.location.longName].some((value) => value?.toLocaleLowerCase("pt").includes(term)));
   if (!filtered.length) return <p>Nenhum ativo corresponde à pesquisa.</p>;
   const groups: Array<{ kind: StudentAsset["representation"]["kind"]; title: string }> = [{ kind: "modelled", title: "Ativos modelados" }, { kind: "non_modelled", title: "Ativos não modelados" }, { kind: "undetermined", title: "Origem não determinada" }];
-  return <div className="space-y-6">{groups.map((group) => { const items = filtered.filter((asset) => asset.representation.kind === group.kind); if (!items.length && group.kind === "undetermined") return null; return <section key={group.kind}><h3 className="mb-3 text-lg font-semibold">{group.title}</h3>{items.length === 0 ? <p className="uminho-card p-4 text-sm">Nenhum ativo disponível neste grupo.</p> : <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{items.map((asset) => <article className={`uminho-card p-4 ${selected?.persistentAssetId === asset.persistentAssetId ? "ring-2 ring-[var(--uminho-primary)]" : ""}`} key={asset.persistentAssetId}><h4 className="font-semibold">{asset.name}</h4><p className="mt-1 text-sm">Tag/Reference: {asset.tag ?? "Não registada"}</p><p className="text-sm">Localização: {asset.location.name ?? "Localização não registada"}{asset.location.reference ? ` (${asset.location.reference})` : ""}</p>{asset.representation.kind === "modelled" && <p className="text-sm">Modelo: {asset.representation.modelName}</p>}<button className="uminho-primary-button mt-3 px-3 py-2 text-sm" onClick={() => select(asset)}>Selecionar ativo</button></article>)}</div>}</section>; })}</div>;
+  return <div className="space-y-6">{groups.map((group) => { const items = filtered.filter((asset) => asset.representation.kind === group.kind); if (!items.length && group.kind === "undetermined") return null; return <section key={group.kind}><h3 className="mb-3 text-lg font-semibold">{group.title}</h3>{items.length === 0 ? <p className="uminho-card p-4 text-sm">Nenhum ativo disponível neste grupo.</p> : <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{items.map((asset) => <article className={`uminho-card p-4 ${selected?.persistentAssetId === asset.persistentAssetId ? "ring-2 ring-[var(--uminho-primary)]" : ""}`} key={asset.persistentAssetId}><h4 className="font-semibold">{asset.name}</h4><p className="mt-1 text-sm">Tag: {asset.tag ?? "Não registada"}</p><p className="text-sm">Localização: {formatLocation(asset.location) ?? "Localização não registada"}</p>{asset.representation.kind === "modelled" && <p className="text-sm">Modelo: {asset.representation.modelName}</p>}<button className="uminho-primary-button mt-3 px-3 py-2 text-sm" onClick={() => select(asset)}>Selecionar ativo</button></article>)}</div>}</section>; })}</div>;
 }
 
 function SelectedResourcePanel({ viewerReady, selectedIfc, asset, message, actorId, open, setOpen, modelContext, afterReservation }: { viewerReady: boolean; selectedIfc: SelectedIfcInfo | null; asset: StudentAsset | null; message: string; actorId: string; open: boolean; setOpen: (value: boolean) => void; modelContext: ModelReservationContext | null; afterReservation: () => void }) {
@@ -221,7 +230,7 @@ function SelectedResourcePanel({ viewerReady, selectedIfc, asset, message, actor
 function AssetSelection({ asset, actorId, open, setOpen, modelContext, afterReservation }: { asset: StudentAsset; actorId: string; open: boolean; setOpen: (value: boolean) => void; modelContext: ModelReservationContext | null; afterReservation: () => void }) {
   const startRequestRef = useRef<HTMLButtonElement>(null);
   const closeDialog = () => { startRequestRef.current?.focus(); setOpen(false); afterReservation(); };
-  return <div className="mt-2"><p><strong>{asset.name}</strong> · {asset.tag ?? "Sem referência"}</p><p className="text-sm">Localização: {asset.location.name ?? "Localização não registada"}</p><button ref={startRequestRef} type="button" className="uminho-primary-button mt-3 px-4 py-2" data-testid="model-start-reservation" disabled={!actorId} onClick={() => setOpen(true)}>Iniciar pedido</button>{open && <ReservationModal presentation="dialog" asset={asset} actorId={actorId} sourceContext={modelContext} onClose={closeDialog} />}</div>;
+  return <div className="mt-2"><p><strong>{asset.name}</strong> · {asset.tag ?? "Sem tag"}</p><p className="text-sm">Localização: {formatLocation(asset.location) ?? "Localização não registada"}</p><button ref={startRequestRef} type="button" className="uminho-primary-button mt-3 px-4 py-2" data-testid="model-start-reservation" disabled={!actorId} onClick={() => setOpen(true)}>Iniciar pedido</button>{open && <ReservationModal presentation="dialog" asset={asset} actorId={actorId} sourceContext={modelContext} onClose={closeDialog} />}</div>;
 }
 
 function ReservationGroups({ reservations, action }: { reservations: ReservationRow[]; action: (path: "checkin" | "checkout" | "cancel", id: number) => void }) {

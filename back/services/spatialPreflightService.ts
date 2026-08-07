@@ -49,8 +49,8 @@ export function deriveSpaceOccurrences(extracted: Pick<ExtractedIfcModel, "space
 
 export type SpatialPreflightCode =
     | "no_ifcspace"
-    | "invalid_references"
-    | "duplicate_references";
+    | "invalid_space_names"
+    | "duplicate_inventory_codes";
 
 export class SpatialPreflightError extends Error {
     readonly statusCode = 422;
@@ -87,7 +87,7 @@ export interface SpatialPreflightOutcome {
  * duplicados. Lógica ÚNICA de deteção de duplicações, partilhada com a
  * persistência (spaceIdentityService) como verificação defensiva.
  */
-export function groupDuplicateReferences<T extends { result: SpaceIdentityResult }>(
+export function groupDuplicateInventoryCodes<T extends { result: SpaceIdentityResult }>(
     resolved: T[]
 ): Map<string, T[]> {
     const byCode = new Map<string, T[]>();
@@ -164,30 +164,30 @@ export async function runSpatialPreflight(input: SpatialPreflightInput): Promise
     const invalid = resolved.filter((r) => r.result.status !== "valid");
 
     if (invalid.length > 0) {
-        const source = resolved[0]!.result.source;
+        const source = resolved[0]!.result.source; // "IfcSpace.Name"
         const diagnostics = invalid.map((r) => ({
             guid: r.guid,
             name: r.space.spaceName ?? null,
             longName: r.space.spaceLongName ?? null,
             index: r.index,
-            motivo: r.result.reasonCode === "missing" ? "missing_reference"
-                : r.result.reasonCode === "empty_or_whitespace" ? "empty_reference"
-                : "invalid_reference_type",
+            motivo: r.result.reasonCode === "missing" ? "missing_space_name"
+                : r.result.reasonCode === "empty_or_whitespace" ? "blank_space_name"
+                : "invalid_space_name_type",
         }));
 
         const error = new SpatialPreflightError(
-            "invalid_references",
-            `The spatial model cannot be processed because one or more IfcSpace elements do not contain a valid ${source}. ` +
-            `${invalid.length} of ${resolved.length} IfcSpace elements are missing a valid inventory reference.`,
-            `${invalid.length} of ${resolved.length} IfcSpace elements without a valid inventory reference`,
+            "invalid_space_names",
+            `The spatial model cannot be processed because one or more IfcSpace elements do not contain a valid ${source} (the institutional inventory code). ` +
+            `${invalid.length} of ${resolved.length} IfcSpace elements are missing a valid IfcSpace.Name.`,
+            `${invalid.length} of ${resolved.length} IfcSpace elements without a valid IfcSpace.Name inventory code`,
             diagnostics
         );
-        logPreflight("invalid_references", { modelVersionId: input.modelVersionId, diagnostics });
+        logPreflight("invalid_space_names", { modelVersionId: input.modelVersionId, diagnostics });
         throw error;
     }
 
     /* ---- 3. duplicações (antes da persistência) ---- */
-    const duplicates = groupDuplicateReferences(resolved);
+    const duplicates = groupDuplicateInventoryCodes(resolved);
 
     if (duplicates.size > 0) {
         const codes = [...duplicates.keys()];
@@ -200,12 +200,12 @@ export async function runSpatialPreflight(input: SpatialPreflightInput): Promise
         }));
 
         const error = new SpatialPreflightError(
-            "duplicate_references",
+            "duplicate_inventory_codes",
             `Duplicate space inventory code(s) in authoritative spatial model: ${codes.join(", ")}`,
             `duplicate inventory code(s): ${codes.join(", ")}`,
             diagnostics
         );
-        logPreflight("duplicate_references", { modelVersionId: input.modelVersionId, diagnostics });
+        logPreflight("duplicate_inventory_codes", { modelVersionId: input.modelVersionId, diagnostics });
         throw error;
     }
 

@@ -6,7 +6,17 @@ export type StudentReservableAsset = {
     persistentAssetId: string;
     name: string;
     tag: string | null;
-    location: { name: string | null; reference: string | null };
+    /**
+     * Location of the equipment asset, resolved through the persistent space matched by
+     * GlobalId (ADR-0052): `inventoryCode` from IfcSpace.Name, `longName` from
+     * IfcSpace.LongName, plus the internal space id/uuid. Never a "reference".
+     */
+    location: {
+        spaceId: number | null;
+        spaceUuid: string | null;
+        inventoryCode: string | null;
+        longName: string | null;
+    };
     representation: {
         kind: "modelled" | "non_modelled" | "undetermined";
         modelLineId?: number;
@@ -57,13 +67,6 @@ class PersistentAssetDatabase implements AssetIdentityLookup {
         return rows;
     }
 
-    async findSpaceAsset(spaceId: number): Promise<any | null> {
-        await this.db.checkConnection();
-        const [rows]: any = await this.db.connection.execute(
-            "SELECT * FROM assets WHERE space_id = :spaceId LIMIT 1", { spaceId });
-        return rows[0] ?? null;
-    }
-
     /** A linha de modelo já tem inventário persistente de ativos (fora desta versão)? */
     async modelHasPriorAssetBindings(modelId: number, excludeVersionId: number): Promise<boolean> {
         await this.db.checkConnection();
@@ -80,8 +83,9 @@ class PersistentAssetDatabase implements AssetIdentityLookup {
 
     async createAsset(input: {
         name: string;
-        assetType: "space" | "equipment";
-        /** Código institucional: Reference do espaço ou Tag EQP- do equipamento — nada mais. */
+        /** ADR-0052 §F: only real equipment/tools are assets; spaces never are. */
+        assetType: "equipment" | "tool";
+        /** Código institucional: Tag EQP- do equipamento — nada mais. */
         assetCode?: string | null;
         /** Serial da instância física (evidência separada; NUNCA em asset_code). */
         serialNumber?: string | null;
@@ -235,18 +239,6 @@ class PersistentAssetDatabase implements AssetIdentityLookup {
         `, { currentVersionId });
     }
 
-    /** Ativos-espaço acompanham o estado do espaço persistente (space_id). */
-    async reconcileSpaceAssetLifecycle(linkedModelId: number): Promise<void> {
-        await this.db.checkConnection();
-        await this.db.connection.execute(`
-            UPDATE assets a
-            INNER JOIN spaces s ON s.id = a.space_id
-            SET a.lifecycle_status = CASE WHEN s.status = 'active' THEN 'active' ELSE 'absent' END
-            WHERE s.linked_model_id = :linkedModelId
-              AND a.lifecycle_status <> 'retired'
-        `, { linkedModelId });
-    }
-
     /* ================= COMPENSAÇÃO ================= */
 
     async deleteBindingsForVersion(versionId: number): Promise<void> {
@@ -294,13 +286,15 @@ class PersistentAssetDatabase implements AssetIdentityLookup {
             SELECT a.asset_uuid, a.name, a.asset_code,
                    m.id AS model_line_id, m.name AS model_line_name,
                    lm.id AS linked_model_id, 'modelled' AS representation_kind,
-                   s.name AS location_name, s.inventory_code AS location_reference
+                   s.id AS location_space_id, s.space_uuid AS location_space_uuid,
+                   s.inventory_code AS location_inventory_code, s.long_name AS location_long_name
             FROM models m
             INNER JOIN linked_models lm ON lm.id = m.linked_parent_id
             INNER JOIN asset_bindings ab ON ab.model_version_id = m.current_version_id
               AND ab.binding_status = 'active' AND ab.ifc_guid = :ifcGuid
             INNER JOIN assets a ON a.id = ab.asset_id
               AND a.asset_uuid IS NOT NULL AND a.lifecycle_status = 'active' AND a.reservable = 1
+              AND a.asset_type IN ('equipment', 'tool')
             LEFT JOIN spaces s ON s.id = ab.space_id
             WHERE m.id = :modelLineId
             ORDER BY ab.id ASC LIMIT 1
@@ -314,6 +308,7 @@ class PersistentAssetDatabase implements AssetIdentityLookup {
             SELECT id FROM assets
             WHERE asset_uuid = :persistentAssetId
               AND lifecycle_status = 'active' AND reservable = 1
+              AND asset_type IN ('equipment', 'tool')
             LIMIT 1
         `, { persistentAssetId });
         return rows[0] ? Number(rows[0].id) : null;
@@ -325,7 +320,12 @@ class PersistentAssetDatabase implements AssetIdentityLookup {
             persistentAssetId: String(row.asset_uuid),
             name: String(row.name),
             tag: row.asset_code ?? null,
-            location: { name: row.location_name ?? null, reference: row.location_reference ?? null },
+            location: {
+                spaceId: row.location_space_id != null ? Number(row.location_space_id) : null,
+                spaceUuid: row.location_space_uuid ?? null,
+                inventoryCode: row.location_inventory_code ?? null,
+                longName: row.location_long_name ?? null,
+            },
             representation: kind === "modelled" ? {
                 kind,
                 modelLineId: Number(row.model_line_id),

@@ -10,6 +10,7 @@ class ApprovalHarness {
   audits: any[] = [];
   conflict = false;
   actorSourceCurrent = true;
+  assetType: string = 'equipment';
   reservation: Reservation = { id: 40, actor_id: 'actor', asset_id: 7, status: 'pending', start_time: '2030-02-01 10:00:00', end_time: '2030-02-01 11:00:00', shadow_eligibility_outcome: 'eligible', evidence_expires_at: '2030-03-01 00:00:00' };
   async connect() {}
   async disconnect() {}
@@ -22,7 +23,7 @@ class ApprovalHarness {
     if (/FROM actor_institutional_links/.test(sql)) return [this.actorSourceCurrent ? [{ id: 4 }] : []];
     if (/FROM semantic_artifact_families/.test(sql)) return [[{ current_artifact_id: 9 }]];
     if (/UPDATE reservation_manager_evidence_reviews/.test(sql)) return [{ affectedRows: 1 }];
-    if (/SELECT id FROM assets/.test(sql)) return [[]];
+    if (/SELECT id.*FROM assets/.test(sql)) return [[{ id: Number(this.reservation.asset_id), asset_type: this.assetType }]];
     if (/status IN \('approved','in_use','no_show'\)/.test(sql)) return [this.conflict ? [{ id: 99 }] : []];
     if (/UPDATE res_reservations/.test(sql)) {
       if (this.reservation.status !== values.previousStatus) return [{ affectedRows: 0 }];
@@ -44,9 +45,17 @@ test('vertical lifecycle: a session-resolved operational manager approves a pend
   assert.equal(harness.audits.length, 1);
   assert.equal(harness.audits[0].accountId, 501, 'the service receives the resolved session account, never a body manager id');
   assert.match(harness.calls[0]!, /FOR UPDATE/);
-  assert.ok(harness.calls.some((sql) => /SELECT id FROM assets.*FOR UPDATE/.test(sql)));
+  assert.ok(harness.calls.some((sql) => /SELECT id.*FROM assets.*FOR UPDATE/.test(sql)));
   assert.ok(harness.calls.some((sql) => /status IN \('approved','in_use','no_show'\)/.test(sql)));
   assert.ok(!harness.calls.some((sql) => /reservation_management_scopes/.test(sql)), 'operational authority is global — no scope query');
+});
+
+test('ADR-0052: a manager cannot approve a reservation whose resource is a legacy space asset', async () => {
+  const harness = new ApprovalHarness(); harness.assetType = 'space';
+  await assert.rejects(() => service(harness).decide(501, 'session-1', 40, 'approved', {}),
+    (error: any) => error.code === 'reservation_resource_not_reservable');
+  assert.equal(harness.reservation.status, 'pending', 'the legacy space reservation is never approved');
+  assert.equal(harness.audits.length, 0, 'no audit is written for a refused space approval');
 });
 
 test('global operational authority: any asset is decidable without a scope, and the audit records operational_manager/global', async () => {

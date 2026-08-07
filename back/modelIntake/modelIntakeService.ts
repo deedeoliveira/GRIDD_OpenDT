@@ -19,174 +19,176 @@ import { MappingProfileService } from "./mappingProfileService.ts";
 import { buildMinimalRdf } from "./rdfMaterialiser.ts";
 import type { IntakeProfile, PreflightRun, PreviewAsset, PreviewSpace, PreviewSpaceStatus, PreviewSpaceCode } from "./modelIntakeTypes.ts";
 import { isValidIfcGlobalId } from "../utils/ifcGlobalId.ts";
+import { evaluateIfcSchemaGate } from "../utils/ifcSchemaSupport.ts";
 import { deriveSpaceOccurrences } from "../services/spatialPreflightService.ts";
 import { loadSemanticValidationConfig } from "../semanticValidation/semanticValidationConfig.ts";
 
 interface UploadedFile { path: string; originalname: string; size: number; }
 
 /**
- * Stage 0B (ADR-0051 §7) preview classification for one IfcSpace candidate.
- * Identity is resolved by GlobalId; Reference is administrative metadata. Pure
- * function so it is directly unit-testable (§9 A/B/C). Returns a coarse status
- * plus a stable machine-readable code, and a concise operational message — never
- * raw SQL or a stack trace. Codes:
- *  - existing: matched an existing persistent space by GlobalId (Reference may
- *    have changed → referenceChanged);
- *  - new: a new GlobalId with no legacy Reference conflict;
+ * Preview classification for one IfcSpace candidate (ADR-0052). Identity is resolved by
+ * GlobalId; the institutional inventory code comes from IfcSpace.Name. Pure function so it
+ * is directly unit-testable. Returns a coarse status plus a stable machine-readable code,
+ * and a concise operational message — never raw SQL or a stack trace. Codes:
+ *  - existing: matched an existing persistent space by GlobalId (inventory code may have
+ *    changed → inventoryCodeChanged);
+ *  - new: a new GlobalId with no inventory-code conflict;
  *  - invalid_globalid: the GlobalId is missing/malformed (fails ^[0-9A-Za-z_$]{22}$);
  *  - duplicate_candidate_globalid: the same exact GlobalId appears twice in the version;
- *  - transitional_reference_collision: the candidate Reference is still owned by a
- *    DIFFERENT persistent space (blocked by the legacy uniqueness index) — whether
- *    the candidate GlobalId is new (§7) or an existing space is changing its
- *    Reference (§2 C).
+ *  - missing_space_name: valid GlobalId but no IfcSpace.Name (the required inventory code);
+ *  - inventory_code_collision: the candidate inventory code (from Name) is owned by a
+ *    DIFFERENT persistent space under uq_spaces_scope_code — whether the candidate GlobalId
+ *    is new or an existing space is changing its code.
  */
 export function classifyPreviewSpaceIdentity(input: {
     guid: string;
-    reference: string;
-    referencePresent: boolean;
+    inventoryCode: string;
+    namePresent: boolean;
     duplicateGuid: boolean;
     existingByGlobalId: { id: number; space_uuid: string; inventory_code_normalized: string } | null;
-    referenceOwner: { id: number } | null;
-}): { persistentSpaceStatus: PreviewSpaceStatus; blockingCode: PreviewSpaceCode | null; blockingError: string | null; referenceChanged: boolean; existingReference: string | null } {
-    // §1: full GlobalId validity is the first line of defence, before any status.
+    inventoryCodeOwner: { id: number } | null;
+}): { persistentSpaceStatus: PreviewSpaceStatus; blockingCode: PreviewSpaceCode | null; blockingError: string | null; inventoryCodeChanged: boolean; existingInventoryCode: string | null } {
+    // full GlobalId validity is the first line of defence, before any status.
     if (!isValidIfcGlobalId(input.guid)) {
         return { persistentSpaceStatus: "invalid", blockingCode: "invalid_globalid",
             blockingError: `IfcSpace GlobalId is missing or malformed (expected exactly 22 characters from 0-9 A-Z a-z _ $).`,
-            referenceChanged: false, existingReference: null };
+            inventoryCodeChanged: false, existingInventoryCode: null };
     }
     if (input.duplicateGuid) {
         return { persistentSpaceStatus: "invalid", blockingCode: "duplicate_candidate_globalid",
             blockingError: `Duplicate IfcSpace GlobalId '${input.guid}' within this model version.`,
-            referenceChanged: false, existingReference: null };
+            inventoryCodeChanged: false, existingInventoryCode: null };
     }
-    // §2: a valid, non-duplicate GlobalId with a missing/blank Reference is still
-    // blocking (IDS/schema require it transitionally) but the candidate stays visible.
-    if (!input.referencePresent) {
-        return { persistentSpaceStatus: "missing_reference", blockingCode: "missing_reference",
-            blockingError: `IfcSpace has a valid GlobalId but no Pset_SpaceCommon.Reference, which is still required during the transition.`,
-            referenceChanged: false, existingReference: null };
+    // a valid, non-duplicate GlobalId with a missing/blank IfcSpace.Name is blocking (the
+    // Name is the institutionally required inventory code) but the candidate stays visible.
+    if (!input.namePresent) {
+        return { persistentSpaceStatus: "missing_name", blockingCode: "missing_space_name",
+            blockingError: `IfcSpace has a valid GlobalId but no IfcSpace.Name, which is the required institutional inventory code.`,
+            inventoryCodeChanged: false, existingInventoryCode: null };
     }
     if (input.existingByGlobalId) {
-        // Same persistent space (identity by GlobalId). If the administrative
-        // Reference changed, it must not collide with a DIFFERENT space (§2 A/B/C).
-        const existingReference = input.existingByGlobalId.inventory_code_normalized;
-        const referenceChanged = existingReference !== input.reference;
-        if (referenceChanged && input.referenceOwner && input.referenceOwner.id !== input.existingByGlobalId.id) {
-            return { persistentSpaceStatus: "transitional_reference_collision", blockingCode: "transitional_reference_collision",
-                blockingError: `This space keeps its identity, but its new Reference '${input.reference}' is still assigned to a different persistent space (id ${input.referenceOwner.id}) while the transitional legacy uniqueness constraint uq_spaces_scope_code is active.`,
-                referenceChanged: true, existingReference };
+        // Same persistent space (identity by GlobalId). If the inventory code changed, it
+        // must not collide with a DIFFERENT space under uq_spaces_scope_code.
+        const existingInventoryCode = input.existingByGlobalId.inventory_code_normalized;
+        const inventoryCodeChanged = existingInventoryCode !== input.inventoryCode;
+        if (inventoryCodeChanged && input.inventoryCodeOwner && input.inventoryCodeOwner.id !== input.existingByGlobalId.id) {
+            return { persistentSpaceStatus: "inventory_code_collision", blockingCode: "inventory_code_collision",
+                blockingError: `This space keeps its identity, but its new inventory code '${input.inventoryCode}' (from IfcSpace.Name) is already assigned to a different persistent space (id ${input.inventoryCodeOwner.id}) under the scope uniqueness constraint uq_spaces_scope_code.`,
+                inventoryCodeChanged: true, existingInventoryCode };
         }
-        return { persistentSpaceStatus: "existing", blockingCode: "existing", blockingError: null, referenceChanged, existingReference };
+        return { persistentSpaceStatus: "existing", blockingCode: "existing", blockingError: null, inventoryCodeChanged, existingInventoryCode };
     }
-    if (input.referenceOwner) {
-        return { persistentSpaceStatus: "transitional_reference_collision", blockingCode: "transitional_reference_collision",
-            blockingError: `A different persistent space (id ${input.referenceOwner.id}) already uses Reference '${input.reference}'. This new GlobalId cannot reuse it while the transitional legacy uniqueness constraint uq_spaces_scope_code is active.`,
-            referenceChanged: false, existingReference: null };
+    if (input.inventoryCodeOwner) {
+        return { persistentSpaceStatus: "inventory_code_collision", blockingCode: "inventory_code_collision",
+            blockingError: `A different persistent space (id ${input.inventoryCodeOwner.id}) already uses inventory code '${input.inventoryCode}' (from IfcSpace.Name). This new GlobalId cannot reuse it under the scope uniqueness constraint uq_spaces_scope_code.`,
+            inventoryCodeChanged: false, existingInventoryCode: null };
     }
-    return { persistentSpaceStatus: "new", blockingCode: "new", blockingError: null, referenceChanged: false, existingReference: null };
+    return { persistentSpaceStatus: "new", blockingCode: "new", blockingError: null, inventoryCodeChanged: false, existingInventoryCode: null };
 }
 
 /**
- * Build the space-preview entries from the LOSSLESS occurrences (ADR-0051 §1/§2/§3).
- * EVERY occurrence yields exactly one PreviewSpace — invalid GlobalIds, Reference-less
- * spaces and duplicate GlobalIds included (no silent `continue`). Precedence per
- * candidate (§3): invalid_globalid > duplicate_candidate_globalid > missing_reference
- * > canonical_schema_missing/canonical_inconsistency > existing/new/
- * transitional_reference_collision. A failing Stage 0A precondition therefore blocks
- * a candidate that is otherwise valid (and gates its DB identity lookups) but never
- * hides a more fundamental candidate-local error. Exported and dependency-injected so
- * it is directly testable without the heavy preflight pipeline.
+ * Build the space-preview entries from the LOSSLESS occurrences (ADR-0052). EVERY
+ * occurrence yields exactly one PreviewSpace — invalid GlobalIds, Name-less spaces and
+ * duplicate GlobalIds included (no silent `continue`). Precedence per candidate:
+ * invalid_globalid > duplicate_candidate_globalid > missing_space_name >
+ * canonical_schema_missing/canonical_inconsistency > existing/new/inventory_code_collision.
+ * A failing schema precondition therefore blocks a candidate that is otherwise valid (and
+ * gates its DB identity lookups) but never hides a more fundamental candidate-local error.
+ * Exported and dependency-injected so it is directly testable without the heavy preflight
+ * pipeline.
  */
 export async function buildSpacePreviewEntries(input: {
     occurrences: Array<{ guid: string; name?: string | null; longName?: string | null; entityId?: number | null; storeyName?: string | null; psets?: Record<string, any> | null }>;
     /**
-     * LAZY Stage 0A precondition (§2-v3): invoked at most ONCE, and ONLY if at least one
-     * candidate actually requires database resolution (valid GlobalId, not a duplicate,
-     * Reference present). An invalid-only / duplicate-only / Reference-less-only set
-     * never triggers it, so zero schema queries run when no DB resolution is needed.
+     * LAZY schema precondition: invoked at most ONCE, and ONLY if at least one candidate
+     * actually requires database resolution (valid GlobalId, not a duplicate, IfcSpace.Name
+     * present). An invalid-only / duplicate-only / Name-less-only set never triggers it, so
+     * zero schema queries run when no DB resolution is needed.
      */
     precondition: () => Promise<{ code: "ok" | "canonical_schema_missing" | "canonical_inconsistency"; message: string | null }>;
     baseUri: string;
     runUuid: string;
     storeyOf: (guid: string) => string | null;
     findByGlobalId: (guid: string) => Promise<any | null>;
-    findByReference: (reference: string) => Promise<any | null>;
+    findByInventoryCode: (inventoryCode: string) => Promise<any | null>;
 }): Promise<PreviewSpace[]> {
     const guidCounts = new Map<string, number>();
     for (const o of input.occurrences) guidCounts.set(o.guid, (guidCounts.get(o.guid) ?? 0) + 1);
 
-    // §2-v3 precedence: derive candidate-local facts for EVERY occurrence FIRST, with no
-    // database access, so an invalid/duplicate/Reference-less candidate is classified
-    // even when MySQL is unavailable. The schema precondition is fetched lazily and only
-    // when some candidate truly needs identity resolution.
+    // Precedence: derive candidate-local facts for EVERY occurrence FIRST, with no database
+    // access, so an invalid/duplicate/Name-less candidate is classified even when MySQL is
+    // unavailable. The inventory code comes from IfcSpace.Name (ADR-0052 §C);
+    // Pset_SpaceCommon.Reference is never read. The schema precondition is fetched lazily
+    // and only when some candidate truly needs identity resolution.
     const derived = input.occurrences.map((occ) => {
-        const referenceRaw = occ.psets?.Pset_SpaceCommon?.Reference;
-        const referencePresent = typeof referenceRaw === "string" && referenceRaw.trim().length > 0;
+        const nameRaw = occ.name;
+        const namePresent = typeof nameRaw === "string" && nameRaw.trim().length > 0;
         return {
             occ,
             validGuid: isValidIfcGlobalId(occ.guid),
             duplicateGuid: guidCounts.get(occ.guid)! > 1,
-            referencePresent,
-            reference: referencePresent ? referenceRaw.trim() : "",
+            namePresent,
+            inventoryCode: namePresent ? nameRaw!.trim() : "",
         };
     });
-    const anyNeedsResolution = derived.some((d) => d.validGuid && !d.duplicateGuid && d.referencePresent);
+    const anyNeedsResolution = derived.some((d) => d.validGuid && !d.duplicateGuid && d.namePresent);
     // Fetch the precondition at most once, only when a candidate requires DB resolution.
     let preconditionResult: { code: "ok" | "canonical_schema_missing" | "canonical_inconsistency"; message: string | null } | null = null;
     if (anyNeedsResolution) preconditionResult = await input.precondition();
 
     const out: PreviewSpace[] = [];
     for (const d of derived) {
-        const { occ, validGuid, duplicateGuid, referencePresent, reference } = d;
+        const { occ, validGuid, duplicateGuid, namePresent, inventoryCode } = d;
         const guid = occ.guid;
         const name = occ.name ?? null;
+        // ADR-0052 §D/§8: IfcSpace.LongName is the explicit optional label field. There is no
+        // ambiguous "label" alias; a UI display string is composed from inventoryCode + longName.
         const longName = occ.longName ?? null;
-        const label = longName ?? name;
-        // Per-occurrence storey (§3-v3): prefer the lossless occurrence's own storey; fall
-        // back to the (collapsed) inventory lookup for compatibility.
+        // Per-occurrence storey: prefer the lossless occurrence's own storey; fall back to
+        // the (collapsed) inventory lookup for compatibility.
         const storey = occ.storeyName ?? input.storeyOf(guid);
         const entityId = occ.entityId ?? null;
 
         let cls: { persistentSpaceStatus: PreviewSpaceStatus; blockingCode: PreviewSpaceCode | null;
-            blockingError: string | null; referenceChanged: boolean; existingReference: string | null };
+            blockingError: string | null; inventoryCodeChanged: boolean; existingInventoryCode: string | null };
         let existing: any = null;
 
-        if (!validGuid || duplicateGuid || !referencePresent) {
+        if (!validGuid || duplicateGuid || !namePresent) {
             // Candidate-local error: classified with NO database access.
             cls = classifyPreviewSpaceIdentity({
-                guid, reference, referencePresent, duplicateGuid,
-                existingByGlobalId: null, referenceOwner: null,
+                guid, inventoryCode, namePresent, duplicateGuid,
+                existingByGlobalId: null, inventoryCodeOwner: null,
             });
         } else if (preconditionResult && preconditionResult.code !== "ok") {
             // Schema/integrity failure: controlled code, no identity lookup.
             cls = { persistentSpaceStatus: "schema_error", blockingCode: preconditionResult.code,
-                blockingError: preconditionResult.message, referenceChanged: false, existingReference: null };
+                blockingError: preconditionResult.message, inventoryCodeChanged: false, existingInventoryCode: null };
         } else {
             existing = await input.findByGlobalId(guid);
-            const referenceChangedForExisting = !!existing && existing.inventory_code_normalized !== reference;
-            const needReferenceOwner = !existing || referenceChangedForExisting;
-            const referenceOwner = needReferenceOwner ? await input.findByReference(reference) : null;
+            const codeChangedForExisting = !!existing && existing.inventory_code_normalized !== inventoryCode;
+            const needOwner = !existing || codeChangedForExisting;
+            const inventoryCodeOwner = needOwner ? await input.findByInventoryCode(inventoryCode) : null;
             cls = classifyPreviewSpaceIdentity({
-                guid, reference, referencePresent, duplicateGuid,
-                existingByGlobalId: existing, referenceOwner,
+                guid, inventoryCode, namePresent, duplicateGuid,
+                existingByGlobalId: existing, inventoryCodeOwner,
             });
         }
 
-        // §3-v3: keep candidate/manifestation URIs DISTINCT even when two occurrences
-        // share one GlobalId — the occurrence token is the IFC entity id (descriptive
-        // GlobalId retained as a suffix). entityId is never a persistent identity source.
+        // Keep candidate/manifestation URIs DISTINCT even when two occurrences share one
+        // GlobalId — the occurrence token is the IFC entity id (descriptive GlobalId
+        // retained as a suffix). entityId is never a persistent identity source.
         const occToken = entityId != null ? `occ-${entityId}` : `guid-${encodeURIComponent(guid)}`;
         const persistentUuid = existing?.space_uuid ?? "candidate";
         const persistentUri = existing
             ? `${input.baseUri}/space/${existing.space_uuid}`
             : `${input.baseUri}/candidate/${input.runUuid}/space/${occToken}/${encodeURIComponent(guid)}`;
-        out.push({ persistentUuid, reference, label,
+        out.push({ persistentUuid, inventoryCode,
             ifcGuid: guid, ifcClass: "IfcSpace", storey, persistentUri,
             manifestationUri: `${input.baseUri}/model-version/candidate-${input.runUuid}/manifestation/${occToken}/${encodeURIComponent(guid)}`,
             ifcGlobalId: guid, ifcEntityId: entityId, name, longName,
             persistentSpaceStatus: cls.persistentSpaceStatus, blockingCode: cls.blockingCode,
             existingSpaceId: existing?.id ?? null, existingSpaceUuid: existing?.space_uuid ?? null,
-            existingReference: cls.existingReference, referenceChanged: cls.referenceChanged, blockingError: cls.blockingError });
+            existingInventoryCode: cls.existingInventoryCode, inventoryCodeChanged: cls.inventoryCodeChanged, blockingError: cls.blockingError });
     }
     return out;
 }
@@ -286,8 +288,11 @@ export class ModelIntakeService {
         return {
             spaces: snapshot.spaces.map((space) => ({
                 persistentUuid: space.space_uuid,
-                reference: space.inventory_code,
-                label: space.long_name_snapshot ?? space.name_snapshot ?? null,
+                // ADR-0052 §C/§D: institutional inventory code (IfcSpace.Name) and optional
+                // human label (IfcSpace.LongName), version-specific from the binding snapshots.
+                // There is NO "reference" alias, and no space.name_snapshot (dropped column).
+                inventoryCode: space.inventory_code_snapshot,
+                longName: space.long_name_snapshot ?? null,
                 ifcGuid: space.ifc_guid,
                 ifcClass: "IfcSpace",
                 storey: null,
@@ -300,7 +305,11 @@ export class ModelIntakeService {
                 serialNumber: asset.serial_number ?? null,
                 ifcGuid: asset.ifc_guid,
                 ifcClass: asset.type_snapshot,
-                containingSpace: asset.space_reference ?? null,
+                // Version-accurate containing-space code from the same version's binding
+                // snapshot (ADR-0052 §C) — not the mutable current spaces projection.
+                containingSpace: asset.space_inventory_code_snapshot ?? null,
+                containingSpacePersistentUri: asset.space_uuid
+                    ? `${graph.config.baseUri}/space/${asset.space_uuid}` : null,
                 persistentUri: `${graph.config.baseUri}/asset/${asset.asset_uuid}`,
                 manifestationUri: `${versionRoot}/manifestation/${encodeURIComponent(asset.ifc_guid)}`,
             })),
@@ -325,7 +334,12 @@ export class ModelIntakeService {
             assertIfcContent(input.ifcFile.path);
             const ifcHash = sha256(input.ifcFile.path);
             const extracted = await extractIfcModelFromFile(input.ifcFile.path);
-            if (!extracted.schema || !extracted.schema.toUpperCase().startsWith("IFC4")) throw new IntakeError("unsupported_ifc_schema", "The controlled mapping currently supports IFC4 only.", 422);
+            // IFC4x3-only gate (ADR-0052 §A) — the SINGLE central classifier; runs BEFORE
+            // IDS, RDF preview, SHACL, version creation or any persistent identity
+            // operation. Node classifies the ACTUAL schema identifier (never the Python
+            // schemaSupported flag), so IFC4 and IFC2X3 are rejected here.
+            const schemaGate = evaluateIfcSchemaGate(extracted.schema);
+            if (!schemaGate.supported) throw new IntakeError(schemaGate.code!, schemaGate.message!, 422);
             const profile = await this.resolveProfile(input.idsMode, input.idsFile, runUuid);
             const idsConfig = loadIdsValidationConfig();
             const report = await new ModelRequirementsValidationService(
@@ -359,15 +373,17 @@ export class ModelIntakeService {
                 runUuid,
                 storeyOf: (guid) => (extracted.inventoryData as any)?.[guid]?.storeyName ?? null,
                 findByGlobalId: (guid) => this.database.findSpaceByGlobalId(linkedModelId, guid),
-                findByReference: (ref) => this.database.findSpaceByReference(linkedModelId, ref),
+                findByInventoryCode: (code) => this.database.findSpaceByInventoryCode(linkedModelId, code),
             }));
 
-            // ---- ASSET preview (equipment semantics unchanged): one pass over the
-            // inventory, gated on a present Reference exactly as before. ----
+            // ---- ASSET preview (equipment semantics): one pass over the inventory, gated
+            // on the CONTAINING SPACE having a valid institutional inventory code. ADR-0052:
+            // the space's inventory code is IfcSpace.Name (never Pset_SpaceCommon.Reference);
+            // equipment is located by that code. ----
             for (const [guid, space] of Object.entries(extracted.inventoryData) as [string, any][]) {
-                const referenceRaw = space.psets?.Pset_SpaceCommon?.Reference;
-                if (typeof referenceRaw !== "string" || !referenceRaw.trim()) continue;
-                const reference = referenceRaw.trim();
+                const spaceNameRaw = space.spaceName;
+                if (typeof spaceNameRaw !== "string" || !spaceNameRaw.trim()) continue;
+                const containingCode = spaceNameRaw.trim();
                 for (const element of space.elements ?? []) {
                     const classification = getEquipmentClassifier().classify({ guid: element.guid, ifcClass: element.type,
                         name: element.name ?? null, predefinedType: element.predefinedType ?? null, objectType: element.objectType ?? null,
@@ -377,10 +393,15 @@ export class ModelIntakeService {
                     const tag = element.tag.trim().toUpperCase();
                     const current = await this.database.findAssetIdentity(Number(modelContext.linked_model_id), tag);
                     const assetUuid = current?.asset_uuid ?? "candidate";
+                    // Locate the equipment by its CONTAINING IfcSpace occurrence (GlobalId
+                    // `guid`), never by inventory-code lookup: resolve the persistent/candidate
+                    // URI of that occurrence's PreviewSpace (ADR-0052 §F).
+                    const containingSpacePersistentUri = spaces.find((s) => s.ifcGuid === guid)?.persistentUri ?? null;
                     assets.push({ persistentUuid: assetUuid, tag,
                         serialNumber: current?.serial_number ?? IfcTagSerialAssetIdentityResolver.extractSerialNumber(element.psets),
                         manufacturer: psetValue(element.psets, "Manufacturer"), ifcGuid: element.guid, ifcClass: element.type,
-                        containingSpace: reference,
+                        containingSpace: containingCode,
+                        containingSpacePersistentUri,
                         persistentUri: current ? `${graph.config.baseUri}/asset/${current.asset_uuid}` : `${graph.config.baseUri}/candidate/${runUuid}/asset/${encodeURIComponent(tag)}`,
                         manifestationUri: `${graph.config.baseUri}/model-version/candidate-${runUuid}/manifestation/${encodeURIComponent(element.guid)}` });
                 }
