@@ -1,7 +1,7 @@
 /**
  * ADR-0051 §1/§2-v4 — explicit acquisition/release semantics of withNamedLock.
  *
- * The Stage 0B linked_model Reference lock depends on these exact semantics:
+ * The Stage 0B linked_model space-metadata lock depends on these exact semantics:
  *  - GET_LOCK=1 required; =0 → lock_timeout (nothing held → connection RETURNED, or
  *    DESTROYED if release() itself fails, timeout still the primary result);
  *  - GET_LOCK query-throw or NULL → the acquisition outcome is UNKNOWN, so the

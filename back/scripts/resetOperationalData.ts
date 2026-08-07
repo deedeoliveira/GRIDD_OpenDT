@@ -17,9 +17,21 @@
  *
  * Tabelas LIMPAS (operacionais): asset_location_assignments,
  *   semantic_sync_operations, asset_bindings, asset_reconciliation_cases,
- *   legacy_asset_mapping, space_bindings, res_reservations, assets, spaces,
+ *   legacy_asset_mapping, space_bindings, reservation_semantic_evidence_links,
+ *   reservation_manager_evidence_reviews, reservation_decisions,
+ *   semantic_evidence_findings, semantic_evidence_runs,
+ *   reservation_management_scopes, res_reservations, assets, spaces,
  *   entities, model_versions, sensors_channels, sensors_data, sensors,
  *   models, linked_models.
+ * (2026-08-07) As seis tabelas de evidência semântica de reservas e
+ *   governação de aprovação (reservation_semantic_evidence_links,
+ *   reservation_manager_evidence_reviews, reservation_decisions,
+ *   semantic_evidence_findings, semantic_evidence_runs,
+ *   reservation_management_scopes) têm FKs RESTRICT (sem ON DELETE CASCADE)
+ *   para res_reservations / assets / semantic_evidence_runs. Sem as apagar
+ *   primeiro, o DELETE de res_reservations/assets falha com violação de FK
+ *   sempre que existam linhas de evidência/aprovação associadas. Adicionadas
+ *   nesta ordem (filhas antes de pais) para corrigir o reset.
  * (5B) Depois do SQL, limpa também os recursos de ativos não modelados do
  *   grafo operacional (remoção direcionada; nunca CLEAR/DROP) — se o grafo
  *   estiver desligado, avisa e indica cleanupNonModelledGraphData.ts.
@@ -47,6 +59,12 @@ export const OPERATIONAL_TABLES = [
     "asset_reconciliation_cases",
     "legacy_asset_mapping",
     "space_bindings",
+    "reservation_semantic_evidence_links",   // referencia res_reservations e semantic_evidence_runs (FK RESTRICT)
+    "reservation_manager_evidence_reviews",  // referencia res_reservations e semantic_evidence_runs (FK RESTRICT)
+    "reservation_decisions",                 // referencia res_reservations e semantic_evidence_runs (FK RESTRICT)
+    "semantic_evidence_findings",            // referencia semantic_evidence_runs (FK RESTRICT)
+    "semantic_evidence_runs",                // referencia assets e model_versions (FK RESTRICT)
+    "reservation_management_scopes",         // referencia assets (FK RESTRICT)
     "res_reservations",
     "assets",
     "spaces",

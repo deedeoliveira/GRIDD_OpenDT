@@ -104,9 +104,9 @@ class SpaceDatabase {
 
     /**
      * Cooperative, cross-process advisory lock scoped to ONE linked_model (ADR-0051
-     * §6). Held from before any administrative-Reference mutation through activation
-     * AND Reference compensation, so the previous Reference of a reused space cannot
-     * be claimed by another cooperating operation on the SAME linked_model during
+     * §6). Held from before any inventory-code/LongName metadata mutation through
+     * activation AND its compensation, so the previous inventory code of a reused
+     * space cannot be claimed by another cooperating operation on the SAME linked_model during
      * that window. Different linked_models use distinct lock names and never block
      * each other. Uses MySQL GET_LOCK on a dedicated pool connection (session-scoped
      * server-side), so it serialises within AND across backend processes — never a

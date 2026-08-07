@@ -108,6 +108,68 @@ test("segunda execução do reset é segura (idempotente: DELETE sobre tabelas v
     }
 });
 
+test("tabelas de evidência semântica/aprovação de reservas entram no reset antes dos seus pais FK RESTRICT", () => {
+    const idx = (t: string) => (OPERATIONAL_TABLES as readonly string[]).indexOf(t);
+
+    for (const t of [
+        "reservation_semantic_evidence_links",
+        "reservation_manager_evidence_reviews",
+        "reservation_decisions",
+        "semantic_evidence_findings",
+        "semantic_evidence_runs",
+        "reservation_management_scopes",
+    ]) {
+        assert.ok(idx(t) >= 0, `${t} tem de estar em OPERATIONAL_TABLES (FK RESTRICT sem CASCADE)`);
+    }
+
+    // filhas de res_reservations (RESTRICT) antes de res_reservations
+    for (const t of ["reservation_semantic_evidence_links", "reservation_manager_evidence_reviews", "reservation_decisions"]) {
+        assert.ok(idx(t) < idx("res_reservations"), `${t} antes de res_reservations`);
+    }
+    // findings antes de semantic_evidence_runs (FK RESTRICT evidence_run_id)
+    assert.ok(idx("semantic_evidence_findings") < idx("semantic_evidence_runs"), "findings antes de semantic_evidence_runs");
+    // reservation_decisions/links/reviews referenciam semantic_evidence_runs também
+    for (const t of ["reservation_semantic_evidence_links", "reservation_manager_evidence_reviews", "reservation_decisions"]) {
+        assert.ok(idx(t) < idx("semantic_evidence_runs"), `${t} antes de semantic_evidence_runs`);
+    }
+    // semantic_evidence_runs e reservation_management_scopes referenciam assets (RESTRICT)
+    assert.ok(idx("semantic_evidence_runs") < idx("assets"), "semantic_evidence_runs antes de assets");
+    assert.ok(idx("reservation_management_scopes") < idx("assets"), "reservation_management_scopes antes de assets");
+});
+
+test("reset --apply inclui DELETE das tabelas de evidência/aprovação por ordem segura", async () => {
+    process.env.ALLOW_DESTRUCTIVE_DEV_RESET = "true";
+    respond([
+        [/SELECT COUNT\(\*\) AS n FROM/i, [[{ n: 2 }]]],
+        [/SELECT \* FROM/i, [[]]],
+        [/DELETE FROM/i, [{}]],
+        [/ALTER TABLE .* AUTO_INCREMENT = 1/i, [{}]],
+        [/SHOW COLUMNS FROM res_reservations/i, [[{ Type: "enum('overdue')" }]]],
+        [/SHOW TABLES LIKE 'spaces'/i, [[{ t: "spaces" }]]],
+    ]);
+
+    try {
+        await runOperationalReset(true, OPTS);
+    } finally {
+        delete process.env.ALLOW_DESTRUCTIVE_DEV_RESET;
+    }
+
+    const deletes = fakeConnection.calls.filter((c) => /^DELETE FROM/i.test(c.sql));
+    const idxOf = (needle: RegExp) => deletes.findIndex((d) => needle.test(d.sql));
+
+    assert.ok(idxOf(/reservation_semantic_evidence_links/) >= 0);
+    assert.ok(idxOf(/reservation_manager_evidence_reviews/) >= 0);
+    assert.ok(idxOf(/reservation_decisions/) >= 0);
+    assert.ok(idxOf(/semantic_evidence_findings/) >= 0);
+    assert.ok(idxOf(/semantic_evidence_runs/) >= 0);
+    assert.ok(idxOf(/reservation_management_scopes/) >= 0);
+
+    assert.ok(idxOf(/reservation_decisions/) < idxOf(/`res_reservations`/), "decisions antes de res_reservations");
+    assert.ok(idxOf(/semantic_evidence_findings/) < idxOf(/`semantic_evidence_runs`/), "findings antes de runs");
+    assert.ok(idxOf(/`semantic_evidence_runs`/) < idxOf(/`assets`/), "runs antes de assets");
+    assert.ok(idxOf(/reservation_management_scopes/) < idxOf(/`assets`/), "scopes antes de assets");
+});
+
 test("tabelas preservadas documentadas: channels (referência); não existem tabelas de utilizadores/papéis", () => {
     assert.deepEqual([...PRESERVED_TABLES], ["channels"]);
     assert.ok(!([...OPERATIONAL_TABLES] as string[]).includes("channels"));

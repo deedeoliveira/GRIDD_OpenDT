@@ -117,8 +117,9 @@ beforeEach(() => {
     fs.rmSync(path.join(STORAGE_ROOT, `models/${MODEL_ID}`), { recursive: true, force: true });
 });
 
-/* ---- §6.B: a Reference change on a REUSED space is RESTORED when the upload
-        later fails (deleting orphan spaces cannot undo an UPDATE to an existing row). ---- */
+/* ---- §6.B: an inventory-code change (from IfcSpace.Name) on a REUSED space is
+        RESTORED when the upload later fails (deleting orphan spaces cannot undo an
+        UPDATE to an existing row). ---- */
 const GA_VALID = "3VKKG6_QDBqgUlHMH5Q4EB";
 const INVENTORY_ONE_REUSED = {
     [GA_VALID]: { spaceGuid: GA_VALID, spaceName: "R-NEW", spaceLongName: null,
