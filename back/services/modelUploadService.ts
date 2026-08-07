@@ -71,10 +71,6 @@ export interface UploadResult {
     semanticMaterialisation: any | null;
 }
 
-function selfApiBase(): string {
-    return process.env.SELF_API_BASE ?? `http://localhost:${process.env.PORT || 3000}`;
-}
-
 function logUploadFailure(stage: string, error: any, context: Record<string, unknown>) {
     console.error(JSON.stringify({
         type: "model_upload_failure",
@@ -186,10 +182,12 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
 
         /* -------- 4. processamento Python (extração, sem persistência) -------- */
         stage = "processing";
-        const versionFileUrl = `${selfApiBase()}/api/model/versions/${versionId}/download`;
+        // Pass the opaque numeric version id (never a URL). The Python service builds the
+        // authenticated version-download URL itself from trusted configuration before it
+        // attaches the internal-service token, so no caller can select the request target.
         const extracted = input.controlledIntake
             ? await extractIfcModelFromFile(resolveStorageKey(storageKey))
-            : await fetchInventory(modelId, versionFileUrl);
+            : await fetchInventory(modelId, versionId);
         const inventoryData = extracted.inventoryData;
 
         /* -------- 5. model_requirements_preflight: requisitos de informação

@@ -13,7 +13,7 @@ import versionDb from "../utils/modelVersionDatabase.ts";
 import { handleModelUpload } from "../services/modelUploadService.ts";
 import { resolveStorageKey } from "../utils/storage.ts";
 import fsSync from 'fs';
-import { ensureReserveResources } from "../applicationIdentity/applicationAuthorization.ts";
+import { ensureReserveResources, requireBimManagement, authorizeModelVersionDownload } from "../applicationIdentity/applicationAuthorization.ts";
 
 // Model contexts and version downloads back the resource-reservation workspace,
 // so they require the reserveResources capability shared by every active human
@@ -110,7 +110,12 @@ app.get('/download/:id', async (req, res) => {
 });
 
 //Andressa atualizou (Prompt 2: fluxo por etapas com versões imutáveis)
-app.post('/upload', upload.single('file'), async (req, res) => {
+// The initial upload creates linked_models, models, model_versions, stored IFC files
+// and persistent spaces/bindings, so it requires the bimManagement capability — the
+// same guard the controlled model-intake management routes use. The capability check
+// runs BEFORE multer parses the upload, so an unauthorized request is rejected without
+// buffering a file. Browser managers (e.g. the bim_manager role) remain authorized.
+app.post('/upload', requireBimManagement, upload.single('file'), async (req, res) => {
     if (!req.file && !req.body?.fileUrl)
         return buildErrorResponse(res, 400, 'File or file location is required');
 
@@ -192,7 +197,12 @@ app.get('/versions/:versionId/download', async (req, res) => {
     }
 
     try {
-        if (!await requireWorkspace(req, res)) return;
+        // Dual authorization for the internal-processing download boundary (extracted as
+        // the production function authorizeModelVersionDownload): a valid internal
+        // Python-service credential OR an authenticated browser session with
+        // reserveResources. The internal credential is scoped to THIS file-download
+        // operation only and is never consulted by any capability-guarded route.
+        if (!await authorizeModelVersionDownload(req, res)) return;
         const version = await versionDb.getVersionById(versionId);
 
         if (!version) {

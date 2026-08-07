@@ -128,9 +128,10 @@ test("revisão: reutiliza o model, cria versão 2 imutável, processa o ficheiro
     const stored = resolveStorageKey(`models/${MODEL_ID}/versions/${VERSION_ID}/model.ifc`);
     assert.ok(fs.existsSync(stored), "ficheiro imutável da versão existe");
 
-    // o Python recebeu o URL do download DA VERSÃO (não o ficheiro corrente)
+    // o Python recebe apenas o ID NUMÉRICO da versão (nunca um URL): constrói ele próprio
+    // o URL do download autenticado a partir da sua configuração de confiança.
     assert.equal(fetchCalls.length, 1);
-    assert.ok(fetchCalls[0]!.body?.includes(encodeURIComponent(`/api/model/versions/${VERSION_ID}/download`)));
+    assert.equal(fetchCalls[0]!.body, `versionId=${VERSION_ID}`);
 
     // ativação explícita da versão corrente
     assert.equal(fakeConnection.callsMatching(/UPDATE models SET current_version_id/i).length, 1);
