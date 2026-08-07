@@ -20,9 +20,11 @@
  *   legacy_asset_mapping, space_bindings, reservation_semantic_evidence_links,
  *   reservation_manager_evidence_reviews, reservation_decisions,
  *   semantic_evidence_findings, semantic_evidence_runs,
- *   reservation_management_scopes, res_reservations, assets, spaces,
- *   entities, model_versions, sensors_channels, sensors_data, sensors,
- *   models, linked_models.
+ *   reservation_management_scopes, model_requirement_validation_results,
+ *   model_requirement_validation_runs, semantic_validation_results,
+ *   semantic_validation_runs, model_version_semantic_materialisations,
+ *   res_reservations, assets, spaces, entities, model_versions,
+ *   sensors_channels, sensors_data, sensors, models, linked_models.
  * (2026-08-07) As seis tabelas de evidência semântica de reservas e
  *   governação de aprovação (reservation_semantic_evidence_links,
  *   reservation_manager_evidence_reviews, reservation_decisions,
@@ -32,6 +34,33 @@
  *   primeiro, o DELETE de res_reservations/assets falha com violação de FK
  *   sempre que existam linhas de evidência/aprovação associadas. Adicionadas
  *   nesta ordem (filhas antes de pais) para corrigir o reset.
+ * (2026-08-07, correção pós-falha real) Um reset real contra `digital_twin`
+ *   falhou com "Cannot delete or update a parent row" em
+ *   fk_model_materialisation_version (model_version_semantic_materialisations
+ *   → model_versions, DELETE_RULE=NO ACTION) e o mesmo padrão existe em
+ *   fk_semantic_validation_model_version (semantic_validation_runs →
+ *   model_versions, DELETE_RULE=NO ACTION). Transação fez rollback limpo
+ *   (sem escrita parcial), mas o reset continuava incompleto. Adicionadas:
+ *   - model_version_semantic_materialisations (evidência de materialização
+ *     RDF ligada 1:1 a uma model_version; morre com a versão);
+ *   - semantic_validation_runs + semantic_validation_results (o filho
+ *     semantic_validation_results referencia semantic_validation_runs sem
+ *     ON DELETE CASCADE — tem de ser apagado primeiro);
+ *   - model_requirement_validation_runs + model_requirement_validation_results
+ *     (a run usa ON DELETE SET NULL para model_version_id — não bloqueia a
+ *     transação — mas é evidência de validação IDS/regras de projeto ligada
+ *     a uma model_version de intake; deixá-la para trás com
+ *     model_version_id=NULL após o reset seria um resíduo de higiene de
+ *     dados, não uma preservação intencional de governação. O filho
+ *     model_requirement_validation_results usa ON DELETE CASCADE, mas é
+ *     apagado explicitamente primeiro para manter o padrão do script
+ *     (nenhuma tabela depende de CASCADE implícita) e para que o seu
+ *     AUTO_INCREMENT também seja reposto).
+ *   Nota: semantic_evidence_runs e reservation_manager_evidence_reviews já
+ *   referenciam model_version_semantic_materialisations e
+ *   semantic_validation_runs (sem CASCADE) — já estavam posicionadas antes
+ *   destas novas tabelas na lista, por isso a ordem mantém-se segura sem as
+ *   reordenar.
  * (5B) Depois do SQL, limpa também os recursos de ativos não modelados do
  *   grafo operacional (remoção direcionada; nunca CLEAR/DROP) — se o grafo
  *   estiver desligado, avisa e indica cleanupNonModelledGraphData.ts.
@@ -65,6 +94,11 @@ export const OPERATIONAL_TABLES = [
     "semantic_evidence_findings",            // referencia semantic_evidence_runs (FK RESTRICT)
     "semantic_evidence_runs",                // referencia assets e model_versions (FK RESTRICT)
     "reservation_management_scopes",         // referencia assets (FK RESTRICT)
+    "model_requirement_validation_results",  // referencia model_requirement_validation_runs (ON DELETE CASCADE; apagada explicitamente por consistência/AUTO_INCREMENT)
+    "model_requirement_validation_runs",     // model_version_id ON DELETE SET NULL (não bloqueia); reset por higiene de dados (evidência de intake ligada à versão)
+    "semantic_validation_results",           // referencia semantic_validation_runs (FK sem CASCADE)
+    "semantic_validation_runs",              // referencia model_versions e model_version_semantic_materialisations (FK NO ACTION — causa real da falha real)
+    "model_version_semantic_materialisations", // referencia model_versions (FK NO ACTION — causa real da falha real)
     "res_reservations",
     "assets",
     "spaces",
@@ -78,6 +112,36 @@ export const OPERATIONAL_TABLES = [
 ] as const;
 
 export const PRESERVED_TABLES = ["channels"] as const;
+
+/**
+ * `entities` tem uma FK auto-referenciada (entities_ibfk_2: parent_id →
+ * entities.id, DELETE_RULE=NO ACTION) e hierarquias IFC podem ter
+ * profundidade arbitrária (projeto→site→edifício→piso→espaço→elemento→...).
+ * Em vez de desativar FOREIGN_KEY_CHECKS (bypass global, perigoso — ver
+ * histórico), apaga-se folha-a-folha: cada iteração remove só as linhas sem
+ * filhos (anti-join MySQL-safe), até a tabela ficar vazia. FK enforcement
+ * fica ligado o tempo todo. Se uma iteração não remover nenhuma linha mas
+ * ainda restarem linhas, há um ciclo ou dependência não resolvida — erro
+ * explícito que propaga para o rollback da transação chamadora.
+ */
+export async function deleteEntitiesLeafFirst(conn: mysql.Connection | mysql.PoolConnection): Promise<void> {
+    for (;;) {
+        const [countRows]: any = await conn.query("SELECT COUNT(*) AS n FROM `entities`");
+        const remaining = countRows[0].n;
+        if (remaining === 0) return;
+
+        const [result]: any = await conn.query(
+            "DELETE e FROM `entities` e LEFT JOIN `entities` child ON child.parent_id = e.id WHERE child.id IS NULL"
+        );
+        const affectedRows = result.affectedRows ?? 0;
+
+        if (affectedRows === 0) {
+            throw new Error(
+                "entities self-reference cycle or unresolved dependency detected during operational reset"
+            );
+        }
+    }
+}
 
 export interface ResetOptions {
     /** Root do storage a limpar. Nos TESTES tem de ser um diretório descartável
@@ -160,8 +224,13 @@ export async function runOperationalReset(apply: boolean, options: ResetOptions 
     try {
         for (const table of OPERATIONAL_TABLES) {
             if (table === "entities") {
-                // FK auto-referenciada (parent_id): filhas antes das raízes
-                await conn.query("DELETE FROM `entities` WHERE parent_id IS NOT NULL");
+                // FK auto-referenciada (entities_ibfk_2: parent_id → entities.id,
+                // DELETE_RULE=NO ACTION). Hierarquias IFC (projeto→site→edifício→
+                // piso→espaço→elemento) podem ter profundidade arbitrária, por isso
+                // apaga-se folha-a-folha em iterações (ver deleteEntitiesLeafFirst)
+                // em vez de desativar a verificação de FK.
+                await deleteEntitiesLeafFirst(conn);
+                continue;
             }
             await conn.query(`DELETE FROM \`${table}\``);
         }
