@@ -1,7 +1,11 @@
 /**
- * Space identity service — Stage 0B (ADR-0051): the persistent-space identity
- * authority is linked_model_id + exact case-sensitive IfcSpace.GlobalId. Reference
- * remains extracted/required transitionally but is administrative metadata only.
+ * Space identity service — Stage 0B (ADR-0051), governed under IFC4x3 semantics
+ * (ADR-0052): the persistent-space identity authority is linked_model_id + exact
+ * case-sensitive IfcSpace.GlobalId. IfcSpace.Name is the required institutional
+ * inventory code (spaces.inventory_code); Pset_SpaceCommon.Reference is ignored
+ * entirely by this service. ("Reference" in test names/comments below is legacy
+ * Stage 0B terminology carried over for the inventory-code field — it does not
+ * refer to Pset_SpaceCommon.Reference.)
  * Cases A–N of the Stage 0B contract, plus the full GlobalId validator (§1), the
  * hardened duplicate-key translation (§5), the verified concurrent re-resolution
  * (§6), and reconciliation/compensation (unchanged).
@@ -527,8 +531,8 @@ test("compensation LN stale: A's restore matches 0 rows and never overwrites a n
     assert.equal(restore.params.spaceId, 55, "spaces.id is never changed by compensation");
 });
 
-/* ============ REFERENCE GATE (transitional, unchanged) ============ */
-test("missing Reference (authoritative) is still skipped as a diagnostic (transitionally required)", async () => {
+/* ============ INVENTORY CODE GATE (IfcSpace.Name, required) ============ */
+test("missing inventory code / Name (authoritative) is skipped as a diagnostic, never creates a binding", async () => {
     respond([...PRELUDE, AUTHORITY_SINGLE]);
     const outcome = await persistSpaceIdentities({ ...CTX, candidates: [cand(GNOREF, null, 760)] });
     assert.deepEqual(outcome.diagnostics.ignored_missing_inventory_code, [GNOREF]);

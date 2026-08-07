@@ -15,7 +15,7 @@
 ### Prerequisites
 - Node.js 
 - Python 3.x
-- 3D model file(s) in **IFC4** — the interchange schema currently supported and tested by the project. Models must satisfy the current project information-requirement profile (see `documentation/audit/PROMPT4_ASSETS.md`): authoritative spatial models need `IfcSpace` elements with `Pset_SpaceCommon.Reference` codes; managed equipment needs an `IfcElement.Tag` starting with `EQP-`; every `IfcBuildingElementProxy` needs a valid `ObjectType` and an `EQP-` Tag. Other schemas are not automatically rejected, but only IFC4 is tested.
+- 3D model file(s) in **IFC4X3** (allowlisted schemas: `IFC4X3`, `IFC4X3_ADD1`, `IFC4X3_ADD2`, `IFC4X3_TC1`) — the runtime rejects unsupported schemas, including IFC4. Models must satisfy the current project information-requirement profile (see `documentation/audit/PROMPT4_ASSETS.md`): authoritative spatial models need `IfcSpace` elements, identified by `linked_model_id` + exact case-sensitive `IfcSpace.GlobalId`, with a required institutional inventory code in `IfcSpace.Name` (`Pset_SpaceCommon.Reference` is ignored entirely); managed equipment needs an `IfcElement.Tag` starting with `EQP-`; every `IfcBuildingElementProxy` needs a valid `ObjectType` and an `EQP-` Tag.
 - Sensor data in a database
 
 ### Database *(optional)*

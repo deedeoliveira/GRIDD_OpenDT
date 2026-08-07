@@ -452,10 +452,11 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
             } catch (e) {
                 logUploadFailure("compensation_spaces", e, { modelId, versionId });
             }
-            // Administrative-Reference changes applied to REUSED (pre-existing) spaces
-            // are restored INSIDE the linked_model Reference lock (§6), before this
-            // outer compensation runs — so the previous Reference cannot be reclaimed
-            // by a cooperating same-linked_model operation during the restore window.
+            // Inventory-code/LongName changes (from IfcSpace.Name/LongName) applied to
+            // REUSED (pre-existing) spaces are restored INSIDE the linked_model
+            // space-metadata lock (§6), before this outer compensation runs — so the
+            // previous inventory code cannot be reclaimed by a cooperating
+            // same-linked_model operation during the restore window.
             // Any restore anomaly is carried on error.compensationIntegrity and folded
             // into the recorded failure reason below (§6.7).
             try { await inventoryDb.deleteInventoryForVersion(versionId); } catch (e) {
