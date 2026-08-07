@@ -25,20 +25,22 @@ beforeEach(() => {
    PROVIDER CONFIGURÁVEL
 ------------------------------------- */
 
-test("SPACE_IDENTITY_PROVIDER default seleciona o resolver do perfil atual", async () => {
+test("SPACE_IDENTITY_PROVIDER default seleciona o resolver do perfil atual (IFC4x3 / IfcSpace.Name)", async () => {
     delete process.env.SPACE_IDENTITY_PROVIDER;
     identityProvider.resetSpaceIdentityResolver();
 
     const resolver = identityProvider.getSpaceIdentityResolver();
-    const result = await resolver.resolve({ guid: "g", psets: { Pset_SpaceCommon: { Reference: "R-1" } } }, {} as any);
+    // ADR-0052: the inventory code comes from IfcSpace.Name; a Reference pset is ignored.
+    const result = await resolver.resolve({ guid: "g", name: "T-1", psets: { Pset_SpaceCommon: { Reference: "R-1" } } }, {} as any);
 
-    assert.equal(result.resolverId, "pset-space-common-reference");
-    assert.equal(result.source, "Pset_SpaceCommon.Reference");
-    assert.equal(result.rulesVersion, "prompt3-2026-07");
+    assert.equal(result.resolverId, "ifcspace-name-inventory-code");
+    assert.equal(result.source, "IfcSpace.Name");
+    assert.equal(result.rulesVersion, "adr0052-2026-08");
+    assert.equal(result.normalizedValue, "T-1", "Name governs; Reference is ignored");
 });
 
 test("SPACE_IDENTITY_PROVIDER explícito funciona; provider desconhecido falha de forma controlada", async () => {
-    process.env.SPACE_IDENTITY_PROVIDER = "pset-space-common-reference";
+    process.env.SPACE_IDENTITY_PROVIDER = "ifcspace-name-inventory-code";
     identityProvider.resetSpaceIdentityResolver();
     assert.ok(identityProvider.getSpaceIdentityResolver());
 

@@ -24,7 +24,7 @@ test("controlled vertical flow executes selected IFC + IDS, real RDF, governed p
     assert.equal(ids.conforms, true);
 
     const mapping = validateMappingProfile(JSON.parse(fs.readFileSync(path.join(repository,
-        "semantic/artifacts/runtime/oswadt-ifc4-minimal-rdf-mapping/1.0.0/oswadt-ifc4-minimal-rdf-mapping-v1.json"), "utf8")));
+        "semantic/artifacts/runtime/oswadt-ifc4-minimal-rdf-mapping/1.1.0/oswadt-ifc4-minimal-rdf-mapping-v1.1.json"), "utf8")));
     const [spaceGuid, space] = Object.entries(extracted.inventoryData)[0]!;
     const element = space.elements[0]!;
     const rdf = await buildMinimalRdf({ baseUri: "http://oswadt.test/id", mapping,
@@ -37,21 +37,25 @@ test("controlled vertical flow executes selected IFC + IDS, real RDF, governed p
         filename: "model-v1.ifc", fileSha256: hashFile(ifcPath), ifcSchema: extracted.schema,
         generatedAt: "2026-07-20T12:00:00.000Z",
         spaces: [{ persistentUuid: "88888888-8888-4888-8888-888888888888",
-            reference: String(space.psets.Pset_SpaceCommon.Reference), label: space.spaceName ?? null,
+            // The institutional inventory code must match ^[A-Z]-[0-9]{3}$ (ADR-0052 §C); this
+            // demo fixture's IfcSpace.Name is a free-text label, so a conforming synthetic code
+            // is used for the governed-conformance leg while the extracted GUID/LongName remain.
+            inventoryCode: "R-101", longName: space.spaceLongName ?? space.spaceName ?? null,
             ifcGuid: spaceGuid, ifcClass: "IfcSpace", storey: space.storeyName ?? null,
             persistentUri: "http://oswadt.test/id/space/88888888-8888-4888-8888-888888888888",
             manifestationUri: `http://oswadt.test/id/model-version/77777777-7777-4777-8777-777777777777/manifestation/${spaceGuid}` }],
         assets: [{ persistentUuid: "99999999-9999-4999-8999-999999999999", tag: String(element.tag),
             serialNumber: String(element.psets.Pset_ManufacturerOccurrence?.SerialNumber ?? "SYN-001"),
             manufacturer: String(element.psets.Pset_ManufacturerOccurrence?.Manufacturer ?? "Synthetic"),
-            ifcGuid: element.guid, ifcClass: element.type, containingSpace: String(space.psets.Pset_SpaceCommon.Reference),
+            ifcGuid: element.guid, ifcClass: element.type, containingSpace: String(space.spaceName),
+            containingSpacePersistentUri: "http://oswadt.test/id/space/88888888-8888-4888-8888-888888888888",
             persistentUri: "http://oswadt.test/id/asset/99999999-9999-4999-8999-999999999999",
             manifestationUri: `http://oswadt.test/id/model-version/77777777-7777-4777-8777-777777777777/manifestation/${element.guid}` }],
     });
     assert.equal(rdf.turtleSha256, crypto.createHash("sha256").update(rdf.turtle).digest("hex"));
 
     const governedShapes = fs.readFileSync(path.join(repository,
-        "semantic/artifacts/runtime/oswadt-model-rdf-structural-shapes/1.0.0/oswadt-model-rdf-structural-shapes-v1.ttl"), "utf8");
+        "semantic/artifacts/runtime/oswadt-model-rdf-structural-shapes/1.1.0/oswadt-model-rdf-structural-shapes-v1.1.ttl"), "utf8");
     const temporaryShapes = fs.readFileSync(path.join(repository,
         "documentation/demo-inputs/shacl/temporary-manifestation-description-required.ttl"), "utf8");
     const shacl = new PyShaclValidationProvider();

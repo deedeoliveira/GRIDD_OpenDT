@@ -4,18 +4,28 @@ import { getEquipmentClassifier } from "../classification/equipmentClassifierPro
 import { getReservabilityEvaluator } from "../policies/policyProvider.ts";
 
 /**
- * Inventário persistente de ativos (Prompt 4) — substitui a criação legada de
- * ativos por versão.
+ * Inventário persistente de ativos (Prompt 4; ADR-0052 §F) — substitui a criação
+ * legada de ativos por versão.
  *
- * Quatro responsabilidades mantidas separadas:
- *  - identidade (AssetIdentityResolver / spaces.space_id);
+ * Um IfcSpace é um CONTEXTO espacial persistente, NUNCA um ativo: esta camada já
+ * não cria assets `asset_type='space'`, nem bindings de espaço, nem recursos
+ * reserváveis para espaços. Apenas equipamento e ferramentas reais são ativos.
+ *
+ * Localização do equipamento (ADR-0052 §F): a linha persistente `assets` NÃO guarda
+ * localização — a localização do equipamento MODELADO é específica da versão em
+ * `asset_bindings.space_id` (o espaço é correspondido por GlobalId no
+ * spaceIdentityService), e a localização CORRENTE deriva do binding da versão
+ * corrente. Os ativos não-modelados/grafo usam `asset_location_assignments`. A antiga
+ * coluna `assets.space_id` pertencia ao modelo removido de um-ativo-espaço-por-espaço
+ * e foi eliminada — nunca é reaproveitada como projeção de localização.
+ *
+ * Três responsabilidades mantidas separadas:
+ *  - identidade (AssetIdentityResolver);
  *  - binding (asset_bindings por versão);
- *  - localização (asset_bindings.space_id);
+ *  - localização (asset_bindings.space_id, específica da versão);
  *  - reservabilidade (provider de política; projeção assets.reservable).
  *
  * Regras:
- *  - ativo-espaço: spaces.id → assets.space_id (1:1); mesma identidade em
- *    todas as versões; espaço sem identidade persistente NÃO gera ativo novo;
  *  - equipamento: identidade por código estável > serial > GUID na linha de
  *    modelo > primeira versão; sem evidência em versão posterior → caso de
  *    reconciliação (SEM asset/binding: não reservável, não contorna reservas;
@@ -43,7 +53,6 @@ export interface AssetInventoryOutcome {
     bindingsCreated: number;
     casesCreated: number;
     diagnostics: {
-        spaces_without_identity: string[];
         equipment_pending_reconciliation: string[];
         policy_denied_new: string[];
         policy_not_allow_existing: { guid: string; decision: string }[];
@@ -78,7 +87,6 @@ export async function persistAssetsForVersion(input: AssetInventoryInput): Promi
         bindingsCreated: 0,
         casesCreated: 0,
         diagnostics: {
-            spaces_without_identity: [],
             equipment_pending_reconciliation: [],
             policy_denied_new: [],
             policy_not_allow_existing: [],
@@ -90,69 +98,10 @@ export async function persistAssetsForVersion(input: AssetInventoryInput): Promi
     let stage = "asset_reconciliation";
 
     try {
-        /* ================= ATIVOS-ESPAÇO ================= */
-        for (const [guid, space] of Object.entries(input.inventoryData)) {
-            const entityId = input.spaceEntityIdsByGuid[guid];
-            if (entityId === undefined) continue;
-
-            const info = input.spaceInfoByGuid[guid];
-
-            if (!info) {
-                // Espaço sem identidade persistente: no fluxo estrito atual não
-                // gera ativo de espaço (regra do Prompt 4 §6 — substitui o
-                // comportamento legado de asset por versão).
-                outcome.diagnostics.spaces_without_identity.push(guid);
-                continue;
-            }
-
-            stage = "asset_policy";
-            const decision = await reservability.evaluate(
-                { guid, name: space.spaceName, ifcType: "IfcSpace", entityType: "space" },
-                { modelVersionId: input.modelVersionId }
-            );
-
-            stage = "asset_reconciliation";
-            let asset = await assetDb.findSpaceAsset(info.spaceId);
-
-            if (!asset && decision.decision === "allow") {
-                const created = await assetDb.createAsset({
-                    name: space.spaceLongName ?? space.spaceName ?? info.code,
-                    assetType: "space",
-                    assetCode: info.code,
-                    spaceId: info.spaceId,
-                    linkedModelId: input.linkedModelId,
-                    reservable: true,
-                });
-                asset = { id: created.assetId };
-                outcome.createdAssetIds.push(created.assetId);
-            } else if (asset) {
-                await assetDb.updateAssetProjection(asset.id, {
-                    name: space.spaceLongName ?? space.spaceName ?? null,
-                    reservable: decision.decision === "allow" ? true : false,
-                });
-                if (decision.decision !== "allow") {
-                    outcome.diagnostics.policy_not_allow_existing.push({ guid, decision: decision.decision });
-                }
-            }
-
-            if (asset) {
-                stage = "asset_binding";
-                await assetDb.createBinding({
-                    assetId: asset.id,
-                    modelVersionId: input.modelVersionId,
-                    modelEntityId: entityId,
-                    spaceId: info.spaceId,
-                    ifcGuid: guid,
-                    assetCodeSnapshot: info.code,
-                    nameSnapshot: space.spaceName ?? null,
-                    typeSnapshot: "IfcSpace",
-                    reconciliationMethod: "space_id",
-                    reconciliationConfidence: "high",
-                });
-                outcome.bindingsCreated++;
-                stage = "asset_reconciliation";
-            }
-        }
+        // ADR-0052 §F: an IfcSpace never becomes an asset. There is deliberately NO
+        // space-asset loop here — spaces are persisted only as spatial context by the
+        // spaceIdentityService, and equipment references its containing space per version
+        // through asset_bindings.space_id (never through the persistent assets row).
 
         /* ================= EQUIPAMENTOS ================= */
         const classifier = getEquipmentClassifier();
@@ -288,12 +237,6 @@ export async function persistAssetsForVersion(input: AssetInventoryInput): Promi
                 note: "version activates for geometry; inventory incomplete until human resolution",
             });
         }
-        if (outcome.diagnostics.spaces_without_identity.length > 0) {
-            logAssets("spaces_without_identity", {
-                modelVersionId: input.modelVersionId,
-                guids: outcome.diagnostics.spaces_without_identity,
-            });
-        }
         if (outcome.diagnostics.undetermined_classification.length > 0) {
             logAssets("undetermined_classification", {
                 modelVersionId: input.modelVersionId,
@@ -309,17 +252,17 @@ export async function persistAssetsForVersion(input: AssetInventoryInput): Promi
     }
 }
 
-/** Ciclo de vida pós-ativação (nunca apaga; retired nunca é inferido). */
+/**
+ * Ciclo de vida pós-ativação (nunca apaga; retired nunca é inferido).
+ *
+ * ADR-0052 §F: já não existe ciclo de vida de ativo-espaço — apenas equipamento.
+ */
 export async function reconcileAssetLifecycleAfterActivation(input: {
-    linkedModelId: number | null;
     modelId: number;
     currentVersionId: number;
 }): Promise<void> {
     try {
         await assetDb.reconcileEquipmentLifecycle(input.modelId, input.currentVersionId);
-        if (input.linkedModelId !== null) {
-            await assetDb.reconcileSpaceAssetLifecycle(input.linkedModelId);
-        }
     } catch (error: any) {
         logAssets("lifecycle_reconcile_failed", { error: String(error?.message ?? error) });
     }

@@ -4,6 +4,29 @@ Visão viva do protótipo após os Prompts 0–6, 7B1 e 7B2. Fontes de verdade: 
 migrations, testes, ADRs (0001–0039), MANUAL_TESTS.md. Secção final descreve
 o trabalho semântico FUTURO — nada aí está implementado.
 
+> ## ⚠️ Modelo definitivo IFC4x3 (ADR-0052) — autoritativo
+>
+> As secções abaixo que descrevem `Pset_SpaceCommon.Reference` como identidade/código
+> transitório, o índice `uq_spaces_scope_code` como constraint de *Reference*, o
+> **espaço-como-ativo** e `assets.space_id` como localização de equipamento estão
+> **SUPERSEDIDAS** por [ADR-0052](./adr/ADR-0052-ifc4x3-space-semantics.md). O modelo
+> implementado e autoritativo é:
+>
+> | Camada | Fonte de verdade |
+> | --- | --- |
+> | Perfil IFC | **IFC4x3-only** (allowlist precisa; IFC4/IFC2X3 rejeitados nos 3 pontos de entrada: intake controlado, upload inicial, rota legada de sensores) |
+> | Espaço persistente | `spaces` — identidade `linked_model_id + IfcSpace.GlobalId` (exata, case-sensitive); `inventory_code` (de IfcSpace.Name), `long_name` (de IfcSpace.LongName) |
+> | Reference | **ignorada** em todo o runtime (nunca identidade, código, display, validação, RDF, IDS, SHACL) |
+> | Manifestação de espaço | `space_bindings` — snapshots `inventory_code_snapshot` / `long_name_snapshot` por versão |
+> | Ativo persistente | `assets` — apenas `equipment`/`tool`; identidade e ciclo de vida; **um IfcSpace nunca é ativo** |
+> | Localização de equipamento modelado | `asset_bindings.space_id` (específica da versão; localização corrente = binding da versão corrente). `assets.space_id` foi **removido** |
+> | Localização de ativo não-modelado/grafo | `asset_location_assignments` (autoridade do grafo) |
+> | Reservas | apenas equipamento/ferramentas; **um espaço nunca é recurso reservável** (rejeitado na descoberta, criação e aprovação); sem `reservation_zone` |
+> | Governança semântica | IDS `oswadt-ifc4-model-requirements` v1.1.0 (IFC4x3 + IfcSpace.Name), mapping RDF v1.1.0 (`project:inventoryCode`/`project:longName`), SHACL v1.1.0 — versões/hashes no `semantic-artifacts-public-manifest.json` |
+>
+> Dados operacionais existentes exigem **migração/reset + re-ingestão** (ADR-0052).
+> `IfcSpatialZone` permanece uma etapa dedicada futura.
+
 ## Arquitetura geral
 
 ```mermaid

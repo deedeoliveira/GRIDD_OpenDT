@@ -1,6 +1,6 @@
 /**
- * Testes do spatial_preflight (revisão do Prompt 3) — validação estrita dos
- * requisitos de informação espacial ANTES de qualquer persistência.
+ * spatial_preflight tests (ADR-0052) — strict validation of spatial information
+ * requirements BEFORE any persistence. The institutional inventory code is IfcSpace.Name.
  */
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
@@ -8,7 +8,7 @@ import { installFakeMySQL, fakeConnection, respond } from "../helpers/fakeDb.ts"
 
 installFakeMySQL();
 
-const { runSpatialPreflight, SpatialPreflightError, groupDuplicateReferences } =
+const { runSpatialPreflight, SpatialPreflightError, groupDuplicateInventoryCodes } =
     await import("../../services/spatialPreflightService.ts");
 const identityProvider = await import("../../identity/spaceIdentityProvider.ts");
 
@@ -26,10 +26,11 @@ const AUTHORITY_OTHER_MODEL: [RegExp, any] =
 
 const CTX = { linkedModelId: 10, modelId: 20, modelVersionId: 30 };
 
-function space(guid: string, code: string | null, name = "Sala", longName: string | null = "Sala Longa") {
+/** The inventory code lives in IfcSpace.Name (spaceName). `name === null` means no Name. */
+function space(guid: string, name: string | null, longName: string | null = "Sala Longa") {
     return {
         spaceGuid: guid, spaceName: name, spaceLongName: longName,
-        psets: code === null ? {} : { Pset_SpaceCommon: { Reference: code } },
+        psets: {},
         elements: [],
     };
 }
@@ -61,7 +62,7 @@ test("modelo NÃO autoritativo sem IfcSpace → permitido (modelos disciplinares
     assert.equal(outcome.isAuthoritative, false);
 });
 
-test("federação multi-modelo SEM autoridade configurada → sem validação estrita (autoridade indeterminada preservada)", async () => {
+test("federação multi-modelo SEM autoridade configurada → sem validação estrita", async () => {
     respond([AUTHORITY_UNDETERMINED]);
 
     const outcome = await runSpatialPreflight({
@@ -79,54 +80,54 @@ test("modelo sem federação (linked NULL) → sem validação estrita", async (
 });
 
 /* -------------------------------------
-   ESPAÇOS SEM Reference VÁLIDO (validação estrita, sem aceitação parcial)
+   ESPAÇOS SEM IfcSpace.Name VÁLIDO (validação estrita, sem aceitação parcial)
 ------------------------------------- */
 
-test("um espaço sem Reference falha, mesmo entre válidos — diagnóstico agregado com contagem", async () => {
+test("um espaço sem Name falha, mesmo entre válidos — diagnóstico agregado com contagem", async () => {
     respond([AUTHORITY_SINGLE]);
 
     await assert.rejects(
         runSpatialPreflight({
             ...CTX,
             inventoryData: {
-                g1: space("g1", "R-101"),
-                g2: space("g2", null, "Sala Sem Código", "Long Sem Código"),
-                g3: space("g3", "R-103"),
+                g1: space("g1", "T-101"),
+                g2: space("g2", null, "Long Sem Código"),
+                g3: space("g3", "T-103"),
             },
         }),
         (error: any) => {
-            assert.equal(error.code, "invalid_references");
+            assert.equal(error.code, "invalid_space_names");
             assert.equal(error.statusCode, 422);
-            assert.match(error.message, /do not contain a valid Pset_SpaceCommon\.Reference/);
-            assert.match(error.message, /1 of 3 IfcSpace elements are missing a valid inventory reference/);
+            assert.match(error.message, /do not contain a valid IfcSpace\.Name/);
+            assert.match(error.message, /1 of 3 IfcSpace elements are missing a valid IfcSpace\.Name/);
             assert.equal(error.diagnostics.length, 1);
             const d = error.diagnostics[0];
             assert.equal(d.guid, "g2");
-            assert.equal(d.name, "Sala Sem Código");
+            assert.equal(d.name, null);
             assert.equal(d.longName, "Long Sem Código");
             assert.equal(d.index, 1);
-            assert.equal(d.motivo, "missing_reference");
+            assert.equal(d.motivo, "missing_space_name");
             return true;
         }
     );
 });
 
-test("Reference vazio → empty_reference; whitespace → empty_reference; tipo inválido → invalid_reference_type", async () => {
+test("Name vazio → blank_space_name; whitespace → blank_space_name; tipo inválido → invalid_space_name_type", async () => {
     respond([AUTHORITY_SINGLE]);
 
     await assert.rejects(
         runSpatialPreflight({
             ...CTX,
             inventoryData: {
-                g1: { ...space("g1", null), psets: { Pset_SpaceCommon: { Reference: "" } } },
-                g2: { ...space("g2", null), psets: { Pset_SpaceCommon: { Reference: "   " } } },
-                g3: { ...space("g3", null), psets: { Pset_SpaceCommon: { Reference: 101 } } },
+                g1: space("g1", ""),
+                g2: space("g2", "   "),
+                g3: { ...space("g3", null), spaceName: 101 },
             },
         }),
         (error: any) => {
-            assert.equal(error.code, "invalid_references");
+            assert.equal(error.code, "invalid_space_names");
             const motivos = error.diagnostics.map((d: any) => d.motivo);
-            assert.deepEqual(motivos, ["empty_reference", "empty_reference", "invalid_reference_type"]);
+            assert.deepEqual(motivos, ["blank_space_name", "blank_space_name", "invalid_space_name_type"]);
             assert.match(error.message, /3 of 3/);
             return true;
         }
@@ -138,7 +139,7 @@ test("todos os espaços válidos → preflight passa e devolve isAuthoritative",
 
     const outcome = await runSpatialPreflight({
         ...CTX,
-        inventoryData: { g1: space("g1", "R-101"), g2: space("g2", "R-102") },
+        inventoryData: { g1: space("g1", "T-101"), g2: space("g2", "T-102") },
     });
 
     assert.equal(outcome.isAuthoritative, true);
@@ -155,11 +156,11 @@ test("códigos duplicados no autoritativo → falha no preflight, antes de qualq
     await assert.rejects(
         runSpatialPreflight({
             ...CTX,
-            inventoryData: { g1: space("g1", "R-DUP"), g2: space("g2", " R-DUP "), g3: space("g3", "R-OK") },
+            inventoryData: { g1: space("g1", "T-DUP"), g2: space("g2", " T-DUP "), g3: space("g3", "T-OK") },
         }),
         (error: any) => {
-            assert.equal(error.code, "duplicate_references");
-            assert.match(error.message, /Duplicate space inventory code\(s\) in authoritative spatial model: R-DUP/);
+            assert.equal(error.code, "duplicate_inventory_codes");
+            assert.match(error.message, /Duplicate space inventory code\(s\) in authoritative spatial model: T-DUP/);
             assert.deepEqual(error.diagnostics[0].entities.map((e: any) => e.guid), ["g1", "g2"]);
             return true;
         }
@@ -168,7 +169,7 @@ test("códigos duplicados no autoritativo → falha no preflight, antes de qualq
     assert.equal(fakeConnection.callsMatching(/INSERT INTO/i).length, 0, "nenhuma persistência");
 });
 
-test("groupDuplicateReferences é a lógica única partilhada (preflight + persistência defensiva)", () => {
+test("groupDuplicateInventoryCodes é a lógica única partilhada (preflight + persistência defensiva)", () => {
     const mk = (guid: string, code: string | null) => ({
         result: {
             status: code ? "valid" : "missing", normalizedValue: code,
@@ -177,7 +178,7 @@ test("groupDuplicateReferences é a lógica única partilhada (preflight + persi
         } as any,
     });
 
-    const dups = groupDuplicateReferences([mk("a", "X"), mk("b", "X"), mk("c", "Y"), mk("d", null)]);
+    const dups = groupDuplicateInventoryCodes([mk("a", "X"), mk("b", "X"), mk("c", "Y"), mk("d", null)]);
     assert.deepEqual([...dups.keys()], ["X"]);
     assert.equal(dups.get("X")!.length, 2);
 });
@@ -199,7 +200,7 @@ test("o preflight é falha de requisitos de informação — não é PolicyEvalu
     }
 });
 
-test("a mensagem usa a origem do provider dinamicamente (sem Pset_SpaceCommon hardcoded no serviço)", async () => {
+test("a mensagem usa a origem do provider dinamicamente", async () => {
     identityProvider.setSpaceIdentityResolver({
         resolve: async (c) => ({
             status: "missing", rawValue: null, normalizedValue: null,

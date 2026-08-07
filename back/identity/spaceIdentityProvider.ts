@@ -1,26 +1,30 @@
 import type { SpaceIdentityResolver } from "./types.ts";
-import { PsetReferenceSpaceIdentityResolver } from "./psetReferenceSpaceIdentityResolver.ts";
+import { IfcSpaceNameInventoryCodeResolver } from "./ifcSpaceNameInventoryCodeResolver.ts";
 
 /**
  * Ponto ÚNICO de escolha do SpaceIdentityResolver (registry + factory).
  *
- * Seleção por variável de ambiente (default: o perfil atual do projeto):
- *   SPACE_IDENTITY_PROVIDER=pset-space-common-reference
+ * Seleção por variável de ambiente (default: o perfil IFC4x3 atual):
+ *   SPACE_IDENTITY_PROVIDER=ifcspace-name-inventory-code
+ *
+ * ADR-0052: o código de inventário institucional vem de IfcSpace.Name; a
+ * identidade persistente permanece linked_model_id + IfcSpace.GlobalId. O antigo
+ * provider baseado em Pset_SpaceCommon.Reference foi removido do runtime ativo.
  *
  * Um provider futuro (outra propriedade IFC, classificação, identificador
- * externo, consulta a uma futura ontologia, ...) é adicionado registando uma
- * entrada aqui — nenhum outro ficheiro (upload service, spaceIdentityService,
- * tabelas, rotas, políticas, frontend) precisa de mudar.
+ * externo, ...) é adicionado registando uma entrada aqui — nenhum outro ficheiro
+ * (upload service, spaceIdentityService, tabelas, rotas, políticas, frontend)
+ * precisa de mudar.
  *
  * Deliberadamente SEPARADO de policies/policyProvider.ts: identidade não é
  * política de reserva. Não instanciar resolvers concretos fora deste módulo.
  */
 
 const registry: Record<string, () => SpaceIdentityResolver> = {
-    "pset-space-common-reference": () => new PsetReferenceSpaceIdentityResolver(),
+    "ifcspace-name-inventory-code": () => new IfcSpaceNameInventoryCodeResolver(),
 };
 
-const DEFAULT_PROVIDER = "pset-space-common-reference";
+const DEFAULT_PROVIDER = "ifcspace-name-inventory-code";
 
 let current: SpaceIdentityResolver | null = null;
 

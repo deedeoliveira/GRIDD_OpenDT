@@ -226,25 +226,18 @@ test("fixtures usam IFC4 (gerador declara IFC4; sem IFC4x3)", () => {
     assert.doesNotMatch(generator, /IFC4x3|IFC4\.3/i);
 });
 
-test("nenhum código ou teste do backend depende de IFC4x3", () => {
-    const offenders: string[] = [];
-    const scan = (dir: string) => {
-        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-            const full = path.join(dir, entry.name);
-            if (entry.isDirectory()) {
-                if (["node_modules", "cdn_resources", "venv", ".git"].includes(entry.name)) continue;
-                scan(full);
-                continue;
-            }
-            if (!/\.(ts|py)$/.test(entry.name)) continue;
-            const source = fs.readFileSync(full, "utf-8");
-            // este próprio teste menciona o termo para o proibir
-            if (full.includes("requirementsPreflight.test.ts")) continue;
-            if (/IFC4x3|IFC4\.3/i.test(source)) offenders.push(full);
-        }
-    };
-    scan(backDir);
-    assert.deepEqual(offenders, []);
+test("o perfil operacional é IFC4x3-only (ADR-0052): a família IFC4x3 é aceite, IFC2X3 e IFC4 rejeitados", async () => {
+    const { classifyIfcSchema, isSupportedIfc4x3Schema } = await import("../../utils/ifcSchemaSupport.ts");
+    for (const ident of ["IFC4X3", "IFC4X3_ADD1", "IFC4X3_ADD2", "IFC4X3_TC1"]) {
+        assert.equal(classifyIfcSchema(ident), "supported", ident);
+        assert.ok(isSupportedIfc4x3Schema(ident), ident);
+    }
+    assert.equal(classifyIfcSchema("IFC4"), "unsupported_ifc4");
+    assert.equal(classifyIfcSchema("IFC2X3"), "unsupported_ifc2x3");
+    assert.ok(!isSupportedIfc4x3Schema("IFC4"));
+    // The definitive core fixture declares an IFC4x3 schema.
+    const baseline = fs.readFileSync(path.join(backDir, "tests/fixtures/ifc4x3-three-space-baseline.ifc"), "utf-8");
+    assert.match(baseline, /FILE_SCHEMA\(\('IFC4X3/);
 });
 
 test("documentação declara IFC4 como perfil suportado e testado", () => {

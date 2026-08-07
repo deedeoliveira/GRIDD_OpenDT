@@ -66,52 +66,41 @@ function baseRoutes(overrides: [RegExp, any][] = []): [RegExp, any][] {
 }
 
 /* -------------------------------------
-   ATIVOS-ESPAÇO: identidade estável entre versões
+   ESPAÇOS NÃO SÃO ATIVOS (ADR-0052 §F)
 ------------------------------------- */
 
-test("espaço novo com identidade: cria ativo persistente (space_id, asset_code, uuid, SEM versão) + binding da versão", async () => {
+test("espaços NUNCA geram ativos: três espaços, zero equipamento → zero assets, zero bindings, zero casos", async () => {
     respond(baseRoutes());
 
-    const outcome = await persistAssetsForVersion(makeInput() as any);
+    const outcome = await persistAssetsForVersion(makeInput({
+        inventoryData: {
+            "space-A": { spaceGuid: "space-A", spaceName: "Sala A", spaceLongName: "Sala Grande A", elements: [] },
+            "space-B": { spaceGuid: "space-B", spaceName: "Sala B", spaceLongName: null, elements: [] },
+            "space-C": { spaceGuid: "space-C", spaceName: "Sala C", spaceLongName: "Sala C longa", elements: [] },
+        },
+        spaceEntityIdsByGuid: { "space-A": 100, "space-B": 101, "space-C": 102 },
+        spaceInfoByGuid: {
+            "space-A": { spaceId: 7, code: "R-A" },
+            "space-B": { spaceId: 8, code: "R-B" },
+            "space-C": { spaceId: 9, code: "R-C" },
+        },
+    }) as any);
 
-    const insert = fakeConnection.callsMatching(/INSERT INTO assets/i)[0]!;
-    assert.equal(insert.params.spaceId, 7, "identidade ancorada em spaces.id");
-    assert.equal(insert.params.assetCode, "R-A");
-    assert.ok(insert.params.assetUuid, "uuid atribuído");
-    assert.match(insert.sql, /'active'/);
-    assert.match(insert.sql, /NULL\)\s*$/, "model_version_id NULL: identidade não pertence a uma versão");
-
-    const binding = fakeConnection.callsMatching(/INSERT INTO asset_bindings/i)[0]!;
-    assert.equal(binding.params.assetId, 300);
-    assert.equal(binding.params.modelVersionId, VERSION_ID, "binding com versão EXPLÍCITA");
-    assert.equal(binding.params.reconciliationMethod, "space_id");
-    assert.equal(binding.params.reconciliationConfidence, "high");
-
-    assert.deepEqual(outcome.createdAssetIds, [300]);
-});
-
-test("espaço já com ativo (mesmo spaces.id): NÃO cria outro asset — nova versão liga-se ao MESMO asset_id", async () => {
-    respond(baseRoutes([[/SELECT \* FROM assets WHERE space_id/i, [[{ id: 55, name: "Sala A" }]]]]));
-
-    const outcome = await persistAssetsForVersion(makeInput() as any);
-
-    assert.equal(fakeConnection.callsMatching(/INSERT INTO assets/i).length, 0,
-        "invariante central: nova versão nunca cria nova identidade para o mesmo espaço");
-    assert.equal(fakeConnection.callsMatching(/UPDATE assets[\s\S]*SET name = COALESCE/i).length, 1,
-        "apenas a projeção operacional é atualizada");
-    const binding = fakeConnection.callsMatching(/INSERT INTO asset_bindings/i)[0]!;
-    assert.equal(binding.params.assetId, 55, "binding da nova versão aponta para o asset_id existente");
+    assert.equal(fakeConnection.callsMatching(/INSERT INTO assets/i).length, 0, "um IfcSpace nunca cria um asset");
+    assert.equal(fakeConnection.callsMatching(/INSERT INTO asset_bindings/i).length, 0, "sem asset-binding de espaço");
+    assert.equal(fakeConnection.callsMatching(/asset_type\s*=\s*'space'|'IfcSpace'/i).length, 0);
     assert.equal(outcome.createdAssetIds.length, 0);
+    assert.equal(outcome.bindingsCreated, 0);
+    assert.equal(outcome.casesCreated, 0);
 });
 
-test("espaço sem identidade persistente: NÃO gera ativo (diagnóstico, sem falha)", async () => {
+test("mudança de Name/LongName do espaço não cria ativo", async () => {
     respond(baseRoutes());
-
-    const outcome = await persistAssetsForVersion(makeInput({ spaceInfoByGuid: {} }) as any);
-
+    const outcome = await persistAssetsForVersion(makeInput({
+        inventoryData: { "space-A": { spaceGuid: "space-A", spaceName: "Sala A RENOMEADA", spaceLongName: "Novo rótulo", elements: [] } },
+    }) as any);
     assert.equal(fakeConnection.callsMatching(/INSERT INTO assets/i).length, 0);
-    assert.equal(fakeConnection.callsMatching(/INSERT INTO asset_bindings/i).length, 0);
-    assert.deepEqual(outcome.diagnostics.spaces_without_identity, ["space-A"]);
+    assert.equal(outcome.createdAssetIds.length, 0);
 });
 
 /* -------------------------------------
@@ -314,7 +303,10 @@ test("deny/undetermined em ativo EXISTENTE → apenas projeção reservable=0; i
 test("falha no binding → AssetStageError com etapa 'asset_binding' e ids criados (para compensação)", async () => {
     respond(baseRoutes([[/INSERT INTO asset_bindings/i, () => { throw new Error("binding insert failed"); }]]));
 
-    await assert.rejects(persistAssetsForVersion(makeInput() as any), (error: any) => {
+    // Equipamento NOVO (sem tag/serial correspondentes) → cria asset (300) e depois falha no binding.
+    await assert.rejects(persistAssetsForVersion(equipmentInput({
+        guid: "g-eq", type: "IfcFurniture", name: "Mesa nova", tag: "EQP-NEW", psets: {},
+    }) as any), (error: any) => {
         assert.ok(error instanceof AssetStageError);
         assert.equal(error.uploadStage, "asset_binding");
         assert.deepEqual(error.createdAssetIds, [300], "o serviço reporta o que criou antes de falhar");
@@ -335,22 +327,20 @@ test("nenhuma consulta do fluxo de ativos deriva versão corrente por ORDER BY i
    CICLO DE VIDA PÓS-ATIVAÇÃO
 ------------------------------------- */
 
-test("reconciliação de ciclo de vida: absent/reativação por UPDATE com versão corrente explícita; NUNCA apaga, NUNCA infere retired", async () => {
+test("reconciliação de ciclo de vida: absent/reativação por UPDATE com versão corrente explícita; NUNCA apaga, NUNCA infere retired; SEM sincronização de espaço-ativo (ADR-0052 §F)", async () => {
     respond([[/UPDATE assets/i, [{}]]]);
 
-    await reconcileAssetLifecycleAfterActivation({ linkedModelId: 10, modelId: 20, currentVersionId: VERSION_ID });
+    await reconcileAssetLifecycleAfterActivation({ modelId: 20, currentVersionId: VERSION_ID });
 
     const updates = fakeConnection.callsMatching(/UPDATE assets/i);
-    assert.equal(updates.length, 3, "absent + reativação (equipamentos) + espaços");
+    assert.equal(updates.length, 2, "apenas equipamento: absent + reativação (nenhuma sincronização de espaço-ativo)");
 
     const toAbsent = updates[0]!;
     assert.match(toAbsent.sql, /'absent'/);
     assert.match(toAbsent.sql, /NOT EXISTS/i, "ausente = tem histórico na linha mas não está na versão corrente");
     assert.equal(toAbsent.params.currentVersionId, VERSION_ID);
 
-    const spaceSync = updates[2]!;
-    assert.match(spaceSync.sql, /<> 'retired'/, "retired é decisão humana: a reconciliação nunca o altera");
-
+    assert.equal(fakeConnection.callsMatching(/INNER JOIN spaces/i).length, 0, "nenhuma query toca ativos por space_id");
     assert.equal(fakeConnection.callsMatching(/DELETE/i).length, 0);
     assert.equal(fakeConnection.callsMatching(/SET lifecycle_status = 'retired'/i).length, 0);
 });

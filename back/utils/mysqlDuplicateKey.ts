@@ -12,9 +12,10 @@
  * it is confined here and validated against the structured code first.
  */
 
-/** Names of the two indexes Stage 0B must tell apart. */
+/** Names of the two indexes the write path must tell apart. */
 export const CANONICAL_GLOBALID_INDEX = "uq_spaces_linked_model_ifc_global_id";
-export const LEGACY_SCOPE_INDEX = "uq_spaces_scope_code";
+/** Institutional inventory-code uniqueness within a linked_model scope (from IfcSpace.Name). */
+export const SCOPE_INVENTORY_CODE_INDEX = "uq_spaces_scope_code";
 
 /** True iff `error` is a MySQL duplicate-key error (by structured code/errno). */
 export function isDuplicateKeyError(error: any): boolean {
@@ -37,21 +38,21 @@ export function duplicateKeyIndexName(error: any): string | null {
 }
 
 export type DuplicateKeyKind =
-    | "canonical_globalid"   // uq_spaces_linked_model_ifc_global_id → same identity race
-    | "legacy_reference"     // uq_spaces_scope_code → transitional Reference collision
-    | "unrelated"            // some other unique index → not identity/Reference
-    | "not_duplicate";       // not a duplicate-key error at all
+    | "canonical_globalid"      // uq_spaces_linked_model_ifc_global_id → same identity race
+    | "scope_inventory_code"    // uq_spaces_scope_code → institutional inventory-code collision
+    | "unrelated"               // some other unique index → not identity/inventory-code
+    | "not_duplicate";          // not a duplicate-key error at all
 
 /**
- * Classify a persistence error for the Stage 0B write path. Only the canonical
- * GlobalId index is a canonical-identity race; only the legacy scope index is a
- * transitional Reference collision; any other duplicate key is UNRELATED and must
- * not be misread as either. Never falls back to Reference.
+ * Classify a persistence error for the space write path (ADR-0052). Only the canonical
+ * GlobalId index is a canonical-identity race; only the scope index is an institutional
+ * inventory-code (IfcSpace.Name) collision; any other duplicate key is UNRELATED and must
+ * not be misread as either. Never interprets a Reference.
  */
 export function classifyDuplicateKey(error: any): DuplicateKeyKind {
     if (!isDuplicateKeyError(error)) return "not_duplicate";
     const index = duplicateKeyIndexName(error);
     if (index === CANONICAL_GLOBALID_INDEX) return "canonical_globalid";
-    if (index === LEGACY_SCOPE_INDEX) return "legacy_reference";
+    if (index === SCOPE_INVENTORY_CODE_INDEX) return "scope_inventory_code";
     return "unrelated";
 }

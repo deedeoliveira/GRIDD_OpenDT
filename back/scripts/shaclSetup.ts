@@ -8,7 +8,7 @@ import { ArtifactLoaderService } from "../semantic/artifactLoaderService.ts";
 import { ArtifactRegistryService } from "../semantic/artifactRegistryService.ts";
 import { jsonSemanticArtifactLogger } from "../semantic/artifactTypes.ts";
 import { ArtifactValidationService } from "../semantic/artifactValidation.ts";
-import { FilesystemArtifactSource, loadPublicArtifactManifest } from "../semantic/publicArtifactManifest.ts";
+import { FilesystemArtifactSource, loadPublicArtifactManifest, activeArtifactKey } from "../semantic/publicArtifactManifest.ts";
 import { loadSemanticArtifactConfig } from "../semantic/semanticArtifactConfig.ts";
 import { loadSemanticValidationConfig } from "../semanticValidation/semanticValidationConfig.ts";
 import { PyShaclValidationProvider } from "../semanticValidation/pyShaclValidationProvider.ts";
@@ -26,7 +26,7 @@ async function main() {
     if (!migrationReady) throw new Error("Prompt 7E migration is not applied. Apply it manually before setup.");
     const artifactConfig = loadSemanticArtifactConfig();
     const manifest = await loadPublicArtifactManifest(artifactConfig.manifestPath);
-    const entry = manifest.artifacts.find((item) => item.artifactKey === `${shacl.modelShapesFamilyKey}-1.0.0`);
+    const entry = manifest.artifacts.find((item) => item.artifactKey === activeArtifactKey(shacl.modelShapesFamilyKey));
     if (!entry || entry.artifactType !== "shacl_shapes" || entry.storageMode !== "graph_backed") throw new Error("Governed model RDF shapes are absent from the public manifest.");
     const validation = new ArtifactValidationService(new FilesystemArtifactSource(artifactConfig.rootDir));
     const checked = await validation.validate(entry, true);

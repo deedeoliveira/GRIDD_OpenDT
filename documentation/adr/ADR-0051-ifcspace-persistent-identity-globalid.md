@@ -2,7 +2,19 @@
 
 ## Status
 
-Accepted — staged implementation in progress.
+Accepted — **superseded in part by [ADR-0052](./ADR-0052-ifc4x3-space-semantics.md).**
+
+> **Supersession (ADR-0052).** The GlobalId identity authority defined here
+> (`linked_model_id + exact case-sensitive IfcSpace.GlobalId`) is **retained unchanged**.
+> The parts of this ADR that treat `Pset_SpaceCommon.Reference` as transitional
+> administrative metadata, that describe the `uq_spaces_scope_code` index as a
+> *Reference*-uniqueness constraint, and that describe locking/compensation as protecting a
+> "Reference" projection are **superseded**: the institutional inventory code now comes from
+> `IfcSpace.Name` (→ `spaces.inventory_code`), the human label from `IfcSpace.LongName`
+> (→ `spaces.long_name`), and `Pset_SpaceCommon.Reference` is **ignored** by the entire
+> IFC4x3 runtime. The space-as-asset model and the `assets.space_id` column are likewise
+> removed by ADR-0052. The Reference-era text below is preserved as historical audit
+> material — read it together with ADR-0052, which is authoritative for current behaviour.
 
 Refines the space-identity scope of
 [ADR-0005](./ADR-0005-space-uniqueness-scope.md) /

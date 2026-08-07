@@ -22,7 +22,8 @@ test("public manifest governs IDS/XML as file-executed and preserves RDF graph s
 
 test("IDS revision activates with a current pointer and never receives a named graph", async () => {
     const manifest = await loadPublicArtifactManifest(path.join(root, "semantic-artifacts-public-manifest.json"));
-    const entry = manifest.artifacts.find((candidate) => candidate.artifactType === "ids_profile")!;
+    // The active IDS is the 1.1.0 manifestation; the superseded 1.0.0 is retained but not activatable.
+    const entry = manifest.artifacts.find((candidate) => candidate.artifactKey === "oswadt-ifc4-model-requirements-1.1.0")!;
     const validated = await new ArtifactValidationService(new FilesystemArtifactSource(root)).validate(entry, true);
     const database = new FakeSemanticArtifactDatabase();
     const registry = new ArtifactRegistryService(database, { newUuid: (() => {

@@ -18,7 +18,7 @@ process.env.GRAPH_BASE_URI = "http://oswadt.test/id";
 
 const { SemanticMaterialisationService } = await import("../../modelIntake/semanticMaterialisationService.ts");
 const { validateMappingProfile } = await import("../../modelIntake/mappingProfileService.ts");
-const mapping = validateMappingProfile(JSON.parse(fs.readFileSync(path.resolve("../semantic/artifacts/runtime/oswadt-ifc4-minimal-rdf-mapping/1.0.0/oswadt-ifc4-minimal-rdf-mapping-v1.json"), "utf8")));
+const mapping = validateMappingProfile(JSON.parse(fs.readFileSync(path.resolve("../semantic/artifacts/runtime/oswadt-ifc4-minimal-rdf-mapping/1.1.0/oswadt-ifc4-minimal-rdf-mapping-v1.1.json"), "utf8")));
 
 class FakeGraph {
     providerId = "fake";
@@ -57,9 +57,11 @@ function snapshot(id: number, versionUuid: string, spaceGuid: string, assetGuid:
     fs.writeFileSync(path.join(dir, "model.ifc"), "synthetic");
     return { version: { id, version_uuid: versionUuid, version_number: id, model_id: 1, model_uuid: "11111111-1111-4111-8111-111111111111",
         original_filename: `v${id}.ifc`, file_hash: String(id).repeat(64).slice(0, 64), storage_key: `models/1/versions/${id}/model.ifc` },
-      spaces: [{ space_uuid: "22222222-2222-4222-8222-222222222222", inventory_code: "R-101", ifc_guid: spaceGuid, name_snapshot: "Room" }],
+      spaces: [{ space_uuid: "22222222-2222-4222-8222-222222222222", inventory_code_snapshot: "R-101",
+        long_name_snapshot: "Room", ifc_guid: spaceGuid }],
       assets: [{ asset_uuid: "33333333-3333-4333-8333-333333333333", asset_code: "EQP-DEMO-001", serial_number: "SYN-001",
-        ifc_guid: assetGuid, type_snapshot: "IfcFurnishingElement", space_reference: "R-101" }] };
+        ifc_guid: assetGuid, type_snapshot: "IfcFurnishingElement", space_id: 1,
+        space_uuid: "22222222-2222-4222-8222-222222222222", space_inventory_code_snapshot: "R-101" }] };
 }
 
 const extracted = (spaceGuid: string, assetGuid: string, storey: string) => ({ schema: "IFC4", uncontainedProxies: [], inventoryData: {

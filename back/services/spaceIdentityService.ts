@@ -1,44 +1,45 @@
 import spaceDb, { SpaceCanonicalSchemaError } from "../utils/spaceDatabase.ts";
 import { getSpaceIdentityResolver } from "../identity/spaceIdentityProvider.ts";
-import { groupDuplicateReferences, groupDuplicateGlobalIds } from "./spatialPreflightService.ts";
+import { groupDuplicateInventoryCodes, groupDuplicateGlobalIds } from "./spatialPreflightService.ts";
 import { isValidIfcGlobalId, ifcGlobalIdInvalidReason } from "../utils/ifcGlobalId.ts";
 import { classifyDuplicateKey } from "../utils/mysqlDuplicateKey.ts";
 import type { SpaceIdentityResult } from "../identity/types.ts";
 import type { ExtractedIfcModel, SpaceOccurrence } from "../requirements/modelRequirementsTypes.ts";
 
 /**
- * Serviço de domínio da identidade espacial.
+ * Serviço de domínio da identidade espacial (perfil IFC4x3, ADR-0052).
  *
- * Stage 0B (ADR-0051): a AUTORIDADE de identidade persistente do IfcSpace é
- * `linked_model_id + IfcSpace.GlobalId` (exata, case-sensitive). Regras:
+ * A AUTORIDADE de identidade persistente do IfcSpace é `linked_model_id +
+ * IfcSpace.GlobalId` (exata, case-sensitive). Regras:
  *  - mesmo GlobalId (mesmo linked_model)        → mesmo spaces.id/space_uuid;
- *  - mesmo GlobalId + Reference diferente       → mesmo espaço; a Reference
- *    corrente (metadado administrativo) é atualizada, snapshots históricos não;
- *  - GlobalId diferente + Reference igual       → espaço DIFERENTE; durante a
- *    transição o índice legado uq_spaces_scope_code ainda existe, pelo que isto
- *    é bloqueado com um erro transitório preciso (nunca reaproveita por Reference);
+ *  - mesmo GlobalId + código diferente          → mesmo espaço; o código de
+ *    inventário corrente (de IfcSpace.Name) e o long_name (de IfcSpace.LongName)
+ *    são atualizados, snapshots históricos não;
+ *  - GlobalId diferente + mesmo código          → espaço DIFERENTE; a unicidade
+ *    institucional do código (uq_spaces_scope_code) bloqueia com um erro preciso
+ *    de colisão de código de inventário (nunca reaproveita por código/Name);
  *  - GlobalId novo                              → espaço novo (recebe ifc_global_id);
  *  - o mesmo GlobalId em linked_models diferentes → espaços distintos.
  *
- * A Reference continua a ser extraída e obrigatória (esquema/IDS transitórios) e
- * é armazenada como metadado administrativo/snapshot — NUNCA como chave de
- * identidade. Não há inferência de linhagem.
+ * O código de inventário institucional vem de IfcSpace.Name e é obrigatório; o
+ * long_name vem de IfcSpace.LongName (opcional). A propriedade de Reference
+ * (deprecada, ADR-0052 §E) NUNCA é lida nem interpretada. Não há inferência de linhagem.
  */
 
-export class DuplicateSpaceReferenceError extends Error {
+export class DuplicateSpaceInventoryCodeError extends Error {
     readonly diagnostics: any[];
     constructor(message: string, diagnostics: any[]) {
         super(message);
-        this.name = "DuplicateSpaceReferenceError";
+        this.name = "DuplicateSpaceInventoryCodeError";
         this.diagnostics = diagnostics;
     }
 }
 
 /**
  * Blocking: a candidate IfcSpace has a missing or malformed GlobalId. Carries a
- * stable machine code (§7) and never triggers a Reference fallback. The full
- * form ^[0-9A-Za-z_$]{22}$ is validated at the application boundary (§1) BEFORE
- * any write; the Stage 0A DB CHECK remains the final defence in depth.
+ * stable machine code (§7) and never triggers a Name/Reference fallback. The full
+ * form ^[0-9A-Za-z_$]{22}$ is validated at the application boundary BEFORE any
+ * write; the DB CHECK remains the final defence in depth.
  */
 export class InvalidSpaceGlobalIdError extends Error {
     readonly code = "invalid_globalid" as const;
@@ -62,29 +63,27 @@ export class DuplicateSpaceGlobalIdError extends Error {
 }
 
 /**
- * Transitional block (ADR-0051 §3/§7): a NEW GlobalId cannot reuse a persistent
- * space whose Reference it happens to reuse, because the legacy Reference
- * uniqueness index uq_spaces_scope_code is still active. GlobalId indicates a new
- * persistent space; the conflict is only removed in a later stage; nothing was
- * created or reassigned. Never resolved silently by Reference.
+ * Blocking (ADR-0052): a NEW GlobalId cannot reuse a persistent space whose
+ * institutional inventory code (from IfcSpace.Name) it happens to reuse, because the
+ * scope inventory-code uniqueness index uq_spaces_scope_code enforces one code per
+ * linked_model. GlobalId indicates a distinct persistent space; nothing is created or
+ * reassigned. Never resolved silently by inventory code / Name.
  */
-export class TransitionalReferenceCollisionError extends Error {
-    readonly code = "transitional_reference_collision" as const;
+export class InventoryCodeCollisionError extends Error {
+    readonly code = "inventory_code_collision" as const;
     readonly diagnostics: any;
     constructor(message: string, diagnostics: any) {
         super(message);
-        this.name = "TransitionalReferenceCollisionError";
+        this.name = "InventoryCodeCollisionError";
         this.diagnostics = diagnostics;
     }
 }
 
 /**
- * Blocking (ADR-0051 Stage 0B §1): the extraction did not provide the ordered,
- * lossless per-IfcSpace occurrence list. Because the GlobalId-keyed inventory has
- * already collapsed duplicate GlobalIds, write-authoritative intake CANNOT prove
- * GlobalId uniqueness without it — so it refuses to persist rather than silently
- * trusting the collapsed dict. A stable operational code (§7) drives the failed
- * upload lifecycle; a display-only preview may still fall back (non-authoritative).
+ * Blocking (ADR-0052): the extraction did not provide the ordered, lossless per-IfcSpace
+ * occurrence list. Because the GlobalId-keyed inventory has already collapsed duplicate
+ * GlobalIds, write-authoritative intake CANNOT prove GlobalId uniqueness without it — so
+ * it refuses to persist rather than silently trusting the collapsed dict.
  */
 export class LosslessSpaceOccurrencesMissingError extends Error {
     readonly code = "lossless_space_occurrences_missing" as const;
@@ -97,11 +96,11 @@ export class LosslessSpaceOccurrencesMissingError extends Error {
 }
 
 /**
- * Blocking (ADR-0051 Stage 0B §1): the lossless occurrence list is present but does
- * NOT exactly reconcile with the extracted inventory/candidate GlobalId set, or its
- * per-occurrence entity identifiers are missing/duplicated. Any of these means the
- * extractor's two views disagree and GlobalId uniqueness/occurrence identity cannot
- * be trusted — so no entity/space/binding/asset/Reference write may occur.
+ * Blocking (ADR-0052): the lossless occurrence list is present but does NOT exactly
+ * reconcile with the extracted inventory/candidate GlobalId set, or its per-occurrence
+ * entity identifiers are missing/duplicated. Any of these means the extractor's two views
+ * disagree and GlobalId uniqueness/occurrence identity cannot be trusted — so no
+ * entity/space/binding write may occur.
  */
 export class LosslessSpaceOccurrencesInconsistentError extends Error {
     readonly code = "lossless_space_occurrences_inconsistent" as const;
@@ -124,20 +123,11 @@ export interface SpaceCandidateInput {
 }
 
 /**
- * SHARED, PURE validator of the lossless occurrence contract (ADR-0051 §1). Used by
- * BOTH the orchestration preflight and `persistSpaceIdentities`, so the definition of
- * "the lossless contract" can never diverge between them. It performs NO database
- * access and NO writes. Order (each blocking):
- *   1. presence         — occurrences must be a real array (missing/undefined/non-array
- *                         → LosslessSpaceOccurrencesMissingError);
- *   2. non-empty        — an empty list while the inventory has spaces is inconsistent;
- *   3. invalid GlobalId — any malformed occurrence GlobalId → InvalidSpaceGlobalIdError;
- *   4. duplicate exact  — two occurrences sharing one exact GlobalId → DuplicateSpaceGlobalIdError;
- *   5. exact set match  — the unique occurrence GlobalId set must equal the candidate/
- *                         inventory GlobalId set (omitted or extra → inconsistent);
- *   6. entity-id integrity — every occurrence must carry a distinct, non-null entity id
- *                         (the authoritative extractor provides one per IfcSpace entity;
- *                         missing/duplicated → inconsistent).
+ * SHARED, PURE validator of the lossless occurrence contract (ADR-0052). Used by BOTH
+ * the orchestration preflight and `persistSpaceIdentities`, so the definition of "the
+ * lossless contract" can never diverge. It performs NO database access and NO writes.
+ * Order (each blocking): presence, non-empty, invalid GlobalId, duplicate exact GlobalId,
+ * exact set match with the candidate/inventory GlobalId set, entity-id integrity.
  * Returns the validated occurrences.
  */
 export function validateLosslessOccurrenceContract(input: {
@@ -164,20 +154,10 @@ export function validateLosslessOccurrenceContract(input: {
         );
     }
 
-    // 2.5 RUNTIME SHAPE validation of EVERY element (ADR-0051 §5-v4). `occurrences` is
-    // intentionally `unknown`, so each element's STRUCTURE is validated BEFORE any of its
-    // properties are dereferenced: a malformed element yields a stable
-    // `lossless_space_occurrences_inconsistent` reason, never a TypeError or raw JS
-    // diagnostic. Required per element:
-    //  - a non-null, non-array object;
-    //  - `entityId` a POSITIVE SAFE INTEGER (never null/NaN/Infinity/0/negative/fractional/
-    //    numeric-string — the authoritative extractor provides one real IFC entity id);
-    //  - optional `name`/`longName`/`storeyName` are string or null/undefined;
-    //  - optional `psets` is a plain object or null/undefined.
-    // NOTE: `guid` itself is NOT dereferenced here — it is passed (safely, whatever its
-    // runtime type) to the shared GlobalId validator in step 3, so a null/number/malformed
-    // GlobalId is a blocking InvalidSpaceGlobalIdError (never a Reference fallback), exactly
-    // as at every other write boundary.
+    // 2.5 RUNTIME SHAPE validation of EVERY element. `occurrences` is intentionally
+    // `unknown`, so each element's STRUCTURE is validated BEFORE any of its properties are
+    // dereferenced: a malformed element yields a stable
+    // `lossless_space_occurrences_inconsistent` reason, never a TypeError.
     const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
     const isOptString = (v: unknown): boolean => v === undefined || v === null || typeof v === "string";
     for (let i = 0; i < rawList.length; i++) {
@@ -224,7 +204,7 @@ export function validateLosslessOccurrenceContract(input: {
         }));
         logSpaceIdentity("invalid_global_id", { modelVersionId: input.modelVersionId, diagnostics, phase: "contract" });
         throw new InvalidSpaceGlobalIdError(
-            `One or more IfcSpace elements have a missing or malformed GlobalId (expected ^[0-9A-Za-z_$]{22}$); identity cannot fall back to Reference.`,
+            `One or more IfcSpace elements have a missing or malformed GlobalId (expected ^[0-9A-Za-z_$]{22}$); identity cannot fall back to Name or Reference.`,
             diagnostics,
         );
     }
@@ -255,8 +235,7 @@ export function validateLosslessOccurrenceContract(input: {
         );
     }
 
-    // 6. entity-id integrity: each occurrence carries a DISTINCT entity id (presence and
-    // positive-integer validity were already enforced by the runtime shape pass, §5-v4).
+    // 6. entity-id integrity: each occurrence carries a DISTINCT entity id.
     const seen = new Set<number>();
     const dupIds: number[] = [];
     for (const o of occurrences) {
@@ -275,26 +254,15 @@ export function validateLosslessOccurrenceContract(input: {
 }
 
 /**
- * PURE candidate GlobalId preflight (ADR-0051 Stage 0B §2), run immediately after
- * extraction + requirements validation and BEFORE any persistent write (entities,
- * spaces, bindings, assets, Reference updates). It does NO database access and NO
- * writes; it only validates the CANDIDATE contract from the lossless occurrences:
- *  - the lossless occurrence contract is present (else the collapsed inventory
- *    cannot prove uniqueness → LosslessSpaceOccurrencesMissingError);
- *  - every IfcSpace GlobalId is well-formed (^[0-9A-Za-z_$]{22}$);
- *  - no two occurrences share the same EXACT (byte, case-sensitive) GlobalId.
- * The same checks remain INSIDE persistSpaceIdentities as defence in depth, but the
- * persistence service is no longer the first detector: a duplicate GlobalId now
- * fails before saveInventorySnapshot, so no `entities` row is ever written for it.
+ * PURE candidate GlobalId preflight (ADR-0052), run immediately after extraction +
+ * requirements validation and BEFORE any persistent write. It does NO database access and
+ * NO writes; it only validates the CANDIDATE contract from the lossless occurrences.
  */
 export function preflightSpaceOccurrences(input: {
     extracted: Pick<ExtractedIfcModel, "spaceOccurrences" | "inventoryData">;
     modelVersionId: number;
     linkedModelId: number | null;
 }): { occurrences: SpaceOccurrence[] } {
-    // The write-authoritative preflight passes the RAW spaceOccurrences (never the
-    // display-only fallback) through the SHARED contract validator, reconciled against
-    // the extracted inventory GlobalId set.
     const occurrences = validateLosslessOccurrenceContract({
         occurrences: input.extracted.spaceOccurrences,
         expectedGuids: Object.keys(input.extracted.inventoryData ?? {}),
@@ -308,9 +276,9 @@ export interface SpaceIdentityOutcome {
     createdSpaceIds: number[];
     bindingsCreated: number;
     diagnostics: {
-        ignored_missing_inventory_code: string[];   // guids
-        invalid_reference: { guid: string; reasons: string[] }[];
-        duplicate_reference: any[];
+        ignored_missing_inventory_code: string[];   // guids (IfcSpace.Name absent/blank)
+        invalid_inventory_code: { guid: string; reasons: string[] }[];
+        duplicate_inventory_code: any[];
         reused_spaces: number;
         created_spaces: number;
         isAuthoritative: boolean;
@@ -321,122 +289,140 @@ export interface SpaceIdentityOutcome {
     /** guid do IfcSpace → identidade persistente (para o inventário de ativos). */
     spaceInfoByGuid: Record<string, { spaceId: number; code: string }>;
     /**
-     * Administrative-Reference changes applied to REUSED (pre-existing) spaces
-     * during this operation (§6.B). The upload compensation restores these if the
-     * operation later fails — deleting orphan spaces does NOT undo an UPDATE to an
-     * existing row. Each restore is conditional on the current value still being the
-     * one we applied, so it never clobbers a newer concurrent successful change.
+     * Metadata changes applied to REUSED (pre-existing) spaces during this operation
+     * (ADR-0052 §8). The upload compensation restores these if the operation later fails
+     * — deleting orphan spaces does NOT undo an UPDATE to an existing row. Each restore is
+     * a full compare-and-swap on the COMPLETE applied projection (inventory code +
+     * normalized + long_name), so it never clobbers a newer concurrent successful change.
      */
-    referenceUpdates: Array<{
+    metadataUpdates: Array<{
         spaceId: number;
-        // The COMPLETE projection this operation applied (compare-and-swap token, §6):
-        // the restore only reverts a row whose current projection still EXACTLY matches
-        // all of these — so a newer change to the raw Reference or Name (even with the
-        // same normalized Reference) is never overwritten.
         appliedInventoryCode: string;
         appliedInventoryCodeNormalized: string;
-        appliedName: string | null;
+        appliedLongName: string | null;
         previousInventoryCode: string | null;
         previousInventoryCodeNormalized: string | null;
-        previousName: string | null;
+        previousLongName: string | null;
     }>;
 }
 
-/** Collector for administrative-Reference restorations (compensation journal). */
-type ReferenceUpdateRecord = SpaceIdentityOutcome["referenceUpdates"][number];
+/** Collector for space-metadata restorations (compensation journal). */
+type MetadataUpdateRecord = SpaceIdentityOutcome["metadataUpdates"][number];
 
 function logSpaceIdentity(event: string, payload: Record<string, unknown>) {
     console.log(JSON.stringify({ type: "space_identity", event, at: new Date().toISOString(), ...payload }));
 }
 
 /**
- * TEST-ONLY barrier hook (ADR-0051 §7 faithful two-connection race). Invoked — when
- * set — AFTER the real Reference pre-check SELECT completes and BEFORE the real
- * `updateCurrentReference`, so a test can, on a SECOND real connection, assign the
- * Reference to another space and let the actual UPDATE hit `uq_spaces_scope_code`.
+ * TEST-ONLY barrier hook (faithful two-connection race). Invoked — when set — AFTER the
+ * real inventory-code pre-check SELECT completes and BEFORE the real
+ * `updateCurrentSpaceMetadata`, so a test can, on a SECOND real connection, assign the
+ * inventory code to another space and let the actual UPDATE hit `uq_spaces_scope_code`.
  * It is `undefined` in production and adds NO production behaviour.
  */
-let afterReferencePrecheckHook: ((ctx: { linkedModelId: number; code: string; spaceId: number }) => Promise<void>) | undefined;
-export function __setAfterReferencePrecheckHook(
+let afterInventoryCodePrecheckHook: ((ctx: { linkedModelId: number; code: string; spaceId: number }) => Promise<void>) | undefined;
+export function __setAfterInventoryCodePrecheckHook(
     fn: ((ctx: { linkedModelId: number; code: string; spaceId: number }) => Promise<void>) | undefined,
-): void { afterReferencePrecheckHook = fn; }
+): void { afterInventoryCodePrecheckHook = fn; }
 
 /**
- * Update the current administrative Reference of an ALREADY-MATCHED persistent
- * space when (and only when) it changed, applying the transitional collision
- * rules (§2 A/B/C, §6): the candidate Reference must not belong to a DIFFERENT
- * persistent space while the legacy uq_spaces_scope_code index is active. The
- * space identity (linked_model + GlobalId, spaces.id, space_uuid) is never
- * altered here; another space's Reference is never silently overwritten.
+ * Update the current mutable metadata (institutional inventory code from IfcSpace.Name +
+ * long_name from IfcSpace.LongName) of an ALREADY-MATCHED persistent space when (and only
+ * when) the inventory code changed, applying the inventory-code collision rule (ADR-0052
+ * §8): the candidate inventory code must not belong to a DIFFERENT persistent space under
+ * uq_spaces_scope_code. The space identity (linked_model + GlobalId, spaces.id,
+ * space_uuid) is never altered here; another space's code is never silently overwritten.
  */
-async function applyReferenceUpdateIfChanged(input: {
-    space: any; code: string; rawValue: string; name: string | null;
+async function applySpaceMetadataUpdateIfChanged(input: {
+    space: any; code: string; rawValue: string; longName: string | null;
     linkedModelId: number; guid: string; modelVersionId: number;
-    record: ReferenceUpdateRecord[];
+    record: MetadataUpdateRecord[];
 }): Promise<void> {
-    if (input.space.inventory_code_normalized === input.code) return; // A': unchanged
-    // §2 C: deterministic pre-check — the candidate Reference must not belong to a
-    // DIFFERENT persistent space.
-    const clash = await spaceDb.findByScopeAndCode(input.linkedModelId, input.code);
-    if (clash && Number(clash.id) !== Number(input.space.id)) {
-        throw new TransitionalReferenceCollisionError(
-            `IfcSpace ${input.guid} keeps its persistent identity but its new Reference '${input.code}' is still assigned to a different persistent space (id ${clash.id}) under the transitional legacy uniqueness constraint uq_spaces_scope_code. No row was created or reassigned; this constraint is removed in a later stage.`,
-            { ifcGlobalId: input.guid, spaceId: input.space.id, newReference: input.code, conflictingSpaceId: clash.id, linkedModelId: input.linkedModelId },
-        );
-    }
-    // §7 faithful-race barrier: the real pre-check above observed the Reference as free;
-    // a test may now (on a second connection) claim it before our real UPDATE runs.
-    if (afterReferencePrecheckHook) {
-        await afterReferencePrecheckHook({ linkedModelId: input.linkedModelId, code: input.code, spaceId: Number(input.space.id) });
+    // The COMPLETE mutable current projection is inventory_code (raw IfcSpace.Name),
+    // inventory_code_normalized, AND long_name (IfcSpace.LongName). Compare all three by
+    // exact string/null equality — a LongName-only change (including string→null and
+    // null→string) is a real projection change and MUST be applied and journalled, even
+    // though the normalized inventory code is unchanged (ADR-0052 §C/§D/§8).
+    const previousInventoryCode = input.space.inventory_code ?? null;
+    const previousInventoryCodeNormalized = input.space.inventory_code_normalized ?? null;
+    const previousLongName = input.space.long_name ?? null;
+
+    const inventoryCodeChanged = previousInventoryCode !== input.rawValue;
+    const normalizedInventoryCodeChanged = previousInventoryCodeNormalized !== input.code;
+    const longNameChanged = previousLongName !== input.longName;
+    const metadataChanged = inventoryCodeChanged || normalizedInventoryCodeChanged || longNameChanged;
+
+    // Return early ONLY when every current field already equals the incoming projection
+    // (including null-to-null long_name) — never merely because the normalized code matched.
+    if (!metadataChanged) return;
+
+    // The inventory-code ownership/collision pre-check is relevant ONLY when the NORMALIZED
+    // code actually changes. A LongName-only (or raw-only, same-normalized) change reuses the
+    // SAME persistent identity and must not run an ownership conflict or be treated as a new
+    // inventory code. Identity stays linked_model_id + exact GlobalId; no lookup by LongName
+    // or by inventory code drives identity.
+    if (normalizedInventoryCodeChanged) {
+        const clash = await spaceDb.findByScopeAndCode(input.linkedModelId, input.code);
+        if (clash && Number(clash.id) !== Number(input.space.id)) {
+            throw new InventoryCodeCollisionError(
+                `IfcSpace ${input.guid} keeps its persistent identity but its new inventory code '${input.code}' (from IfcSpace.Name) is already assigned to a different persistent space (id ${clash.id}) under the scope uniqueness constraint uq_spaces_scope_code. No row was created or reassigned.`,
+                { ifcGlobalId: input.guid, spaceId: input.space.id, newInventoryCode: input.code, conflictingSpaceId: clash.id, linkedModelId: input.linkedModelId },
+            );
+        }
+        // faithful-race barrier: the real pre-check above observed the code as free; a test
+        // may now (on a second connection) claim it before our real UPDATE runs.
+        if (afterInventoryCodePrecheckHook) {
+            await afterInventoryCodePrecheckHook({ linkedModelId: input.linkedModelId, code: input.code, spaceId: Number(input.space.id) });
+        }
     }
     try {
-        await spaceDb.updateCurrentReference({
-            spaceId: input.space.id, inventoryCode: input.rawValue, inventoryCodeNormalized: input.code, name: input.name,
+        await spaceDb.updateCurrentSpaceMetadata({
+            spaceId: input.space.id, inventoryCode: input.rawValue, inventoryCodeNormalized: input.code, longName: input.longName,
         });
     } catch (error: any) {
-        // §6.A CHECK-THEN-UPDATE race: another operation claimed the Reference
-        // between the pre-check and the UPDATE. The unique index is the final
-        // authority — translate its duplicate deterministically, never leak the raw
-        // ER_DUP_ENTRY, and never partially update.
+        // CHECK-THEN-UPDATE race: another operation claimed the code between the pre-check
+        // and the UPDATE. The unique index is the final authority — translate its duplicate
+        // deterministically, never leak the raw ER_DUP_ENTRY, and never partially update.
         const kind = classifyDuplicateKey(error);
-        if (kind === "legacy_reference") {
-            throw new TransitionalReferenceCollisionError(
-                `IfcSpace ${input.guid} kept its persistent identity but its new Reference '${input.code}' was concurrently claimed by another persistent space under the transitional legacy uniqueness constraint uq_spaces_scope_code. No field was updated.`,
-                { ifcGlobalId: input.guid, spaceId: input.space.id, newReference: input.code, linkedModelId: input.linkedModelId, concurrent: true },
+        if (kind === "scope_inventory_code") {
+            throw new InventoryCodeCollisionError(
+                `IfcSpace ${input.guid} kept its persistent identity but its new inventory code '${input.code}' was concurrently claimed by another persistent space under the scope uniqueness constraint uq_spaces_scope_code. No field was updated.`,
+                { ifcGlobalId: input.guid, spaceId: input.space.id, newInventoryCode: input.code, linkedModelId: input.linkedModelId, concurrent: true },
             );
         }
         throw error; // unrelated duplicate/other error — never misclassified
     }
-    // Record for compensation (§6.B): the prior values, and the COMPLETE projection we
-    // applied (raw Reference + normalized + name) so the restore is a full compare-and-
-    // swap that never clobbers a newer raw-Reference/Name change.
+    // Record for compensation (§8): the prior values, and the COMPLETE projection we
+    // applied (inventory code + normalized + long_name) so the restore is a full
+    // compare-and-swap that never clobbers a newer change — including a LongName-only change.
     input.record.push({
         spaceId: Number(input.space.id),
         appliedInventoryCode: input.rawValue,
         appliedInventoryCodeNormalized: input.code,
-        appliedName: input.name,
-        previousInventoryCode: input.space.inventory_code ?? null,
-        previousInventoryCodeNormalized: input.space.inventory_code_normalized ?? null,
-        previousName: input.space.name ?? null,
+        appliedLongName: input.longName,
+        previousInventoryCode,
+        previousInventoryCodeNormalized,
+        previousLongName,
     });
-    logSpaceIdentity("reference_changed", {
+    logSpaceIdentity("space_metadata_changed", {
         modelVersionId: input.modelVersionId, spaceId: input.space.id, ifcGlobalId: input.guid,
-        previousReference: input.space.inventory_code_normalized, newReference: input.code,
+        inventoryCodeChanged, normalizedInventoryCodeChanged, longNameChanged,
+        previousInventoryCode, newInventoryCode: input.rawValue,
+        previousInventoryCodeNormalized, newInventoryCodeNormalized: input.code,
+        previousLongName, newLongName: input.longName,
     });
 }
 
 /**
- * After a real canonical-index unique conflict, re-resolve the concurrently
- * created row and VERIFY it before reuse (§6): same linked_model_id, byte-equal
- * GlobalId (guaranteed by the BINARY-scoped lookup), non-null spaces.id and
- * space_uuid, no canonical/binding inconsistency (already checked for the scope).
- * The Reference of the raced row is treated as administrative metadata: if it
- * differs from the current candidate it is updated under the SAME transitional
- * collision rules — never silently overwriting another space's Reference.
+ * After a real canonical-index unique conflict, re-resolve the concurrently created row
+ * and VERIFY it before reuse (§8): same linked_model_id, byte-equal GlobalId, non-null
+ * spaces.id and space_uuid. The metadata of the raced row is treated as mutable: if the
+ * inventory code differs from the current candidate it is updated under the SAME
+ * inventory-code collision rules — never silently overwriting another space's code.
  */
 async function resolveRacedCanonicalIdentity(input: {
-    linkedModelId: number; guid: string; code: string; rawValue: string; name: string | null;
-    modelVersionId: number; originalError: any; record: ReferenceUpdateRecord[];
+    linkedModelId: number; guid: string; code: string; rawValue: string; longName: string | null;
+    modelVersionId: number; originalError: any; record: MetadataUpdateRecord[];
 }): Promise<{ id: number }> {
     const raced = await spaceDb.findByScopeAndGlobalId(input.linkedModelId, input.guid);
     if (!raced) throw input.originalError; // the conflict was not actually our identity
@@ -450,8 +436,8 @@ async function resolveRacedCanonicalIdentity(input: {
     logSpaceIdentity("concurrent_identity_reused", {
         modelVersionId: input.modelVersionId, spaceId: raced.id, ifcGlobalId: input.guid,
     });
-    await applyReferenceUpdateIfChanged({
-        space: raced, code: input.code, rawValue: input.rawValue, name: input.name,
+    await applySpaceMetadataUpdateIfChanged({
+        space: raced, code: input.code, rawValue: input.rawValue, longName: input.longName,
         linkedModelId: input.linkedModelId, guid: input.guid, modelVersionId: input.modelVersionId,
         record: input.record,
     });
@@ -468,29 +454,12 @@ export async function persistSpaceIdentities(input: {
     modelId: number;
     modelVersionId: number;
     candidates: SpaceCandidateInput[];
-    /**
-     * Lossless per-IfcSpace occurrences (ADR-0051 §1) — MANDATORY. The GlobalId-keyed
-     * `candidates` array has already collapsed duplicates and can never reveal them, so
-     * it is never accepted as duplicate-safety evidence. The occurrences are validated
-     * by the SAME shared contract validator the orchestration preflight uses and must
-     * reconcile exactly with the candidate GlobalId set (typed as `unknown` so the
-     * runtime — not the compiler — rejects missing/undefined/non-array/inconsistent
-     * inputs at this independent boundary).
-     */
+    /** Lossless per-IfcSpace occurrences (ADR-0052) — MANDATORY. */
     occurrences: unknown;
 }): Promise<SpaceIdentityOutcome> {
 
-    // MANDATORY lossless occurrence contract (ADR-0051 §1/§5-v4) — validated FIRST, before
-    // ANY schema/database access. This is an INDEPENDENT boundary that never trusts
-    // `input.candidates` as duplicate-safety evidence. The shared validator checks the
-    // runtime SHAPE of every element (non-null object, string GlobalId, positive-integer
-    // entity id, well-typed optional fields) and rejects missing/undefined/non-array/
-    // empty-with-spaces occurrences, invalid or duplicate exact GlobalIds, an occurrence
-    // set that does not exactly reconcile with the candidate GlobalIds, and duplicated
-    // occurrence entity ids. Because it runs before the DB, a direct call with malformed
-    // occurrences returns the contract error even when the database is unavailable. It is
-    // defence in depth: the orchestration preflight already ran the same validator before
-    // saveInventorySnapshot.
+    // MANDATORY lossless occurrence contract — validated FIRST, before ANY schema/database
+    // access. Defence in depth: the orchestration preflight already ran the same validator.
     validateLosslessOccurrenceContract({
         occurrences: input.occurrences,
         expectedGuids: input.candidates.map((c) => c.guid),
@@ -500,15 +469,15 @@ export async function persistSpaceIdentities(input: {
 
     const resolver = getSpaceIdentityResolver();
 
-    // Stage 0A schema precondition + scope canonical integrity (ADR-0051 §4).
-    // A precise operational/configuration error is raised here; the runtime never
-    // recreates schema, runs a migration, or falls back to Reference.
+    // Schema precondition + scope canonical integrity (ADR-0052 §B). A precise
+    // operational/configuration error is raised here; the runtime never recreates schema,
+    // runs a migration, or falls back to Name/Reference.
     await spaceDb.assertCanonicalSpaceSchema();
     const inconsistencies = await spaceDb.findScopeCanonicalInconsistencies(input.linkedModelId);
     if (inconsistencies.nullCanonical.length > 0) {
         throw new SpaceCanonicalSchemaError(
             "canonical_inconsistency",
-            `Existing spaces have a NULL canonical ifc_global_id (ids: ${inconsistencies.nullCanonical.join(", ")}). Stage 0A backfill is incomplete; refusing to proceed without repair.`,
+            `Existing spaces have a NULL canonical ifc_global_id (ids: ${inconsistencies.nullCanonical.join(", ")}). Canonical backfill is incomplete; refusing to proceed without repair.`,
             { nullCanonical: inconsistencies.nullCanonical },
         );
     }
@@ -528,8 +497,8 @@ export async function persistSpaceIdentities(input: {
         bindingsCreated: 0,
         diagnostics: {
             ignored_missing_inventory_code: [],
-            invalid_reference: [],
-            duplicate_reference: [],
+            invalid_inventory_code: [],
+            duplicate_inventory_code: [],
             reused_spaces: 0,
             created_spaces: 0,
             isAuthoritative,
@@ -537,7 +506,7 @@ export async function persistSpaceIdentities(input: {
         },
         presentNormalizedCodes: [],
         spaceInfoByGuid: {},
-        referenceUpdates: [],
+        metadataUpdates: [],
     };
 
     /* -------- 1. resolver todos os candidatos primeiro -------- */
@@ -555,12 +524,12 @@ export async function persistSpaceIdentities(input: {
     /* -------- 2. duplicações: verificação DEFENSIVA (a deteção primária,
                     para o modelo autoritativo, corre no spatial_preflight
                     antes de qualquer persistência; a lógica de agrupamento
-                    é a MESMA — groupDuplicateReferences) -------- */
-    const duplicates = groupDuplicateReferences(resolved);
+                    é a MESMA — groupDuplicateInventoryCodes) -------- */
+    const duplicates = groupDuplicateInventoryCodes(resolved);
 
     for (const [code, entries] of duplicates) {
         for (const entry of entries) entry.result.status = "duplicate";
-        outcome.diagnostics.duplicate_reference.push({
+        outcome.diagnostics.duplicate_inventory_code.push({
             code,
             modelVersionId: input.modelVersionId,
             modelId: input.modelId,
@@ -573,20 +542,20 @@ export async function persistSpaceIdentities(input: {
         });
     }
 
-    if (outcome.diagnostics.duplicate_reference.length > 0) {
-        logSpaceIdentity("duplicate_reference", {
+    if (outcome.diagnostics.duplicate_inventory_code.length > 0) {
+        logSpaceIdentity("duplicate_inventory_code", {
             modelVersionId: input.modelVersionId,
-            duplicates: outcome.diagnostics.duplicate_reference,
+            duplicates: outcome.diagnostics.duplicate_inventory_code,
             isAuthoritative,
         });
 
         // Duplicação ambígua numa versão do modelo espacial autoritativo
         // impede a ativação (a falha aciona a compensação do upload).
         if (isAuthoritative) {
-            const codes = outcome.diagnostics.duplicate_reference.map((d: any) => d.code).join(", ");
-            throw new DuplicateSpaceReferenceError(
+            const codes = outcome.diagnostics.duplicate_inventory_code.map((d: any) => d.code).join(", ");
+            throw new DuplicateSpaceInventoryCodeError(
                 `Duplicate space inventory code(s) in authoritative spatial model: ${codes}`,
-                outcome.diagnostics.duplicate_reference
+                outcome.diagnostics.duplicate_inventory_code
             );
         }
     }
@@ -599,7 +568,7 @@ export async function persistSpaceIdentities(input: {
             continue;
         }
         if (result.status === "invalid") {
-            outcome.diagnostics.invalid_reference.push({ guid: candidate.guid, reasons: result.reasons });
+            outcome.diagnostics.invalid_inventory_code.push({ guid: candidate.guid, reasons: result.reasons });
             continue;
         }
         if (result.status === "duplicate") {
@@ -608,32 +577,33 @@ export async function persistSpaceIdentities(input: {
         }
 
         const code = result.normalizedValue!;
-        const name = candidate.longName ?? candidate.name ?? null;
+        // long_name comes from IfcSpace.LongName (ADR-0052 §D); the inventory code comes
+        // from IfcSpace.Name (result.rawValue) — never conflated.
+        const longName = candidate.longName ?? null;
 
         // ---- Canonical identity lookup: linked_model_id + GlobalId ----
         let space = await spaceDb.findByScopeAndGlobalId(input.linkedModelId, candidate.guid);
 
         if (space) {
             // Same persistent space (same GlobalId). Preserve id/space_uuid/history.
-            // If the current administrative Reference changed, update ONLY the
-            // current projection (§6) with a transitional collision guard — never
-            // treat it as a new space, never overwrite another space's Reference.
-            await applyReferenceUpdateIfChanged({
-                space, code, rawValue: result.rawValue!, name,
+            // If the current inventory code changed, update ONLY the current projection
+            // (§8) with an inventory-code collision guard — never treat it as a new space,
+            // never overwrite another space's code.
+            await applySpaceMetadataUpdateIfChanged({
+                space, code, rawValue: result.rawValue!, longName,
                 linkedModelId: input.linkedModelId, guid: candidate.guid, modelVersionId: input.modelVersionId,
-                record: outcome.referenceUpdates,
+                record: outcome.metadataUpdates,
             });
             outcome.diagnostics.reused_spaces++;
         } else {
-            // New GlobalId → new persistent space. Transitional Reference collision
-            // (§3/§7): a DIFFERENT GlobalId must never reuse a persistent space just
-            // because its Reference matches. Detect deterministically BEFORE the
-            // insert — do not rely on the duplicate-key exception.
+            // New GlobalId → new persistent space. Inventory-code collision (§8): a
+            // DIFFERENT GlobalId must never reuse a persistent space just because its
+            // inventory code matches. Detect deterministically BEFORE the insert.
             const clash = await spaceDb.findByScopeAndCode(input.linkedModelId, code);
             if (clash) {
-                throw new TransitionalReferenceCollisionError(
-                    `IfcSpace GlobalId ${candidate.guid} indicates a NEW persistent space, but its Reference '${code}' is still assigned to persistent space id ${clash.id} (a different GlobalId). The legacy Reference uniqueness constraint uq_spaces_scope_code is still active and is removed only in a later stage; no row was created or reassigned.`,
-                    { ifcGlobalId: candidate.guid, newReference: code, conflictingSpaceId: clash.id, linkedModelId: input.linkedModelId },
+                throw new InventoryCodeCollisionError(
+                    `IfcSpace GlobalId ${candidate.guid} indicates a NEW persistent space, but its inventory code '${code}' (from IfcSpace.Name) is already assigned to persistent space id ${clash.id} (a different GlobalId), which the scope uniqueness constraint uq_spaces_scope_code forbids. No row was created or reassigned.`,
+                    { ifcGlobalId: candidate.guid, newInventoryCode: code, conflictingSpaceId: clash.id, linkedModelId: input.linkedModelId },
                 );
             }
             try {
@@ -642,35 +612,32 @@ export async function persistSpaceIdentities(input: {
                     ifcGlobalId: candidate.guid,
                     inventoryCode: result.rawValue!,
                     inventoryCodeNormalized: code,
-                    name,
+                    longName,
                 });
                 space = { id: created.spaceId };
                 outcome.createdSpaceIds.push(created.spaceId);
                 outcome.diagnostics.created_spaces++;
             } catch (error: any) {
-                // Concurrency backstop (§5/§6/§12) — the unique indexes are the final
-                // authority. The error is classified by its STRUCTURED index name,
-                // never by prose, and never falls back to Reference.
+                // Concurrency backstop (§8) — the unique indexes are the final authority.
+                // The error is classified by its STRUCTURED index name, never by prose.
                 const kind = classifyDuplicateKey(error);
                 if (kind === "canonical_globalid") {
                     // Another activation created the SAME canonical identity first;
-                    // re-resolve and VERIFY the raced row before reusing it (§6).
+                    // re-resolve and VERIFY the raced row before reusing it (§8).
                     space = await resolveRacedCanonicalIdentity({
                         linkedModelId: input.linkedModelId, guid: candidate.guid,
-                        code, rawValue: result.rawValue!, name,
+                        code, rawValue: result.rawValue!, longName,
                         modelVersionId: input.modelVersionId, originalError: error,
-                        record: outcome.referenceUpdates,
+                        record: outcome.metadataUpdates,
                     });
                     outcome.diagnostics.reused_spaces++;
-                } else if (kind === "legacy_reference") {
-                    // A Reference-uniqueness collision surfaced concurrently.
-                    throw new TransitionalReferenceCollisionError(
-                        `IfcSpace GlobalId ${candidate.guid} could not create a new persistent space because Reference '${code}' collided with the transitional legacy uniqueness constraint uq_spaces_scope_code. No row was created or reassigned.`,
-                        { ifcGlobalId: candidate.guid, newReference: code, linkedModelId: input.linkedModelId },
+                } else if (kind === "scope_inventory_code") {
+                    // An inventory-code-uniqueness collision surfaced concurrently.
+                    throw new InventoryCodeCollisionError(
+                        `IfcSpace GlobalId ${candidate.guid} could not create a new persistent space because inventory code '${code}' (from IfcSpace.Name) collided with the scope uniqueness constraint uq_spaces_scope_code. No row was created or reassigned.`,
+                        { ifcGlobalId: candidate.guid, newInventoryCode: code, linkedModelId: input.linkedModelId },
                     );
                 } else {
-                    // "unrelated" duplicate key or any non-duplicate error: never
-                    // misread as a canonical race or a Reference collision.
                     throw error;
                 }
             }
@@ -680,36 +647,29 @@ export async function persistSpaceIdentities(input: {
             spaceId: space.id,
             modelVersionId: input.modelVersionId,
             entityId: candidate.entityId,
-            // Binding GlobalId is byte-identical to the canonical spaces.ifc_global_id
-            // (ADR-0051 §10) — the binding is keyed by the same GlobalId used above.
+            // Binding GlobalId is byte-identical to the canonical spaces.ifc_global_id.
             ifcGuid: candidate.guid,
-            inventoryCodeSnapshot: result.rawValue!,
-            nameSnapshot: candidate.name ?? null,
-            longNameSnapshot: candidate.longName ?? null,
+            inventoryCodeSnapshot: result.rawValue!,   // from IfcSpace.Name
+            longNameSnapshot: candidate.longName ?? null, // from IfcSpace.LongName
         });
         outcome.bindingsCreated++;
         outcome.presentNormalizedCodes.push(code);
         outcome.spaceInfoByGuid[candidate.guid] = { spaceId: space.id, code };
     }
     } catch (rawError: unknown) {
-        // §6-v4: NORMALIZE the captured value to a stable Error BEFORE attaching any
-        // compensation metadata. A string/number/null/object throwable has no assignable
-        // slots (module scope is strict mode, so `"x".createdSpaceIds = …` itself throws a
-        // TypeError that would REPLACE the real failure); normalizing first guarantees the
-        // metadata is always attachable and never manufactures a second error that hides
-        // the original. An Error is kept by identity; a non-Error original is preserved as
-        // a sanitized `cause` so the failure stays understandable. The prior Reference
-        // values remain available to compensation via `referenceUpdates`.
+        // NORMALIZE the captured value to a stable Error BEFORE attaching any compensation
+        // metadata. The prior metadata values remain available to compensation via
+        // `metadataUpdates`.
         const error: any = rawError instanceof Error
             ? rawError
             : Object.assign(new Error(`space identity persistence failed: ${String(rawError)}`), { cause: rawError });
-        // Falha a meio da persistência: anexar os espaços já criados por esta
-        // operação para a compensação do upload poder removê-los com segurança.
+        // Attach the spaces already created by this operation so the upload compensation
+        // can remove them safely.
         error.createdSpaceIds = outcome.createdSpaceIds;
-        // Attach the Reference changes applied to REUSED spaces so the upload
-        // compensation can restore them (§6.B) — deleting orphan spaces never undoes
-        // an UPDATE to a pre-existing row.
-        error.referenceUpdates = outcome.referenceUpdates;
+        // Attach the metadata changes applied to REUSED spaces so the upload compensation
+        // can restore them (§8) — deleting orphan spaces never undoes an UPDATE to a
+        // pre-existing row.
+        error.metadataUpdates = outcome.metadataUpdates;
         throw error;
     }
 
@@ -719,10 +679,10 @@ export async function persistSpaceIdentities(input: {
             guids: outcome.diagnostics.ignored_missing_inventory_code,
         });
     }
-    if (outcome.diagnostics.invalid_reference.length > 0) {
-        logSpaceIdentity("invalid_reference", {
+    if (outcome.diagnostics.invalid_inventory_code.length > 0) {
+        logSpaceIdentity("invalid_inventory_code", {
             modelVersionId: input.modelVersionId,
-            entries: outcome.diagnostics.invalid_reference,
+            entries: outcome.diagnostics.invalid_inventory_code,
         });
     }
 
@@ -731,9 +691,7 @@ export async function persistSpaceIdentities(input: {
 
 /**
  * Reconciliação de estados APÓS ativação bem-sucedida de uma versão do modelo
- * espacial autoritativo. Nunca apaga espaços; ausência marca 'absent'
- * (retired é operação explícita futura). Falhas aqui são registadas mas não
- * revertem a ativação (o estado reconcilia-se no upload seguinte).
+ * espacial AUTORITATIVO. Nunca apaga espaços; ausência marca 'absent'.
  */
 export async function reconcileSpaceStatusesAfterActivation(input: {
     linkedModelId: number;

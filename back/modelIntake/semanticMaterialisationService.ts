@@ -80,8 +80,11 @@ export class SemanticMaterialisationService {
             const extracted = extractedSpaces[row.ifc_guid] ?? {};
             return {
                 persistentUuid: row.space_uuid,
-                reference: row.inventory_code,
-                label: row.long_name_snapshot ?? row.name_snapshot ?? null,
+                // ADR-0052 §C: version-specific IfcSpace.Name snapshot — NEVER the mutable
+                // current spaces.inventory_code, which would rewrite historical semantics.
+                inventoryCode: row.inventory_code_snapshot,
+                // ADR-0052 §D: version-specific IfcSpace.LongName snapshot (explicit, no label alias).
+                longName: row.long_name_snapshot ?? null,
                 ifcGuid: row.ifc_guid,
                 ifcClass: "IfcSpace",
                 storey: extracted.storeyName ?? null,
@@ -102,7 +105,11 @@ export class SemanticMaterialisationService {
                 manufacturer: valueFromPsets(element?.psets, "Manufacturer"),
                 ifcGuid: row.ifc_guid,
                 ifcClass: row.type_snapshot,
-                containingSpace: row.space_reference ?? null,
+                // Display-only version-accurate code; the location edge is keyed on the
+                // persistent-space URI derived from ab.space_id (ADR-0052 §F).
+                containingSpace: row.space_inventory_code_snapshot ?? null,
+                containingSpacePersistentUri: row.space_uuid
+                    ? iri(graphConfig.config.baseUri, `space/${row.space_uuid}`) : null,
                 persistentUri: iri(graphConfig.config.baseUri, `asset/${row.asset_uuid}`),
                 manifestationUri: iri(graphConfig.config.baseUri, `model-version/${versionUuid}/manifestation/${encodeURIComponent(row.ifc_guid)}`),
             };

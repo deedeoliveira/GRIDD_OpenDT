@@ -117,9 +117,18 @@ class ReservationDatabase {
       // leitura; ao bloquear aqui, todas as leituras seguintes veem as
       // reservas comitadas por quem detinha o lock antes de nós).
       const [lifecycleRows]: any = await conn.execute(
-        "SELECT lifecycle_status, source, reservable, asset_uuid FROM assets WHERE id = :assetId LIMIT 1 FOR UPDATE",
+        "SELECT lifecycle_status, source, reservable, asset_uuid, asset_type FROM assets WHERE id = :assetId LIMIT 1 FOR UPDATE",
         { assetId }
       );
+
+      // ADR-0052 §F: an IfcSpace is a spatial context, never a reservable resource. A
+      // direct attempt to reserve a space — including a LEGACY row still carrying
+      // asset_type='space' from before the semantic migration — is rejected here, before
+      // any conflict/availability check, so a manager can never approve it either.
+      if (lifecycleRows.length && lifecycleRows[0].asset_type != null
+          && lifecycleRows[0].asset_type !== 'equipment' && lifecycleRows[0].asset_type !== 'tool') {
+        throw new Error("A space is not a reservable resource (ADR-0052): only equipment and tools can be reserved.");
+      }
 
       // (Prompt 4) Ciclo de vida do ativo persistente: ausente/pendente de
       // reconciliacao/retirado nao aceita NOVAS reservas (as existentes ficam)

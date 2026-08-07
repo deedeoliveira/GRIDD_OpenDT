@@ -14,7 +14,7 @@ const profile: IdsProfileMetadata = {
     familyKey: "oswadt-ifc4-model-requirements",
     version: "1.0.0",
     sha256: "bf4c585d3df7d7cd876d21f43d23282c45575b4b105925d96e4254fa9b076028",
-    absolutePath: path.resolve(process.cwd(), "../semantic/artifacts/runtime/oswadt-ifc4-model-requirements/1.0.0/oswadt-ifc4-model-requirements-v1.ids"),
+    absolutePath: path.resolve(process.cwd(), "../semantic/artifacts/runtime/oswadt-ifc4-model-requirements/1.1.0/oswadt-ifc4-model-requirements-v1.1.ids"),
 };
 
 test("active profile to real executor to project rules to persisted API/frontend contract", async () => {

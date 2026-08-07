@@ -17,9 +17,29 @@ export const APPROVED_PUBLIC_SOURCE_FILENAMES = new Set([
     "oswadt-ifc4-model-requirements-v1.ids",
     "oswadt-ifc4-minimal-rdf-mapping-v1.json",
     "oswadt-model-rdf-structural-shapes-v1.ttl",
+    "oswadt-ifc4-model-requirements-v1.1.ids",
+    "oswadt-ifc4-minimal-rdf-mapping-v1.1.json",
+    "oswadt-model-rdf-structural-shapes-v1.1.ttl",
     "project-semantic-evidence-v1.ttl",
     "project-reservation-eligibility-shadow-v1.ttl",
 ]);
+
+/**
+ * Active governed version for the OSWADT IFC4x3 runtime artifact families (ADR-0052 §G).
+ *
+ * Selection is by EXACT artifactKey `${familyKey}-${ACTIVE_ARTIFACT_VERSION}` — never a
+ * `startsWith` prefix / array-first match. Once both the superseded 1.0.0 and the active
+ * 1.1.0 manifestations coexist in the manifest, a prefix match would non-deterministically
+ * resolve whichever entry appears first. Pinning the exact key makes production
+ * deterministically activate 1.1.0, keeps the historical 1.0.0 retrievable ONLY by its own
+ * exact key/version/hash, and fails closed when the configured key is absent.
+ */
+export const ACTIVE_ARTIFACT_VERSION = "1.1.0";
+
+/** The exact active manifest key for a governed IFC4x3 runtime family. */
+export function activeArtifactKey(familyKey: string): string {
+    return `${familyKey}-${ACTIVE_ARTIFACT_VERSION}`;
+}
 
 const PUBLIC_PRIVACY = new Set(["public_research_artifact", "synthetic_runtime_data", "synthetic_test_only"]);
 const SHA256 = /^[0-9a-f]{64}$/;

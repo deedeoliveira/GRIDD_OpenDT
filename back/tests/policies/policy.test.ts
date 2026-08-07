@@ -124,16 +124,16 @@ test("legacy evaluator: IfcDistributionControlElement (sensor IFC2X3) → allow,
    2) MESMOS ASSETS CRIADOS (provider default = legacy)
 ------------------------------------- */
 
-// (Prompt 4) O mesmo comportamento da baseline, agora no fluxo persistente:
-// com o provider default (legacy) o espaço e o não-sensor viram ativos e o
-// IfcSensor continua excluído.
-test("fluxo de ativos com provider default: mesmos assets da baseline (espaço + não-sensor; sensor excluído)", async () => {
+// (Prompt 4 / ADR-0052 §F) Com o provider default (legacy) apenas o equipamento
+// não-sensor vira ativo; o IfcSpace NUNCA vira ativo e o IfcSensor continua excluído.
+test("fluxo de ativos com provider default: só o não-sensor vira ativo (espaço nunca é ativo; sensor excluído)", async () => {
     respond(assetRoutes());
 
     const outcome = await persistAssetsForVersion(ASSET_INPUT as any);
 
     const assetInserts = fakeConnection.callsMatching(/INSERT INTO assets/i);
-    assert.equal(assetInserts.length, 2, "1 asset de espaço + 1 de equipamento");
+    assert.equal(assetInserts.length, 1, "apenas 1 asset de equipamento (nenhum asset de espaço)");
+    assert.ok(assetInserts.every((c) => c.params.assetType !== "space"), "nunca insere asset_type='space'");
     assert.deepEqual(outcome.diagnostics.policy_denied_new, ["sensor-guid-1"], "sensor excluído pela política");
 
     // reservable decidido pelo provider (allow → true)
@@ -155,7 +155,7 @@ test("mock allow-all substitui o legacy: sensor também vira asset (no fluxo per
     await persistAssetsForVersion(ASSET_INPUT as any);
 
     const assetInserts = fakeConnection.callsMatching(/INSERT INTO assets/i);
-    assert.equal(assetInserts.length, 3, "espaço + elemento + sensor");
+    assert.equal(assetInserts.length, 2, "elemento + sensor (o espaço nunca vira ativo)");
 });
 
 test("mock deny-all: nenhum asset novo criado", async () => {

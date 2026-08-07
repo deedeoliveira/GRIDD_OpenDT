@@ -81,10 +81,15 @@ def safe_text(value):
 
 def friendly_message(specification, requirement, failure=None):
     label = requirement.get("label") or specification.get("name") or "IDS requirement"
-    if label == "Pset_SpaceCommon.Reference" and failure:
-        reason = str(failure.get("reason", ""))
-        if "does not exist" in reason or "does not have" in reason or "not provided" in reason:
-            return "The space is missing Pset_SpaceCommon.Reference."
+    _missing = lambda reason: any(term in str(reason) for term in (
+        "does not exist", "does not have", "not provided", "invalid", "pattern", "prohibited", "empty", "None"))
+    # ADR-0052: the governed IFC4x3 profile sources the institutional inventory code from
+    # IfcSpace.Name (never Pset_SpaceCommon.Reference).
+    if label == "Name" and failure and _missing(failure.get("reason", "")):
+        return "The space is missing a valid institutional inventory code (IfcSpace.Name)."
+    # Retained for arbitrary demo IDS inputs that still exercise Pset_SpaceCommon.Reference.
+    if label == "Pset_SpaceCommon.Reference" and failure and _missing(failure.get("reason", "")):
+        return "The space is missing Pset_SpaceCommon.Reference."
     if failure:
         return f"{label}: {str(failure.get('reason') or 'requirement not satisfied')[:500]}"
     return f"{label} is satisfied."
@@ -168,7 +173,14 @@ def main():
 
     ifc_path = Path(args.ifc).resolve()
     model = ifcopenshell.open(str(ifc_path))
-    profile.validate(model)
+    # ADR-0052 §A/§G: the IDS 1.0 schema enumerates only IFC4X3_ADD2 among the IFC4x3
+    # tokens, but the runtime accepts four parseable variants (IFC4X3, IFC4X3_ADD1,
+    # IFC4X3_ADD2, IFC4X3_TC1) which IfcTester would filter on by exact schema_identifier.
+    # Applicability here is entity-based (every IfcSpace), and the upstream runtime gate
+    # guarantees only accepted IFC4x3 files reach this boundary, so version filtering is
+    # deliberately DISABLED — an explicit, tested contract, not an incidental default — so
+    # IDS-SPACE-NAME governs every accepted variant, never just IFC4X3_ADD2.
+    profile.validate(model, should_filter_version=False)
     rendered = reporter.Json(profile)
     rendered.report()
     findings, count = normalize(rendered.results)

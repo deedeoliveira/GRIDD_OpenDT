@@ -4,6 +4,7 @@ import versionDb from "../utils/modelVersionDatabase.ts";
 import inventoryDb from "../utils/inventoryDatabase.ts";
 import spaceDb from "../utils/spaceDatabase.ts";
 import { fetchInventory } from "./preprocessService.ts";
+import { assertSupportedIfc4x3Schema } from "../utils/ifcSchemaSupport.ts";
 import { getModelRequirementsValidator } from "../requirements/modelRequirementsProvider.ts";
 import { ModelRequirementsError } from "../requirements/modelRequirementsTypes.ts";
 import { ModelRequirementsValidationService } from "../requirements/modelRequirementsValidationService.ts";
@@ -82,42 +83,43 @@ function logUploadFailure(stage: string, error: any, context: Record<string, unk
 }
 
 /**
- * Compensating restore of the administrative-Reference projections this operation
- * applied to REUSED (pre-existing) spaces (ADR-0051 §6). Called while the
- * linked_model Reference lock is STILL held. Each restore is CONDITIONAL on the
- * value we applied still being current (`restoreCurrentReference`), so a newer
- * concurrent successful change is never clobbered (§6.5). Returns human-readable
- * compensation-integrity notes for the version failure reason:
- *  - zero rows restored (§6.6): our value is no longer current (a newer change won,
- *    or the row is gone) — explained via a structured log, not treated as a failure;
- *  - a duplicate-key or other restore error (§6.7): an explicit compensation-integrity
- *    failure, surfaced in the failure reason rather than merely logged.
- * spaces.id / space_uuid / ifc_global_id are never changed by compensation (§6.8).
+ * Compensating restore of the mutable space-metadata projections this operation applied
+ * to REUSED (pre-existing) spaces (ADR-0052 §8) — the institutional inventory_code (from
+ * IfcSpace.Name), its normalized form, and long_name (from IfcSpace.LongName). Called
+ * while the linked_model space-metadata lock is STILL held. Each restore is CONDITIONAL on
+ * the value we applied still being current (`restoreSpaceMetadata`), so a newer concurrent
+ * successful change is never clobbered. Returns human-readable compensation-integrity
+ * notes for the version failure reason:
+ *  - zero rows restored: our value is no longer current (a newer change won, or the row is
+ *    gone) — explained via a structured log, not treated as a failure;
+ *  - a duplicate-key or other restore error: an explicit compensation-integrity failure,
+ *    surfaced in the failure reason rather than merely logged.
+ * spaces.id / space_uuid / ifc_global_id are never changed by compensation.
  */
-async function restoreReferenceProjections(
-    updates: Array<{ spaceId: number; appliedInventoryCode: string; appliedInventoryCodeNormalized: string; appliedName: string | null;
-        previousInventoryCode: string | null; previousInventoryCodeNormalized: string | null; previousName: string | null }>,
+async function restoreSpaceMetadataProjections(
+    updates: Array<{ spaceId: number; appliedInventoryCode: string; appliedInventoryCodeNormalized: string; appliedLongName: string | null;
+        previousInventoryCode: string | null; previousInventoryCodeNormalized: string | null; previousLongName: string | null }>,
     ctx: { modelId: number | null; versionId: number | null },
 ): Promise<string[]> {
     const issues: string[] = [];
     for (const u of updates) {
         try {
-            const rows = await spaceDb.restoreCurrentReference(u);
+            const rows = await spaceDb.restoreSpaceMetadata(u);
             if (rows === 0) {
-                // §6.6: the FULL applied projection (raw+normalized+name) is no longer
-                // current — a newer projection won or the row is gone. Visible in the
-                // structured compensation report, never a silent success.
-                logUploadFailure("compensation_reference_noop",
-                    new Error("restore matched 0 rows: the applied Reference projection is no longer current (a newer change won, or the row is absent) — left as-is, never overwritten"),
+                // The FULL applied projection (inventory code + normalized + long_name) is
+                // no longer current — a newer projection won or the row is gone. Visible in
+                // the structured compensation report, never a silent success.
+                logUploadFailure("compensation_space_metadata_noop",
+                    new Error("restore matched 0 rows: the applied space-metadata projection is no longer current (a newer change won, or the row is absent) — left as-is, never overwritten"),
                     { ...ctx, spaceId: u.spaceId, appliedInventoryCodeNormalized: u.appliedInventoryCodeNormalized });
-                issues.push(`space ${u.spaceId} Reference restore matched 0 rows (newer projection won or row absent; left as-is)`);
+                issues.push(`space ${u.spaceId} metadata restore matched 0 rows (newer projection won or row absent; left as-is)`);
             }
         } catch (e: any) {
-            logUploadFailure("compensation_reference_failed", e, { ...ctx, spaceId: u.spaceId });
-            const cause = classifyDuplicateKey(e) === "legacy_reference"
-                ? "previous Reference was reclaimed by another persistent space"
+            logUploadFailure("compensation_space_metadata_failed", e, { ...ctx, spaceId: u.spaceId });
+            const cause = classifyDuplicateKey(e) === "scope_inventory_code"
+                ? "previous inventory code was reclaimed by another persistent space"
                 : String(e?.code ?? e?.message ?? e);
-            issues.push(`space ${u.spaceId} Reference restore failed (${cause})`);
+            issues.push(`space ${u.spaceId} metadata restore failed (${cause})`);
         }
     }
     return issues;
@@ -132,10 +134,10 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
     let isNewModel = false;
     let createdSpaceIds: number[] = [];
     let createdAssetIds: number[] = [];
-    // Administrative-Reference changes applied to REUSED spaces (§6.B) — restored on
-    // failure (deleting orphan spaces never undoes an UPDATE to a pre-existing row).
-    let referenceUpdates: Array<{ spaceId: number; appliedInventoryCodeNormalized: string;
-        previousInventoryCode: string | null; previousInventoryCodeNormalized: string | null; previousName: string | null }> = [];
+    // Space-metadata changes applied to REUSED spaces (§8) — restored on failure
+    // (deleting orphan spaces never undoes an UPDATE to a pre-existing row).
+    let metadataUpdates: Array<{ spaceId: number; appliedInventoryCode: string; appliedInventoryCodeNormalized: string; appliedLongName: string | null;
+        previousInventoryCode: string | null; previousInventoryCodeNormalized: string | null; previousLongName: string | null }> = [];
     let previousCurrentVersionId: number | null = null;
     let semanticMaterialisation: any | null = null;
 
@@ -189,6 +191,17 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
             ? await extractIfcModelFromFile(resolveStorageKey(storageKey))
             : await fetchInventory(modelId, versionId);
         const inventoryData = extracted.inventoryData;
+
+        /* -------- 4b. IFC4x3-only schema gate (ADR-0052 §A) — runs AFTER trustworthy
+                        schema extraction but BEFORE requirements preflight and ANY
+                        persistence (entities/spaces/assets/bindings/materialisation/
+                        activation). Node classifies the ACTUAL schema identifier via the
+                        single central gate — never the Python schemaSupported flag — so
+                        IFC4 and IFC2X3 are rejected with one structured error. The reserved
+                        version is compensated (marked failed) by the outer contract; no
+                        durable rows remain and no activation occurs. -------- */
+        stage = "ifc_schema_gate";
+        assertSupportedIfc4x3Schema(extracted.schema);
 
         /* -------- 5. model_requirements_preflight: requisitos de informação
                        (espaciais SPACE-*, proxies PROXY-*, equipamentos
@@ -250,13 +263,14 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
 
         /* -------- 8–11. identidade persistente, ativos, materialização e
                           ativação correm sob um LOCK cooperativo com âmbito no
-                          linked_model (ADR-0051 §6). O lock é adquirido ANTES de
-                          qualquer mutação de Reference e mantido até a compensação
-                          de Reference terminar, pelo que, durante esta janela,
-                          nenhuma operação cooperante do MESMO linked_model pode
-                          reclamar a Reference anterior. Uploads de linked_models
-                          DIFERENTES usam nomes de lock distintos e permanecem
-                          independentes. -------- */
+                          linked_model (ADR-0052 §8). O lock é adquirido ANTES de
+                          qualquer mutação de metadados do espaço (inventory_code de
+                          IfcSpace.Name + long_name de IfcSpace.LongName) e mantido até
+                          a compensação de metadados terminar, pelo que, durante esta
+                          janela, nenhuma operação cooperante do MESMO linked_model pode
+                          reclamar o código de inventário anterior. Uploads de
+                          linked_models DIFERENTES usam nomes de lock distintos e
+                          permanecem independentes. -------- */
         // Non-null captures for the closure (both are guaranteed set by this point):
         // the model was reused/created above and the version was reserved.
         const activeModelId: number = modelId!;
@@ -289,7 +303,7 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
                 });
 
                 createdSpaceIds = spatial.createdSpaceIds;
-                referenceUpdates = spatial.referenceUpdates;
+                metadataUpdates = spatial.metadataUpdates;
                 presentNormalizedCodes = spatial.presentNormalizedCodes;
                 spaceInfoByGuid = spatial.spaceInfoByGuid;
             }
@@ -343,7 +357,6 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
                 });
             }
             await reconcileAssetLifecycleAfterActivation({
-                linkedModelId: linkedParentId,
                 modelId: activeModelId,
                 currentVersionId: activeVersionId,
             });
@@ -358,23 +371,23 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
             // mistaken for a business failure that must roll back a committed activation.
             let activationSucceeded = false;
             try {
-                await spaceDb.withReferenceLock(linkedParentId, async () => {
+                await spaceDb.withSpaceMetadataLock(linkedParentId, async () => {
                     try {
                         await runIdentityAndActivation();
                         activationSucceeded = true;
                     } catch (rawError: any) {
                         // Normalize non-Error throwables before attaching metadata (§5.5).
                         const error = rawError instanceof Error ? rawError : new Error(String(rawError));
-                        // §6.3/§6.4: restore the failed operation's Reference projection
+                        // §8: restore the failed operation's space-metadata projection
                         // while the lock is STILL held, so no cooperating same-linked_model
-                        // operation can claim the previous Reference during this window.
-                        const notes = await restoreReferenceProjections(
-                            [...referenceUpdates, ...((rawError && rawError.referenceUpdates) ?? [])], { modelId, versionId });
+                        // operation can claim the previous inventory code during this window.
+                        const notes = await restoreSpaceMetadataProjections(
+                            [...metadataUpdates, ...((rawError && rawError.metadataUpdates) ?? [])], { modelId, versionId });
                         if (notes.length) (error as any).compensationIntegrity = notes;
                         // Restoration is complete; the remaining orphan-row/file cleanup does
-                        // not touch the Reference projection and runs outside the lock.
-                        (error as any).referenceUpdates = [];
-                        referenceUpdates = [];
+                        // not touch the metadata projection and runs outside the lock.
+                        (error as any).metadataUpdates = [];
+                        metadataUpdates = [];
                         throw error;
                     }
                 });

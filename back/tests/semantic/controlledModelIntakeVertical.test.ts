@@ -18,7 +18,7 @@ test("researcher-selected multipart inputs are genuinely extracted and executed:
     const idsPass = path.join(demo, "ids-reference-required.ids");
     const idsFail = path.join(demo, "ids-reference-and-extra-property.ids");
     const extracted = await extractIfcModelFromFile(ifc);
-    assert.equal(extracted.schema, "IFC4");
+    assert.equal(extracted.schema, "IFC4X3_ADD2");
     assert.equal(extracted.inventoryData["0V1SpaceSynthetic001"]?.psets?.Pset_SpaceCommon?.Reference, "R-101");
     // Lossless per-IfcSpace occurrences (ADR-0051 §1) are emitted alongside the
     // GlobalId-keyed inventory; extraction copies all psets and names none.

@@ -9,9 +9,9 @@ import { PyShaclValidationProvider } from "../../semanticValidation/pyShaclValid
 
 const artifacts = path.resolve(process.cwd(), "../semantic/artifacts");
 const mapping = validateMappingProfile(JSON.parse(fs.readFileSync(path.join(artifacts,
-    "runtime/oswadt-ifc4-minimal-rdf-mapping/1.0.0/oswadt-ifc4-minimal-rdf-mapping-v1.json"), "utf8")));
+    "runtime/oswadt-ifc4-minimal-rdf-mapping/1.1.0/oswadt-ifc4-minimal-rdf-mapping-v1.1.json"), "utf8")));
 const governedShapes = fs.readFileSync(path.join(artifacts,
-    "runtime/oswadt-model-rdf-structural-shapes/1.0.0/oswadt-model-rdf-structural-shapes-v1.ttl"), "utf8");
+    "runtime/oswadt-model-rdf-structural-shapes/1.1.0/oswadt-model-rdf-structural-shapes-v1.1.ttl"), "utf8");
 const temporaryShapes = fs.readFileSync(path.resolve(process.cwd(),
     "../documentation/demo-inputs/shacl/temporary-manifestation-description-required.ttl"), "utf8");
 const provider = new PyShaclValidationProvider();
@@ -24,15 +24,16 @@ async function modelRdf() {
         materialisationUuid: "44444444-4444-4444-8444-444444444444",
         logicalModelUuid: "55555555-5555-4555-8555-555555555555",
         modelVersionUuid: "66666666-6666-4666-8666-666666666666", versionNumber: 1,
-        filename: "model-v1.ifc", fileSha256: "a".repeat(64), ifcSchema: "IFC4",
+        filename: "model-v1.ifc", fileSha256: "a".repeat(64), ifcSchema: "IFC4X3_ADD2",
         generatedAt: "2026-07-20T12:00:00.000Z",
-        spaces: [{ persistentUuid: "77777777-7777-4777-8777-777777777777", reference: "R-101", label: "Synthetic room",
+        spaces: [{ persistentUuid: "77777777-7777-4777-8777-777777777777", inventoryCode: "R-101", longName: "Synthetic room",
             ifcGuid: "space-guid-v1", ifcClass: "IfcSpace", storey: "Level 1",
             persistentUri: "http://oswadt.test/id/space/77777777-7777-4777-8777-777777777777",
             manifestationUri: "http://oswadt.test/id/model-version/66666666-6666-4666-8666-666666666666/manifestation/space-guid-v1" }],
         assets: [{ persistentUuid: "88888888-8888-4888-8888-888888888888", tag: "EQP-DEMO-001",
             serialNumber: "SYN-001", manufacturer: "Synthetic", ifcGuid: "asset-guid-v1",
             ifcClass: "IfcFurnishingElement", containingSpace: "R-101",
+            containingSpacePersistentUri: "http://oswadt.test/id/space/77777777-7777-4777-8777-777777777777",
             persistentUri: "http://oswadt.test/id/asset/88888888-8888-4888-8888-888888888888",
             manifestationUri: "http://oswadt.test/id/model-version/66666666-6666-4666-8666-666666666666/manifestation/asset-guid-v1" }],
     });

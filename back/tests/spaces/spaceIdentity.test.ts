@@ -18,8 +18,8 @@ installFakeMySQL();
 
 const {
     persistSpaceIdentities: rawPersistSpaceIdentities, reconcileSpaceStatusesAfterActivation,
-    DuplicateSpaceReferenceError, DuplicateSpaceGlobalIdError,
-    TransitionalReferenceCollisionError, InvalidSpaceGlobalIdError,
+    DuplicateSpaceInventoryCodeError, DuplicateSpaceGlobalIdError,
+    InventoryCodeCollisionError, InvalidSpaceGlobalIdError,
 } = await import("../../services/spaceIdentityService.ts");
 
 // The lossless occurrence contract is MANDATORY (ADR-0051 §1-v3). These unit tests
@@ -56,8 +56,10 @@ const GZ = "8abcdefghijklmnopqrstu";
 const GCASE_L = "AAAAAAAAAAAAAAAAAAAA1a";
 const GCASE_U = "AAAAAAAAAAAAAAAAAAAA1A";
 
-function cand(guid: any, code: string | null, entityId: number, name = "Sala", longName = "Sala Longa") {
-    return { guid, name, longName, entityId, psets: code === null ? {} : { Pset_SpaceCommon: { Reference: code } } };
+// ADR-0052: the inventory code comes from IfcSpace.Name. `code` is the Name; a Reference
+// pset is intentionally NOT set (it would be ignored). `code === null` means no Name.
+function cand(guid: any, code: string | null, entityId: number, longName = "Sala Longa") {
+    return { guid, name: code, longName, entityId, psets: {} };
 }
 
 const AUTHORITY_SINGLE: [RegExp, any] =
@@ -76,8 +78,11 @@ const R = /SELECT \* FROM spaces[\s\S]*inventory_code_normalized/i;
 
 /* ================= A. SAME GLOBALID, SAME REFERENCE ================= */
 test("A: same GlobalId + same Reference → reuse the same spaces.id, no INSERT, no Reference update", async () => {
+    // The COMPLETE current projection (raw code + normalized + long_name) already equals the
+    // incoming occurrence, so no metadata UPDATE fires (ADR-0052 §8). `cand` defaults longName
+    // to "Sala Longa", so the stored row carries the same long_name.
     respond([...PRELUDE, AUTHORITY_SINGLE,
-        [G, [[{ id: 55, space_uuid: "uuid-55", inventory_code_normalized: "R-101" }]]],
+        [G, [[{ id: 55, space_uuid: "uuid-55", inventory_code: "R-101", inventory_code_normalized: "R-101", long_name: "Sala Longa" }]]],
         [/INSERT INTO space_bindings/i, [{ insertId: 91, affectedRows: 1 }]]]);
 
     const outcome = await persistSpaceIdentities({ ...CTX, candidates: [cand(GA, "R-101", 700)] });
@@ -117,8 +122,8 @@ test("B': same GlobalId changing Reference to one owned by a DIFFERENT space →
     await assert.rejects(
         persistSpaceIdentities({ ...CTX, candidates: [cand(GA, "R-NEW", 700)] }),
         (e: any) => {
-            assert.ok(e instanceof TransitionalReferenceCollisionError);
-            assert.equal(e.code, "transitional_reference_collision");
+            assert.ok(e instanceof InventoryCodeCollisionError);
+            assert.equal(e.code, "inventory_code_collision");
             assert.equal(e.diagnostics.conflictingSpaceId, 66);
             assert.equal(e.diagnostics.spaceId, 55);
             return true;
@@ -128,17 +133,17 @@ test("B': same GlobalId changing Reference to one owned by a DIFFERENT space →
 });
 
 /* ==== B''. §6.B: a successful Reference change records the prior value for compensation ==== */
-test("B'': changed Reference on a reused space records previous values in outcome.referenceUpdates", async () => {
+test("B'': changed Reference on a reused space records previous values in outcome.metadataUpdates", async () => {
     respond([...PRELUDE, AUTHORITY_SINGLE,
         [G, [[{ id: 55, space_uuid: "uuid-55", inventory_code: "R-OLD", inventory_code_normalized: "R-OLD", name: "Old" }]]],
         [R, [[]]],
         [/UPDATE spaces\s+SET inventory_code/i, [{ affectedRows: 1 }]],
         [/INSERT INTO space_bindings/i, [{ insertId: 92, affectedRows: 1 }]]]);
     const outcome = await persistSpaceIdentities({ ...CTX, candidates: [cand(GA, "R-NEW", 700)] });
-    assert.equal(outcome.referenceUpdates.length, 1);
-    assert.equal(outcome.referenceUpdates[0]!.spaceId, 55);
-    assert.equal(outcome.referenceUpdates[0]!.appliedInventoryCodeNormalized, "R-NEW");
-    assert.equal(outcome.referenceUpdates[0]!.previousInventoryCodeNormalized, "R-OLD");
+    assert.equal(outcome.metadataUpdates.length, 1);
+    assert.equal(outcome.metadataUpdates[0]!.spaceId, 55);
+    assert.equal(outcome.metadataUpdates[0]!.appliedInventoryCodeNormalized, "R-NEW");
+    assert.equal(outcome.metadataUpdates[0]!.previousInventoryCodeNormalized, "R-OLD");
 });
 
 /* ==== B''''. §6-v4: a NON-Error thrown AFTER a Reference update is normalized, and the
@@ -162,10 +167,10 @@ test("B'''': a non-Error thrown after a Reference update → normalized Error ca
         assert.equal(err.cause, "kaboom-string", "the original throwable is preserved as cause");
         // The prior Reference is available to compensation…
         const meta = err as any;
-        assert.ok(Array.isArray(meta.referenceUpdates) && meta.referenceUpdates.length === 1);
-        assert.equal(meta.referenceUpdates[0].spaceId, 55);
-        assert.equal(meta.referenceUpdates[0].previousInventoryCodeNormalized, "R-OLD");
-        assert.equal(meta.referenceUpdates[0].appliedInventoryCodeNormalized, "R-NEW");
+        assert.ok(Array.isArray(meta.metadataUpdates) && meta.metadataUpdates.length === 1);
+        assert.equal(meta.metadataUpdates[0].spaceId, 55);
+        assert.equal(meta.metadataUpdates[0].previousInventoryCodeNormalized, "R-OLD");
+        assert.equal(meta.metadataUpdates[0].appliedInventoryCodeNormalized, "R-NEW");
         assert.deepEqual(meta.createdSpaceIds, [], "no orphan space was created on this reuse path");
     } finally {
         (spaceDb as any).createBinding = originalCreateBinding;
@@ -173,7 +178,7 @@ test("B'''': a non-Error thrown after a Reference update → normalized Error ca
 });
 
 /* ==== B'''. §6.A: a concurrent uq_spaces_scope_code dup on UPDATE → translated, no binding ==== */
-test("B''': Reference UPDATE race (real legacy dup) → TransitionalReferenceCollisionError, no raw ER_DUP_ENTRY, no binding", async () => {
+test("B''': Reference UPDATE race (real legacy dup) → InventoryCodeCollisionError, no raw ER_DUP_ENTRY, no binding", async () => {
     respond([...PRELUDE, AUTHORITY_SINGLE,
         [G, [[{ id: 55, space_uuid: "uuid-55", inventory_code: "R-OLD", inventory_code_normalized: "R-OLD", name: "Old" }]]],
         [R, [[]]], // pre-check: free
@@ -184,7 +189,7 @@ test("B''': Reference UPDATE race (real legacy dup) → TransitionalReferenceCol
     await assert.rejects(
         persistSpaceIdentities({ ...CTX, candidates: [cand(GA, "R-NEW", 700)] }),
         (e: any) => {
-            assert.ok(e instanceof TransitionalReferenceCollisionError);
+            assert.ok(e instanceof InventoryCodeCollisionError);
             assert.equal(e.diagnostics.concurrent, true);
             assert.doesNotMatch(String(e.message), /ER_DUP_ENTRY|Duplicate entry/i);
             return true;
@@ -203,7 +208,7 @@ test("B'''': an unrelated duplicate key on the Reference UPDATE is rethrown, not
         }]]);
     await assert.rejects(
         persistSpaceIdentities({ ...CTX, candidates: [cand(GA, "R-NEW", 700)] }),
-        (e: any) => { assert.ok(!(e instanceof TransitionalReferenceCollisionError)); assert.match(String(e.sqlMessage), /uq_spaces_uuid/); return true; });
+        (e: any) => { assert.ok(!(e instanceof InventoryCodeCollisionError)); assert.match(String(e.sqlMessage), /uq_spaces_uuid/); return true; });
 });
 
 /* ============ C. DIFFERENT GLOBALID, DIFFERENT REFERENCE ============ */
@@ -231,7 +236,7 @@ test("D: different GlobalId + same Reference → transitional collision, nothing
     await assert.rejects(
         persistSpaceIdentities({ ...CTX, candidates: [cand(GC, "R-101", 702)] }),
         (e: any) => {
-            assert.ok(e instanceof TransitionalReferenceCollisionError);
+            assert.ok(e instanceof InventoryCodeCollisionError);
             assert.equal(e.diagnostics.conflictingSpaceId, 55);
             return true;
         });
@@ -360,7 +365,7 @@ test("L: legacy Reference collision surfaces as a typed error, not a raw duplica
     await assert.rejects(
         persistSpaceIdentities({ ...CTX, candidates: [cand(GB, "R-1", 753)] }),
         (e: any) => {
-            assert.ok(e instanceof TransitionalReferenceCollisionError);
+            assert.ok(e instanceof InventoryCodeCollisionError);
             assert.doesNotMatch(String(e.message), /ER_DUP_ENTRY|duplicate key/i);
             return true;
         });
@@ -389,7 +394,7 @@ test("M': an UNRELATED duplicate-key on insert is never misread as a canonical r
     await assert.rejects(
         persistSpaceIdentities({ ...CTX, candidates: [cand(GC, "R-1", 754)] }),
         (e: any) => {
-            assert.ok(!(e instanceof TransitionalReferenceCollisionError), "not a Reference collision");
+            assert.ok(!(e instanceof InventoryCodeCollisionError), "not a Reference collision");
             assert.match(String(e.sqlMessage), /uq_spaces_uuid/);
             return true;
         });
@@ -405,6 +410,123 @@ test("N: reuse keeps spaces.id stable so dependent asset/reservation/location re
     assert.equal(outcome.spaceInfoByGuid[GA]!.spaceId, 55, "dependent relations keep pointing at 55");
 });
 
+/* ===== LONGNAME-ONLY METADATA (ADR-0052 §D/§8): the mutable projection is
+        inventory_code + normalized + long_name; a LongName-only change must be
+        applied and journalled even though the normalized code is unchanged. ===== */
+function occ(guid: string, name: string, longName: string | null, entityId: number) {
+    return { guid, name, longName, entityId, psets: {} };
+}
+
+test("LN-A: same GlobalId + same Name + changed LongName → reused, long_name updated, new binding, one journal entry, NO collision pre-check", async () => {
+    respond([...PRELUDE, AUTHORITY_SINGLE,
+        [G, [[{ id: 55, space_uuid: "uuid-55", inventory_code: "T-101", inventory_code_normalized: "T-101", long_name: "Laboratory 101" }]]],
+        [/UPDATE spaces\s+SET inventory_code/i, [{ affectedRows: 1 }]],
+        [/INSERT INTO space_bindings/i, [{ insertId: 92, affectedRows: 1 }]]]);
+    const outcome = await persistSpaceIdentities({ ...CTX, candidates: [occ(GA, "T-101", "Advanced Materials Laboratory", 700)] });
+
+    assert.equal(outcome.diagnostics.reused_spaces, 1);
+    assert.equal(fakeConnection.callsMatching(/INSERT INTO spaces/i).length, 0, "same spaces.id — no new space");
+    // A LongName-only change reuses the SAME identity/code: no ownership/collision pre-check.
+    assert.equal(fakeConnection.callsMatching(R).length, 0, "no findByScopeAndCode collision check for a LongName-only change");
+    const upd = fakeConnection.callsMatching(/UPDATE spaces\s+SET inventory_code/i);
+    assert.equal(upd.length, 1, "the current long_name projection is updated");
+    assert.equal(upd[0]!.params.spaceId, 55);
+    assert.equal(upd[0]!.params.inventoryCode, "T-101", "inventory code stays T-101");
+    assert.equal(upd[0]!.params.inventoryCodeNormalized, "T-101");
+    assert.equal(upd[0]!.params.longName, "Advanced Materials Laboratory");
+    const binding = fakeConnection.callsMatching(/INSERT INTO space_bindings/i)[0]!;
+    assert.equal(binding.params.inventoryCodeSnapshot, "T-101");
+    assert.equal(binding.params.longNameSnapshot, "Advanced Materials Laboratory", "new binding snapshot carries the new LongName");
+    assert.equal(outcome.metadataUpdates.length, 1, "one metadata journal entry");
+    assert.equal(outcome.metadataUpdates[0]!.spaceId, 55);
+    assert.equal(outcome.metadataUpdates[0]!.previousLongName, "Laboratory 101");
+    assert.equal(outcome.metadataUpdates[0]!.appliedLongName, "Advanced Materials Laboratory");
+    assert.equal(outcome.metadataUpdates[0]!.previousInventoryCodeNormalized, "T-101");
+    assert.equal(outcome.metadataUpdates[0]!.appliedInventoryCodeNormalized, "T-101");
+});
+
+test("LN-B: LongName removal (string → null) → long_name set null, identity/code unchanged, journalled", async () => {
+    respond([...PRELUDE, AUTHORITY_SINGLE,
+        [G, [[{ id: 55, space_uuid: "uuid-55", inventory_code: "T-101", inventory_code_normalized: "T-101", long_name: "Laboratory 101" }]]],
+        [/UPDATE spaces\s+SET inventory_code/i, [{ affectedRows: 1 }]],
+        [/INSERT INTO space_bindings/i, [{ insertId: 92, affectedRows: 1 }]]]);
+    const outcome = await persistSpaceIdentities({ ...CTX, candidates: [occ(GA, "T-101", null, 700)] });
+
+    const upd = fakeConnection.callsMatching(/UPDATE spaces\s+SET inventory_code/i);
+    assert.equal(upd.length, 1);
+    assert.equal(upd[0]!.params.longName, null, "long_name becomes null");
+    assert.equal(upd[0]!.params.inventoryCodeNormalized, "T-101", "inventory code unchanged");
+    assert.equal(fakeConnection.callsMatching(/INSERT INTO space_bindings/i)[0]!.params.longNameSnapshot, null);
+    assert.equal(outcome.metadataUpdates.length, 1);
+    assert.equal(outcome.metadataUpdates[0]!.previousLongName, "Laboratory 101");
+    assert.equal(outcome.metadataUpdates[0]!.appliedLongName, null);
+});
+
+test("LN-C: LongName introduction (null → string) → long_name set, identity/code unchanged, journalled", async () => {
+    respond([...PRELUDE, AUTHORITY_SINGLE,
+        [G, [[{ id: 55, space_uuid: "uuid-55", inventory_code: "T-101", inventory_code_normalized: "T-101", long_name: null }]]],
+        [/UPDATE spaces\s+SET inventory_code/i, [{ affectedRows: 1 }]],
+        [/INSERT INTO space_bindings/i, [{ insertId: 92, affectedRows: 1 }]]]);
+    const outcome = await persistSpaceIdentities({ ...CTX, candidates: [occ(GA, "T-101", "Laboratory 101", 700)] });
+
+    const upd = fakeConnection.callsMatching(/UPDATE spaces\s+SET inventory_code/i);
+    assert.equal(upd.length, 1);
+    assert.equal(upd[0]!.params.longName, "Laboratory 101", "long_name receives the new value");
+    assert.equal(upd[0]!.params.inventoryCodeNormalized, "T-101");
+    assert.equal(outcome.metadataUpdates.length, 1);
+    assert.equal(outcome.metadataUpdates[0]!.previousLongName, null);
+    assert.equal(outcome.metadataUpdates[0]!.appliedLongName, "Laboratory 101");
+});
+
+test("LN-D: same Name + same LongName (incl. no-op) → NO UPDATE spaces, NO journal entry, binding still created", async () => {
+    respond([...PRELUDE, AUTHORITY_SINGLE,
+        [G, [[{ id: 55, space_uuid: "uuid-55", inventory_code: "T-101", inventory_code_normalized: "T-101", long_name: "Laboratory 101" }]]],
+        [/INSERT INTO space_bindings/i, [{ insertId: 92, affectedRows: 1 }]]]);
+    const outcome = await persistSpaceIdentities({ ...CTX, candidates: [occ(GA, "T-101", "Laboratory 101", 700)] });
+
+    assert.equal(fakeConnection.callsMatching(/UPDATE spaces\s+SET inventory_code/i).length, 0, "complete projection unchanged → no UPDATE");
+    assert.equal(outcome.metadataUpdates.length, 0, "no journal entry for an unchanged projection");
+    assert.equal(fakeConnection.callsMatching(/INSERT INTO space_bindings/i).length, 1, "the version binding is still created");
+});
+
+/* ===== LONGNAME-ONLY COMPENSATION (§8): full compare-and-swap restore ===== */
+test("compensation LN: a LongName-only change is restored by a full compare-and-swap on the applied projection", async () => {
+    // Produce a REAL journal entry from the LongName-only persistence path.
+    respond([...PRELUDE, AUTHORITY_SINGLE,
+        [G, [[{ id: 55, space_uuid: "uuid-55", inventory_code: "T-101", inventory_code_normalized: "T-101", long_name: "Laboratory 101" }]]],
+        [/UPDATE spaces\s+SET inventory_code/i, [{ affectedRows: 1 }]],
+        [/INSERT INTO space_bindings/i, [{ insertId: 92, affectedRows: 1 }]]]);
+    const outcome = await persistSpaceIdentities({ ...CTX, candidates: [occ(GA, "T-101", "Advanced Materials Laboratory", 700)] });
+    const entry = outcome.metadataUpdates[0]!;
+
+    fakeConnection.reset();
+    respond([[/UPDATE spaces\s+SET inventory_code/i, [{ affectedRows: 1 }]]]);
+    const rows = await spaceDb.restoreSpaceMetadata(entry);
+    assert.equal(rows, 1, "the previous projection was restored");
+    const restore = fakeConnection.callsMatching(/UPDATE spaces\s+SET inventory_code/i)[0]!;
+    assert.equal(restore.params.previousLongName, "Laboratory 101", "restores the previous long_name");
+    assert.equal(restore.params.previousInventoryCodeNormalized, "T-101", "inventory code stays unchanged");
+    assert.equal(restore.params.appliedLongName, "Advanced Materials Laboratory", "CAS guards on the applied long_name");
+    assert.match(restore.sql, /BINARY long_name <=> BINARY :appliedLongName/, "NULL-safe byte-exact long_name compare-and-swap");
+    assert.match(restore.sql, /WHERE id = :spaceId/);
+});
+
+test("compensation LN stale: A's restore matches 0 rows and never overwrites a newer successful LongName B", async () => {
+    // Operation A applied "LongName A"; a newer successful operation B applied "LongName B".
+    // A's compare-and-swap guards on "LongName A", so it matches nothing (affectedRows 0).
+    const entryA = {
+        spaceId: 55, appliedInventoryCode: "T-101", appliedInventoryCodeNormalized: "T-101",
+        appliedLongName: "LongName A",
+        previousInventoryCode: "T-101", previousInventoryCodeNormalized: "T-101", previousLongName: "Original",
+    };
+    respond([[/UPDATE spaces\s+SET inventory_code/i, [{ affectedRows: 0 }]]]); // B already won → CAS matches 0
+    const rows = await spaceDb.restoreSpaceMetadata(entryA);
+    assert.equal(rows, 0, "stale restore matched 0 rows — LongName B is preserved");
+    const restore = fakeConnection.callsMatching(/UPDATE spaces\s+SET inventory_code/i)[0]!;
+    assert.equal(restore.params.appliedLongName, "LongName A", "the CAS guard is A's applied long_name, so B is never clobbered");
+    assert.equal(restore.params.spaceId, 55, "spaces.id is never changed by compensation");
+});
+
 /* ============ REFERENCE GATE (transitional, unchanged) ============ */
 test("missing Reference (authoritative) is still skipped as a diagnostic (transitionally required)", async () => {
     respond([...PRELUDE, AUTHORITY_SINGLE]);
@@ -413,11 +535,11 @@ test("missing Reference (authoritative) is still skipped as a diagnostic (transi
     assert.equal(outcome.bindingsCreated, 0);
 });
 
-test("duplicate Reference (authoritative) still blocks via DuplicateSpaceReferenceError", async () => {
+test("duplicate Reference (authoritative) still blocks via DuplicateSpaceInventoryCodeError", async () => {
     respond([...PRELUDE, AUTHORITY_SINGLE]);
     await assert.rejects(
         persistSpaceIdentities({ ...CTX, candidates: [cand(GX, "R-101", 761), cand(GY, " R-101 ", 762)] }),
-        (e: any) => { assert.ok(e instanceof DuplicateSpaceReferenceError); return true; });
+        (e: any) => { assert.ok(e instanceof DuplicateSpaceInventoryCodeError); return true; });
     assert.equal(fakeConnection.callsMatching(/INSERT INTO spaces/i).length, 0);
 });
 
@@ -427,7 +549,7 @@ test("duplicate Reference (non-authoritative) → ignore duplicates, persist the
     const outcome = await persistSpaceIdentities({
         ...CTX, candidates: [cand(GX, "R-200", 763), cand(GY, "R-200", 764), cand(GZ, "R-300", 765)],
     });
-    assert.equal(outcome.diagnostics.duplicate_reference.length, 1);
+    assert.equal(outcome.diagnostics.duplicate_inventory_code.length, 1);
     assert.equal(outcome.bindingsCreated, 1);
     assert.equal(outcome.diagnostics.isAuthoritative, false);
 });

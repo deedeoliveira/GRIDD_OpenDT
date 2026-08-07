@@ -6,19 +6,19 @@ import type { ModelRequirementsValidationReport } from "./modelRequirementsValid
 
 export const IDS_DEMO_SCENARIOS = {
     "invalid-missing-reference": {
-        title: "Scenario A — Missing Reference",
+        title: "Scenario A — Missing inventory code (IfcSpace.Name)",
         filename: "ids-demo-invalid-missing-reference.ifc",
-        explanation: "The IFC space does not provide the Reference property required by the active IDS profile.",
+        explanation: "The IFC space does not provide a valid IfcSpace.Name institutional inventory code required by the active IFC4x3 IDS profile.",
     },
     "valid": {
         title: "Scenario B — Valid model",
         filename: "ids-demo-valid.ifc",
-        explanation: "The IFC satisfies the active IDS profile and the project uniqueness rule.",
+        explanation: "The IFC satisfies the active IDS profile and the project uniqueness rule (IfcSpace.Name inventory codes).",
     },
     "duplicate-reference": {
-        title: "Scenario C — Duplicate Reference",
+        title: "Scenario C — Duplicate inventory code (IfcSpace.Name)",
         filename: "ids-demo-duplicate-reference.ifc",
-        explanation: "Each space contains a Reference, so IDS passes; the project rule fails because two spaces use the same persistent identity code.",
+        explanation: "Each space provides an IfcSpace.Name, so IDS passes; the project rule fails because two spaces share the same normalized institutional inventory code.",
     },
 } as const;
 

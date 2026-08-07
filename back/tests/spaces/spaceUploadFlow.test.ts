@@ -36,18 +36,19 @@ const INVENTORY_ALL_VALID = {
     },
 };
 
-/** Inventário com um espaço sem código (viola a regra estrita no autoritativo). */
+/** Inventário com um espaço sem IfcSpace.Name (viola a regra estrita no autoritativo). */
 const INVENTORY_ONE_MISSING = {
     ...INVENTORY_ALL_VALID,
     "2TYxeEXST7MP9bl8QCa9Od": {
-        spaceGuid: "2TYxeEXST7MP9bl8QCa9Od", spaceName: "Sem Código", spaceLongName: null,
+        spaceGuid: "2TYxeEXST7MP9bl8QCa9Od", spaceName: null, spaceLongName: null,
         psets: {}, elements: [],
     },
 };
 
+// ADR-0052: the inventory code is IfcSpace.Name; a duplicated Name (not a Reference) collides.
 const INVENTORY_DUPLICATED = {
-    "3VKKG6_QDBqgUlHMH5Q4EB": { spaceGuid: "3VKKG6_QDBqgUlHMH5Q4EB", spaceName: "Sala A", psets: { Pset_SpaceCommon: { Reference: "R-DUP" } }, elements: [] },
-    "2TYxeEXST7MP9bl8QCa9Ti": { spaceGuid: "2TYxeEXST7MP9bl8QCa9Ti", spaceName: "Sala B", psets: { Pset_SpaceCommon: { Reference: "R-DUP" } }, elements: [] },
+    "3VKKG6_QDBqgUlHMH5Q4EB": { spaceGuid: "3VKKG6_QDBqgUlHMH5Q4EB", spaceName: "R-DUP", psets: {}, elements: [] },
+    "2TYxeEXST7MP9bl8QCa9Ti": { spaceGuid: "2TYxeEXST7MP9bl8QCa9Ti", spaceName: "R-DUP", psets: {}, elements: [] },
 };
 
 const realFetch = globalThis.fetch;
@@ -112,7 +113,7 @@ beforeEach(() => {
     inventoryPayload = INVENTORY_ALL_VALID;
     // The ordinary Flask bridge now emits the lossless spaceOccurrences list; the
     // write path requires it. Derive it from the inventory dict for each mock.
-    (globalThis as any).fetch = async () => ({ ok: true, json: async () => ({ data: inventoryPayload, spaceOccurrences: occurrencesFromInventory(inventoryPayload) }) });
+    (globalThis as any).fetch = async () => ({ ok: true, json: async () => ({ data: inventoryPayload, spaceOccurrences: occurrencesFromInventory(inventoryPayload), schema: "IFC4X3_ADD2" }) });
     fs.rmSync(path.join(STORAGE_ROOT, `models/${MODEL_ID}`), { recursive: true, force: true });
 });
 
@@ -120,11 +121,11 @@ beforeEach(() => {
         later fails (deleting orphan spaces cannot undo an UPDATE to an existing row). ---- */
 const GA_VALID = "3VKKG6_QDBqgUlHMH5Q4EB";
 const INVENTORY_ONE_REUSED = {
-    [GA_VALID]: { spaceGuid: GA_VALID, spaceName: "Sala", spaceLongName: null,
-        psets: { Pset_SpaceCommon: { Reference: "R-NEW" } }, elements: [] },
+    [GA_VALID]: { spaceGuid: GA_VALID, spaceName: "R-NEW", spaceLongName: null,
+        psets: {}, elements: [] },
 };
 
-test("§6.B: failed binding creation on a reused space restores its prior administrative Reference", async () => {
+test("§6.B: failed binding creation on a reused space restores its prior inventory code (from IfcSpace.Name)", async () => {
     inventoryPayload = INVENTORY_ONE_REUSED;
     const base = routes();
     // Reused existing space (GlobalId match) currently holding R-OLD; new Reference
@@ -160,7 +161,7 @@ test("§6.B: failed binding creation on a reused space restores its prior admini
 test("§1: ordinary bridge WITHOUT spaceOccurrences → blocked (lossless_space_occurrences_missing), nothing written", async () => {
     respond(routes());
     // Simulate an OLD Flask that does not emit the lossless list.
-    (globalThis as any).fetch = async () => ({ ok: true, json: async () => ({ data: INVENTORY_ALL_VALID }) });
+    (globalThis as any).fetch = async () => ({ ok: true, json: async () => ({ data: INVENTORY_ALL_VALID, schema: "IFC4X3_ADD2" }) });
     const temp = makeTempIfc();
     let caught: any = null;
     try { await handleModelUpload({ tempFilePath: temp, originalFilename: "x.ifc", modelId: MODEL_ID }); assert.fail("should reject"); }
@@ -185,6 +186,7 @@ test("§2: duplicate EXACT GlobalId (lossless) → blocked BEFORE entity persist
             { entityId: 1, guid: GA, name: "A1", longName: null, psets: { Pset_SpaceCommon: { Reference: "R-1" } } },
             { entityId: 2, guid: GA, name: "A2", longName: null, psets: { Pset_SpaceCommon: { Reference: "R-1" } } },
         ],
+        schema: "IFC4X3_ADD2",
     }) });
     const temp = makeTempIfc();
     let caught: any = null;
@@ -239,11 +241,11 @@ test("autoritativo sem nenhum IfcSpace → rejeitado no preflight, nada persisti
     await expectPreflightFailure(makeTempIfc(), /contains no IfcSpace elements/, /no IfcSpace found/);
 });
 
-test("autoritativo com UM espaço sem Reference entre válidos → rejeitado (sem aceitação parcial), com contagem", async () => {
+test("autoritativo com UM espaço sem IfcSpace.Name entre válidos → rejeitado (sem aceitação parcial), com contagem", async () => {
     inventoryPayload = INVENTORY_ONE_MISSING;
     respond(routes());
     await expectPreflightFailure(makeTempIfc(),
-        /1 of 3 IfcSpace elements are missing a valid inventory reference/,
+        /1 of 3 IfcSpace elements are missing a valid IfcSpace\.Name/,
         /1 of 3/);
 });
 
@@ -264,8 +266,8 @@ test("autoritativo com todos os espaços válidos → passa: spaces/bindings ant
     assert.equal(fakeConnection.callsMatching(/INSERT INTO entities/i).length, 2);
     assert.equal(fakeConnection.callsMatching(/INSERT INTO spaces/i).length, 2);
     assert.equal(fakeConnection.callsMatching(/INSERT INTO space_bindings/i).length, 2);
-    assert.equal(fakeConnection.callsMatching(/INSERT INTO assets/i).length, 2, "ativos-espaço persistentes");
-    assert.equal(fakeConnection.callsMatching(/INSERT INTO asset_bindings/i).length, 2);
+    assert.equal(fakeConnection.callsMatching(/INSERT INTO assets/i).length, 0, "ADR-0052 §F: um IfcSpace nunca vira ativo");
+    assert.equal(fakeConnection.callsMatching(/INSERT INTO asset_bindings/i).length, 0, "sem asset-binding de espaço");
 
     const sqls = fakeConnection.calls.map((c) => c.sql);
     const lastBinding = sqls.map((s, i) => (/INSERT INTO space_bindings/i.test(s) ? i : -1)).filter((i) => i >= 0).pop()!;
@@ -291,9 +293,9 @@ test("não autoritativo sem IfcSpace → upload permitido (modelos disciplinares
     assert.equal(fakeConnection.callsMatching(/UPDATE models SET current_version_id/i).length, 1, "ativado normalmente");
 });
 
-// (Prompt 4 §6) Regra substituída: um espaço SEM identidade persistente já não
-// gera ativo de espaço — só os espaços com código viram ativos persistentes.
-test("não autoritativo com espaço sem Reference → upload segue; só espaços com identidade viram ativos", async () => {
+// (ADR-0052 §F) Um IfcSpace nunca gera ativo, tenha ou não código de inventário;
+// só os espaços com Name (código) são persistidos como CONTEXTO espacial.
+test("não autoritativo com espaço sem Name → upload segue; espaços com identidade persistem como contexto, zero ativos", async () => {
     inventoryPayload = INVENTORY_ONE_MISSING;
     respond(routes("other"));
     const temp = makeTempIfc();
@@ -302,9 +304,9 @@ test("não autoritativo com espaço sem Reference → upload segue; só espaços
 
     assert.equal(fakeConnection.callsMatching(/INSERT INTO entities/i).length, 3);
     assert.equal(fakeConnection.callsMatching(/INSERT INTO spaces/i).length, 2, "só os com código viram espaços");
-    assert.equal(fakeConnection.callsMatching(/INSERT INTO assets/i).length, 2,
-        "ativos persistentes apenas para espaços com identidade (Prompt 4)");
-    assert.equal(fakeConnection.callsMatching(/INSERT INTO asset_bindings/i).length, 2);
+    assert.equal(fakeConnection.callsMatching(/INSERT INTO assets/i).length, 0,
+        "ADR-0052 §F: nenhum espaço vira ativo");
+    assert.equal(fakeConnection.callsMatching(/INSERT INTO asset_bindings/i).length, 0);
 });
 
 test("modelo sem federação (linked_parent_id NULL): sem validação estrita nem identidade", async () => {

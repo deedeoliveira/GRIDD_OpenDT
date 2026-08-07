@@ -4,7 +4,7 @@ import path from "node:path";
 import { Parser } from "n3";
 import { ArtifactRegistryService } from "../semantic/artifactRegistryService.ts";
 import { ArtifactValidationService } from "../semantic/artifactValidation.ts";
-import { FilesystemArtifactSource, loadPublicArtifactManifest } from "../semantic/publicArtifactManifest.ts";
+import { FilesystemArtifactSource, loadPublicArtifactManifest, activeArtifactKey, ACTIVE_ARTIFACT_VERSION } from "../semantic/publicArtifactManifest.ts";
 import { loadSemanticArtifactConfig } from "../semantic/semanticArtifactConfig.ts";
 import { SemanticArtifactDatabase, type SemanticArtifactDatabasePort } from "../utils/semanticArtifactDatabase.ts";
 import type { IfcRdfMappingProfile } from "./modelIntakeTypes.ts";
@@ -60,8 +60,9 @@ export class MappingProfileService {
     async validateManifestProfile(familyKey = "oswadt-ifc4-minimal-rdf-mapping") {
         const config = loadSemanticArtifactConfig();
         const manifest = await loadPublicArtifactManifest(config.manifestPath);
-        const entry = manifest.artifacts.find((item) => item.artifactType === "ifc_rdf_mapping" && item.artifactKey.startsWith(`${familyKey}-`));
-        if (!entry) throw new Error(`Governed mapping family '${familyKey}' is absent from the public manifest.`);
+        const activeKey = activeArtifactKey(familyKey);
+        const entry = manifest.artifacts.find((item) => item.artifactType === "ifc_rdf_mapping" && item.artifactKey === activeKey);
+        if (!entry) throw new Error(`Governed mapping family '${familyKey}' has no active ${ACTIVE_ARTIFACT_VERSION} manifestation in the public manifest.`);
         const validated = await new ArtifactValidationService(new FilesystemArtifactSource(config.rootDir)).validate(entry, true);
         const profile = validateMappingProfile(JSON.parse(validated.payload.toString("utf8")));
         if (profile.version !== entry.semanticVersion) throw new Error("Mapping JSON version differs from its governed manifest version.");

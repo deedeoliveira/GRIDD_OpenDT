@@ -25,8 +25,11 @@ const VERSION_ID = 999201;
 
 // (Revisão P4) equipamentos com IfcElement.Tag EQP- (exigida pelo
 // model_requirements_preflight em qualquer modelo com candidatos geridos)
+// ADR-0052: the inventory code is IfcSpace.Name. This VERSIONING test focuses on model
+// versioning + equipment assets, not space identity; the space carries no institutional
+// Name (spaceName: null) so it is skipped exactly as before, keeping the flow focused.
 const INVENTORY = {
-    "2TYxeEXST7MP9bl8QCa9Ti": { spaceGuid: "2TYxeEXST7MP9bl8QCa9Ti", spaceName: "Sala", elements: [
+    "2TYxeEXST7MP9bl8QCa9Ti": { spaceGuid: "2TYxeEXST7MP9bl8QCa9Ti", spaceName: null, elements: [
         { guid: "elem-g", type: "IfcFurniture", name: "Mesa", tag: "EQP-MESA-1" },
         { guid: "sensor-g", type: "IfcSensor", name: "Sensor", tag: "EQP-SEN-1" },
     ]},
@@ -35,7 +38,7 @@ const INVENTORY = {
 /* ---- fetch do Flask simulado ---- */
 const realFetch = globalThis.fetch;
 let fetchCalls: { url: string; body: string | null }[] = [];
-let fetchBehavior: () => any = () => ({ ok: true, json: async () => ({ data: INVENTORY, spaceOccurrences: occurrencesFromInventory(INVENTORY) }) });
+let fetchBehavior: () => any = () => ({ ok: true, json: async () => ({ data: INVENTORY, spaceOccurrences: occurrencesFromInventory(INVENTORY), schema: "IFC4X3_ADD2" }) });
 
 function installFakeFetch() {
     (globalThis as any).fetch = async (url: any, opts: any) => {
@@ -92,7 +95,7 @@ beforeEach(() => {
     fakeConnection.reset();
     providers.resetPolicyProviders();
     fetchCalls = [];
-    fetchBehavior = () => ({ ok: true, json: async () => ({ data: INVENTORY, spaceOccurrences: occurrencesFromInventory(INVENTORY) }) });
+    fetchBehavior = () => ({ ok: true, json: async () => ({ data: INVENTORY, spaceOccurrences: occurrencesFromInventory(INVENTORY), schema: "IFC4X3_ADD2" }) });
     installFakeFetch();
     fs.rmSync(path.join(STORAGE_ROOT, `models/${MODEL_ID}`), { recursive: true, force: true });
 });

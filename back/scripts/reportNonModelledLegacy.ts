@@ -24,8 +24,12 @@ async function main(): Promise<void> {
         database: process.env.DB_NAME ?? "", user: process.env.DB_USER ?? "", password: process.env.DB_PASSWORD ?? "",
     });
 
+    // ADR-0052 §F: a space is never an asset, and assets.space_id was removed with the
+    // one-space-asset-per-space model, so there is no longer a space_asset bucket. Modelled
+    // equipment location is version-specific in asset_bindings.space_id (not selected here —
+    // this report only classifies asset ORIGIN, not location).
     const [rows]: any = await connection.execute(`
-        SELECT a.id, a.name, a.asset_type, a.source, a.space_id, a.model_entity_id,
+        SELECT a.id, a.name, a.asset_type, a.source, a.model_entity_id,
                a.asset_uuid, a.semantic_uri,
                EXISTS (SELECT 1 FROM asset_bindings ab WHERE ab.asset_id = a.id) AS has_binding
         FROM assets a
@@ -33,13 +37,12 @@ async function main(): Promise<void> {
     `);
 
     const buckets = {
-        space_asset: [] as any[], modelled_asset: [] as any[], graph_projection: [] as any[],
+        modelled_asset: [] as any[], graph_projection: [] as any[],
         possible_legacy_non_modelled: [] as any[], ambiguous_origin: [] as any[],
     };
 
     for (const row of rows) {
         if (row.source === "graph") buckets.graph_projection.push(row);
-        else if (row.space_id !== null) buckets.space_asset.push(row);
         else if (row.has_binding || row.model_entity_id !== null) buckets.modelled_asset.push(row);
         else if (row.source === "ifc") buckets.possible_legacy_non_modelled.push(row);
         else buckets.ambiguous_origin.push(row);
