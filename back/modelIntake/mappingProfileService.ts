@@ -69,27 +69,36 @@ export class MappingProfileService {
         return { config, entry, validated, profile };
     }
 
-    async registerAndActivate(familyKey = "oswadt-ifc4-minimal-rdf-mapping") {
+    async register(familyKey = "oswadt-ifc4-minimal-rdf-mapping", options?: { activate?: boolean }) {
+        const activate = options?.activate ?? true;
         const checked = await this.validateManifestProfile(familyKey);
         const registry = new ArtifactRegistryService(this.db);
         const registered = await registry.registerLoad({
             entry: checked.entry,
             integrity: checked.validated.summary,
             baseUri: "http://oswadt.local/id",
-            idempotencyKey: `ifc-rdf-mapping:${checked.entry.artifactKey}:activate`,
-            activate: true,
+            idempotencyKey: `ifc-rdf-mapping:${checked.entry.artifactKey}:${activate ? "activate" : "register"}`,
+            activate,
         });
         await this.db.markFileVerified(registered.operation.operation_uuid, Number(registered.artifact.id), {
             integrity: checked.validated.summary,
             validation: { kind: "declarative_mapping_schema", accepted: true },
         });
-        await this.db.activateArtifact({
-            operationUuid: registered.operation.operation_uuid,
-            familyId: Number(registered.family.id),
-            artifactId: Number(registered.artifact.id),
-            expectedCurrentArtifactId: registered.operation.previous_artifact_id === null ? null : Number(registered.operation.previous_artifact_id),
-        });
+        if (activate) {
+            await this.db.activateArtifact({
+                operationUuid: registered.operation.operation_uuid,
+                familyId: Number(registered.family.id),
+                artifactId: Number(registered.artifact.id),
+                expectedCurrentArtifactId: registered.operation.previous_artifact_id === null ? null : Number(registered.operation.previous_artifact_id),
+            });
+        } else {
+            await this.db.completeWithoutActivation(registered.operation.operation_uuid);
+        }
         return { artifactId: Number(registered.artifact.id), artifactUuid: registered.artifact.artifact_uuid, entry: checked.entry, profile: checked.profile };
+    }
+
+    async registerAndActivate(familyKey = "oswadt-ifc4-minimal-rdf-mapping") {
+        return this.register(familyKey, { activate: true });
     }
 
     async resolveActive(familyKey: string, artifactRoot: string) {

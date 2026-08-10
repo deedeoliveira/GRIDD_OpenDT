@@ -38,7 +38,8 @@ export class IdsProfileGovernanceService {
         return { config, entry, validated, executor, profile };
     }
 
-    async registerAndActivate(familyKey = "oswadt-ifc4-model-requirements") {
+    async register(familyKey = "oswadt-ifc4-model-requirements", options?: { activate?: boolean }) {
+        const activate = options?.activate ?? true;
         const checked = await this.validateManifestProfile(familyKey);
         const registry = new ArtifactRegistryService(this.db);
         const registered = await registry.registerLoad({
@@ -47,8 +48,8 @@ export class IdsProfileGovernanceService {
             // Ignored for file_executed revisions; a constant avoids coupling
             // the IDS execution boundary to any graph configuration.
             baseUri: "http://oswadt.local/id",
-            idempotencyKey: `ids-profile:${checked.entry.artifactKey}:activate`,
-            activate: true,
+            idempotencyKey: `ids-profile:${checked.entry.artifactKey}:${activate ? "activate" : "register"}`,
+            activate,
         });
         if (registered.artifact.named_graph_uri !== null || registered.artifact.storage_mode !== "file_executed") {
             throw new Error("IDS registry revision received an invalid graph-backed storage identity.");
@@ -58,13 +59,17 @@ export class IdsProfileGovernanceService {
             executor: checked.executor,
             validation: { kind: "ids_executor_profile_loading", accepted: true },
         });
-        await this.db.activateArtifact({
-            operationUuid: registered.operation.operation_uuid,
-            familyId: Number(registered.family.id),
-            artifactId: Number(registered.artifact.id),
-            expectedCurrentArtifactId: registered.operation.previous_artifact_id === null
-                ? null : Number(registered.operation.previous_artifact_id),
-        });
+        if (activate) {
+            await this.db.activateArtifact({
+                operationUuid: registered.operation.operation_uuid,
+                familyId: Number(registered.family.id),
+                artifactId: Number(registered.artifact.id),
+                expectedCurrentArtifactId: registered.operation.previous_artifact_id === null
+                    ? null : Number(registered.operation.previous_artifact_id),
+            });
+        } else {
+            await this.db.completeWithoutActivation(registered.operation.operation_uuid);
+        }
         return {
             artifactId: Number(registered.artifact.id),
             artifactUuid: registered.artifact.artifact_uuid,
@@ -74,5 +79,9 @@ export class IdsProfileGovernanceService {
             namedGraphUri: registered.artifact.named_graph_uri,
             executor: checked.executor,
         };
+    }
+
+    async registerAndActivate(familyKey = "oswadt-ifc4-model-requirements") {
+        return this.register(familyKey, { activate: true });
     }
 }
