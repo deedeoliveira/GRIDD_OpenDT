@@ -33,7 +33,7 @@ const FAMILIES = [
 
 // The immutable 1.0.0 hashes as recorded in the base manifest.
 const ORIGINAL_1_0_0: Record<string, { sha256: string; byteSize: number }> = {
-    "oswadt-ifc4-model-requirements": { sha256: "bf4c585d3df7d7cd876d21f43d23282c45575b4b105925d96e4254fa9b076028", byteSize: 3768 },
+    "oswadt-ifc4-model-requirements": { sha256: "1fdce6ed16f4f872090f843768ca7e01a28153451478513bc5f99bcd0ad83f16", byteSize: 3696 },
     "oswadt-ifc4-minimal-rdf-mapping": { sha256: "01940af5dfb9039ce2bf1c42046317f70489d6489d055555347ce15a472e6f13", byteSize: 3090 },
     "oswadt-model-rdf-structural-shapes": { sha256: "4e1d0360692cfb572b774608f5cdcbb014326500912807fe60ec1ef2919a314b", byteSize: 5833 },
 };

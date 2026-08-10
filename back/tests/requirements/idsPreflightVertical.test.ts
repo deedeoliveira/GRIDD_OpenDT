@@ -13,7 +13,7 @@ const profile: IdsProfileMetadata = {
     artifactUuid: "00000000-0000-4000-8000-000000000007",
     familyKey: "oswadt-ifc4-model-requirements",
     version: "1.0.0",
-    sha256: "bf4c585d3df7d7cd876d21f43d23282c45575b4b105925d96e4254fa9b076028",
+    sha256: "1fdce6ed16f4f872090f843768ca7e01a28153451478513bc5f99bcd0ad83f16",
     absolutePath: path.resolve(process.cwd(), "../semantic/artifacts/runtime/oswadt-ifc4-model-requirements/1.1.0/oswadt-ifc4-model-requirements-v1.1.ids"),
 };
 

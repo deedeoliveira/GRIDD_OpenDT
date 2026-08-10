@@ -1,0 +1,7 @@
+# Governed semantic artifacts must checkout byte-identically to their
+# committed blobs, because their SHA-256 hashes are validated against the
+# manifest (back/semantic/artifactValidation.ts) and any CRLF conversion on
+# checkout would break integrity validation on Windows (core.autocrlf=true).
+semantic/artifacts/runtime/**/*.ids text eol=lf
+semantic/artifacts/runtime/**/*.ttl text eol=lf
+semantic/artifacts/runtime/**/*.json text eol=lf
