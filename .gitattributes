@@ -5,3 +5,6 @@
 semantic/artifacts/runtime/**/*.ids text eol=lf
 semantic/artifacts/runtime/**/*.ttl text eol=lf
 semantic/artifacts/runtime/**/*.json text eol=lf
+semantic/artifacts/test/**/*.ids text eol=lf
+semantic/artifacts/test/**/*.ttl text eol=lf
+semantic/artifacts/test/**/*.json text eol=lf
