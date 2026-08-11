@@ -2,6 +2,8 @@ import { GraphError, type GraphClient, type GraphHealthResult, type RdfContentTy
 import { SemanticArtifactError, type GraphVerificationSummary, type IntegrityValidationSummary, type SemanticArtifactFamilyRow, type SemanticArtifactLoadOperationRow, type SemanticArtifactRow } from "../../semantic/artifactTypes.ts";
 import type { ArtifactSource } from "../../semantic/publicArtifactManifest.ts";
 import type {
+    ArtifactSetActivationItem,
+    ArtifactSetActivationResult,
     EnsureLoadOperationInput,
     EnsureSemanticArtifactInput,
     EnsureSemanticFamilyInput,
@@ -240,6 +242,16 @@ export class FakeSemanticArtifactDatabase implements SemanticArtifactDatabasePor
         await this.setOperationStatus(operationUuid, "completed");
     }
 
+    /** Completes an operation AND reconciles previous_artifact_id to the predecessor actually
+     * superseded by this activation — mirrors SemanticArtifactDatabase.applyActivationMutation. */
+    private async completeActivationOperation(operationUuid: string, previousArtifactId: number | null): Promise<void> {
+        const operation = await this.requiredOperation(operationUuid);
+        operation.status = "completed";
+        operation.error_code = null;
+        operation.error_message = null;
+        operation.previous_artifact_id = previousArtifactId;
+    }
+
     async activateArtifact(input: { operationUuid: string; familyId: number; artifactId: number; expectedCurrentArtifactId: number | null }): Promise<{ previousArtifactId: number | null; currentArtifactId: number; alreadyCurrent: boolean }> {
         return this.withLock(`family:${input.familyId}`, async () => {
             const family = this.families.find((row) => row.id === input.familyId);
@@ -265,8 +277,128 @@ export class FakeSemanticArtifactDatabase implements SemanticArtifactDatabasePor
             }
             artifact.lifecycle_status = "active";
             family.current_artifact_id = artifact.id;
-            await this.setOperationStatus(input.operationUuid, "completed");
+            await this.completeActivationOperation(input.operationUuid, previous);
             return { previousArtifactId: previous, currentArtifactId: artifact.id, alreadyCurrent: false };
+        });
+    }
+
+    private isEligibleForActivation(artifact: SemanticArtifactRow): boolean {
+        const verified = artifact.storage_mode === "file_executed"
+            ? artifact.validation_status === "file_verified" && artifact.named_graph_uri === null
+            : artifact.validation_status === "graph_verified" && artifact.named_graph_uri !== null;
+        return verified
+            && artifact.lifecycle_status !== "failed"
+            && artifact.lifecycle_status !== "retired"
+            && artifact.privacy_classification !== "synthetic_test_only"
+            && artifact.privacy_classification !== "private_local"
+            && artifact.privacy_classification !== "requires_manual_review";
+    }
+
+    async activateArtifactSet(input: { items: ArtifactSetActivationItem[] }): Promise<ArtifactSetActivationResult> {
+        if (input.items.length === 0) {
+            throw new SemanticArtifactError("activation_conflict", "triplet activation requires at least one family target");
+        }
+        const keys = input.items.map((item) => item.familyKey);
+        if (new Set(keys).size !== keys.length) {
+            throw new SemanticArtifactError("activation_conflict", "duplicate family key in requested activation set");
+        }
+        const ordered = [...input.items].sort((a, b) => a.familyKey.localeCompare(b.familyKey));
+
+        return this.withLock("triplet:ifc4x3", async () => {
+            const families = ordered.map((item) => {
+                const family = this.families.find((row) => row.family_key === item.familyKey);
+                if (!family) throw new SemanticArtifactError("artifact_not_found", `family '${item.familyKey}' was not found`);
+                return family;
+            });
+
+            if (families.some((family) => family.current_artifact_id === null)) {
+                throw new SemanticArtifactError("activation_conflict", "triplet activation requires every family to already have an active current artifact; this operation is not a first-activation/bootstrap path");
+            }
+
+            const currentArtifacts = families.map((family) => {
+                const artifact = this.artifacts.find((row) => row.id === family.current_artifact_id);
+                if (!artifact) throw new SemanticArtifactError("artifact_not_found", "current artifact referenced by a locked family no longer exists");
+                return artifact;
+            });
+
+            const targetArtifacts = ordered.map((item) => {
+                const artifact = this.artifacts.find((row) => row.id === item.targetArtifactId);
+                if (!artifact) throw new SemanticArtifactError("artifact_not_found", "target artifact no longer exists");
+                return artifact;
+            });
+
+            const sourceComplete = ordered.every((item, i) =>
+                currentArtifacts[i]!.family_id === families[i]!.id
+                && currentArtifacts[i]!.semantic_version === item.expectedSourceVersion);
+            const targetComplete = ordered.every((item, i) => families[i]!.current_artifact_id === item.targetArtifactId);
+
+            if (!sourceComplete && !targetComplete) {
+                throw new SemanticArtifactError("activation_conflict", "IFC4x3 compatibility triplet is in a mixed/partial state; refusing to auto-converge");
+            }
+
+            if (targetComplete) {
+                // Mirrors SemanticArtifactDatabase.activateArtifactSet: a complete target
+                // pointer set is NOT itself evidence this triplet service performed the
+                // transition. Require truthful, already-completed activate_existing evidence
+                // for every family — never inferred from pointers, never repaired here.
+                for (const item of ordered) {
+                    const family = this.families.find((f) => f.family_key === item.familyKey)!;
+                    const operation = this.operations.find((o) => o.operation_uuid === item.operationUuid);
+                    const expectedSource = this.artifacts.find((a) => a.family_id === family.id && a.semantic_version === item.expectedSourceVersion);
+                    const truthful = operation !== undefined
+                        && operation.operation_type === "activate_existing"
+                        && operation.artifact_id === item.targetArtifactId
+                        && operation.status === "completed"
+                        && expectedSource !== undefined
+                        && operation.previous_artifact_id !== null
+                        && operation.previous_artifact_id === expectedSource.id
+                        && operation.previous_artifact_id !== item.targetArtifactId;
+                    if (!truthful) {
+                        throw new SemanticArtifactError(
+                            "activation_conflict",
+                            `family '${item.familyKey}' is on the target revision but has no truthful, already-completed triplet activation evidence for it; refusing to fabricate or repair activation provenance`
+                        );
+                    }
+                }
+                return {
+                    status: "already_active" as const,
+                    results: ordered.map((item, i) => ({
+                        familyKey: item.familyKey,
+                        familyId: families[i]!.id,
+                        previousArtifactId: families[i]!.current_artifact_id,
+                        currentArtifactId: item.targetArtifactId,
+                    })),
+                };
+            }
+
+            for (let i = 0; i < ordered.length; i++) {
+                const item = ordered[i]!;
+                const family = families[i]!;
+                const target = targetArtifacts[i]!;
+                if (target.family_id !== family.id || target.semantic_version !== item.targetVersion) {
+                    throw new SemanticArtifactError("activation_ineligible", `target artifact for family '${item.familyKey}' does not match the expected family/version`);
+                }
+                if (!this.isEligibleForActivation(target)) {
+                    throw new SemanticArtifactError("activation_ineligible", `target artifact for family '${item.familyKey}' is not verified for its storage mode and eligible for activation`);
+                }
+            }
+
+            const results: ArtifactSetActivationResult["results"] = [];
+            for (let i = 0; i < ordered.length; i++) {
+                const item = ordered[i]!;
+                const family = families[i]!;
+                const target = targetArtifacts[i]!;
+                const previousArtifactId = family.current_artifact_id;
+                if (previousArtifactId !== null) {
+                    const old = this.artifacts.find((row) => row.id === previousArtifactId);
+                    if (old) old.lifecycle_status = "superseded";
+                }
+                target.lifecycle_status = "active";
+                family.current_artifact_id = target.id;
+                await this.completeActivationOperation(item.operationUuid, previousArtifactId);
+                results.push({ familyKey: item.familyKey, familyId: family.id, previousArtifactId, currentArtifactId: target.id });
+            }
+            return { status: "activated" as const, results };
         });
     }
 
