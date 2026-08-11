@@ -67,7 +67,10 @@ test("frontend/backend contract uses real file pickers and multipart, backend ha
     const proxy = fs.readFileSync(path.resolve(process.cwd(), "../front/app/api/model-intake/[...path]/route.ts"), "utf8");
     const route = fs.readFileSync(path.resolve(process.cwd(), "routes/modelIntake.ts"), "utf8");
     const service = fs.readFileSync(path.resolve(process.cwd(), "modelIntake/modelIntakeService.ts"), "utf8");
-    assert.equal((page.match(/type="file"/g) ?? []).length, 3);
+    // TWO real file pickers: the IFC model and the temporary SHACL shapes. The third
+    // (temporary IDS) is gone — Option B: model intake never accepts an IDS.
+    assert.equal((page.match(/type="file"/g) ?? []).length, 2);
+    assert.doesNotMatch(page, /accept="\.ids/);
     assert.match(page, /new FormData/); assert.match(proxy, /request\.formData/); assert.match(route, /upload\.fields/);
     assert.match(page, /serverComputedSha256/); assert.match(page, /profile\.requirements/);
     assert.match(page, /Validar e pré-visualizar/); assert.match(page, /Create model version/);

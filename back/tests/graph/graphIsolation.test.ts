@@ -93,11 +93,20 @@ test("semantic_uri: só a projeção 5B (source='graph') a escreve — ativos MO
     for (const { file, source } of operationalSources()) {
         if (/semantic_uri/i.test(source)) offenders.push(file);
     }
-    // scripts/ pode LER (relatório legado read-only), mas nunca escrever
+    // scripts/ pode LER (relatório legado read-only), mas nunca escrever.
+    //
+    // O padrão visa DECLARAÇÕES DE ESCRITA em runtime (`INSERT INTO ... semantic_uri`,
+    // `UPDATE <tabela> SET ... semantic_uri`). Não pode disparar sobre DDL verbatim
+    // embutido nos self-tests de esquema descartável: aí `semantic_uri` é apenas uma
+    // declaração de COLUNA, e o único "UPDATE" por perto é a cláusula
+    // `... DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP` de `updated_at`
+    // (ou o próprio token "updated_at"), que não escreve `semantic_uri` coisa nenhuma.
+    // Exigir a forma completa do comando mantém a proteção real e elimina o falso positivo.
+    const WRITE_TO_SEMANTIC_URI = /(INSERT\s+INTO|UPDATE\s+[`"\w.]+\s+SET)[\s\S]{0,400}?semantic_uri/i;
     for (const entry of fs.readdirSync(path.join(backDir, "scripts"))) {
         if (!entry.endsWith(".ts")) continue;
         const source = fs.readFileSync(path.join(backDir, "scripts", entry), "utf-8");
-        if (/(INSERT|UPDATE)[\s\S]{0,400}semantic_uri/i.test(source)) offenders.push(`scripts/${entry}`);
+        if (WRITE_TO_SEMANTIC_URI.test(source)) offenders.push(`scripts/${entry}`);
     }
     assert.deepEqual(offenders, []);
 

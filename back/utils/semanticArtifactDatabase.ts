@@ -8,6 +8,7 @@ import {
     type GraphVerificationSummary,
     type IntegrityValidationSummary,
     type ArtifactStorageMode,
+    type ArtifactValidationStatus,
     type PrivacyClassification,
     type SemanticArtifactFamilyRow,
     type SemanticArtifactLoadOperationRow,
@@ -60,6 +61,33 @@ export interface SemanticArtifactStatusSnapshot {
     operations: SemanticArtifactLoadOperationRow[];
 }
 
+/**
+ * One row of a coherent, single-statement snapshot of several families' CURRENT
+ * artifact pointers (Change C). `current_artifact_id === null` and every `artifact_*`
+ * field being null are BOTH observable states — the join is a LEFT JOIN precisely so
+ * that a family with no current pointer (or a dangling one) is visible to the caller
+ * instead of silently vanishing. This row type is deliberately free of any IFC4x3
+ * compatibility-set semantics: it is a generic multi-family pointer reader.
+ */
+export interface CurrentArtifactSetRow {
+    family_key: string;
+    family_id: number;
+    artifact_type: SemanticArtifactType;
+    current_artifact_id: number | null;
+    artifact_id: number | null;
+    artifact_uuid: string | null;
+    artifact_family_id: number | null;
+    semantic_version: string | null;
+    sha256: string | null;
+    byte_size: number | null;
+    repository_relative_path: string | null;
+    storage_mode: ArtifactStorageMode | null;
+    named_graph_uri: string | null;
+    lifecycle_status: ArtifactLifecycleStatus | null;
+    validation_status: ArtifactValidationStatus | null;
+    privacy_classification: PrivacyClassification | null;
+}
+
 export interface SemanticArtifactDatabasePort {
     ensureFamily(input: EnsureSemanticFamilyInput): Promise<SemanticArtifactFamilyRow>;
     ensureArtifact(input: EnsureSemanticArtifactInput): Promise<SemanticArtifactRow>;
@@ -68,6 +96,7 @@ export interface SemanticArtifactDatabasePort {
     findFamilyById(familyId: number): Promise<SemanticArtifactFamilyRow | null>;
     findArtifactById(artifactId: number): Promise<SemanticArtifactRow | null>;
     findArtifactByFamilyVersion(familyId: number, semanticVersion: string): Promise<SemanticArtifactRow | null>;
+    resolveCurrentArtifactSet(familyKeys: string[]): Promise<CurrentArtifactSetRow[]>;
     findOperationByUuid(operationUuid: string): Promise<SemanticArtifactLoadOperationRow | null>;
     withOperationLock<T>(operationUuid: string, fn: () => Promise<T>): Promise<T>;
     incrementOperationAttempt(operationUuid: string): Promise<void>;
@@ -184,6 +213,56 @@ export class SemanticArtifactDatabase implements SemanticArtifactDatabasePort {
             LIMIT 1
         `, { familyId, semanticVersion });
         return rows[0] ?? null;
+    }
+
+    /**
+     * Reads, in EXACTLY ONE SQL statement and with NO explicit transaction and NO
+     * `FOR UPDATE`, the current-artifact pointer of every requested family together
+     * with the joined artifact row. Under InnoDB's default REPEATABLE READ (and under
+     * READ COMMITTED alike) a single statement observes one consistent committed
+     * snapshot, so the three governed pointers can never be read half-way through
+     * another connection's atomic three-pointer activation transaction.
+     *
+     * Purely a DB-layer primitive: it knows nothing about IFC4x3 compatibility sets.
+     * Missing families simply do not appear in the result — detecting that is the
+     * caller's contract. A family whose `current_artifact_id` is NULL (or dangling)
+     * still appears, with null artifact columns, thanks to the LEFT JOIN.
+     */
+    async resolveCurrentArtifactSet(familyKeys: string[]): Promise<CurrentArtifactSetRow[]> {
+        if (!Array.isArray(familyKeys) || familyKeys.length === 0) {
+            throw new SemanticArtifactError("configuration_error", "resolveCurrentArtifactSet requires at least one family key");
+        }
+        if (new Set(familyKeys).size !== familyKeys.length) {
+            throw new SemanticArtifactError("configuration_error", "resolveCurrentArtifactSet received duplicate family keys");
+        }
+        await this.db.checkConnection();
+        // Named placeholders (mysql2 `namedPlaceholders: true`, as used by every other
+        // statement in this file) require one distinct name per IN-list element.
+        const names = familyKeys.map((_key, index) => `:familyKey${index}`);
+        const params: Record<string, string> = {};
+        familyKeys.forEach((key, index) => { params[`familyKey${index}`] = key; });
+        const [rows]: any = await this.db.connection.execute(`
+            SELECT f.family_key AS family_key,
+                   f.id AS family_id,
+                   f.artifact_type AS artifact_type,
+                   f.current_artifact_id AS current_artifact_id,
+                   a.id AS artifact_id,
+                   a.artifact_uuid AS artifact_uuid,
+                   a.family_id AS artifact_family_id,
+                   a.semantic_version AS semantic_version,
+                   a.sha256 AS sha256,
+                   a.byte_size AS byte_size,
+                   a.repository_relative_path AS repository_relative_path,
+                   a.storage_mode AS storage_mode,
+                   a.named_graph_uri AS named_graph_uri,
+                   a.lifecycle_status AS lifecycle_status,
+                   a.validation_status AS validation_status,
+                   a.privacy_classification AS privacy_classification
+            FROM semantic_artifact_families f
+            LEFT JOIN semantic_artifacts a ON a.id = f.current_artifact_id
+            WHERE f.family_key IN (${names.join(", ")})
+        `, params);
+        return rows as CurrentArtifactSetRow[];
     }
 
     private async findArtifactByFamilyHash(familyId: number, sha256: string): Promise<SemanticArtifactRow | null> {

@@ -4,6 +4,7 @@ import path from "node:path";
 import { Parser } from "n3";
 import { loadGraphConfig } from "../graph/graphConfig.ts";
 import { structuralShapesGraphUri } from "../graph/namedGraphs.ts";
+import { resolvePinnedArtifactRow, type PinnedGraphArtifactSelection } from "../modelIntake/semanticExecutionContext.ts";
 import { SemanticArtifactDatabase, type SemanticArtifactDatabasePort } from "../utils/semanticArtifactDatabase.ts";
 import { loadSemanticValidationConfig } from "./semanticValidationConfig.ts";
 import { PyShaclValidationProvider } from "./pyShaclValidationProvider.ts";
@@ -90,6 +91,48 @@ export class ShapeSetService {
             shapesArtifactId: Number(artifact.id), familyKey, version: artifact.semantic_version,
             constraintCount: inspected.constraints.length, at: new Date().toISOString() }));
         return { source: "governed_active_shapes", filename: path.basename(absolutePath), familyKey,
+            version: artifact.semantic_version, sha256: artifact.sha256, artifactId: Number(artifact.id),
+            artifactUuid: artifact.artifact_uuid, namedGraphUri: artifact.named_graph_uri, turtle,
+            constraints: inspected.constraints, executorName: inspected.executorName, executorVersion: inspected.executorVersion };
+    }
+
+    /**
+     * Change C authoritative path: resolves the governed structural shapes PINNED by a
+     * captured SemanticExecutionContext, strictly by artifact id. `current_artifact_id`
+     * is never read. Every integrity check of `resolveGoverned` is preserved unchanged:
+     * validation_status, storage_mode, privacy classification, the derived governed
+     * named-graph-URI comparison, artifact-root path containment, the SHA-256 + byte-size
+     * file check, the Turtle security validation, and `provider.inspectShapes()`. The
+     * pinned snapshot's `namedGraphUri` is additionally re-compared to the DB row (see
+     * resolvePinnedArtifactRow) as immutability defence-in-depth.
+     */
+    async resolveByArtifactId(selection: PinnedGraphArtifactSelection): Promise<ShapesSelection> {
+        const config = loadSemanticValidationConfig();
+        const artifact = await resolvePinnedArtifactRow(this.db, selection);
+        if (artifact.validation_status !== "graph_verified" || artifact.storage_mode !== "graph_backed"
+            || artifact.privacy_classification !== "public_research_artifact") {
+            throw new SemanticValidationError("governed_shapes_invalid", "The pinned shapes artifact is not public, graph-verified and graph-backed.");
+        }
+        const graph = loadGraphConfig();
+        if (!graph.configured) throw new SemanticValidationError("graph_not_configured", graph.reason);
+        const expectedGraph = structuralShapesGraphUri(graph.config.baseUri, artifact.artifact_uuid);
+        if (artifact.named_graph_uri !== expectedGraph) throw new SemanticValidationError("governed_shapes_graph_mismatch", "The pinned shapes graph URI is not governed.");
+        const root = path.resolve(config.artifactRoot);
+        const absolutePath = path.resolve(root, artifact.repository_relative_path);
+        if (!absolutePath.startsWith(root + path.sep)) throw new SemanticValidationError("governed_shapes_path_invalid", "The governed shapes path escapes the artifact root.");
+        const bytes = fs.readFileSync(absolutePath);
+        if (hash(bytes) !== artifact.sha256 || bytes.length !== Number(artifact.byte_size)) {
+            throw new SemanticValidationError("governed_shapes_integrity_failed", "The governed shapes file failed hash or size verification.");
+        }
+        const turtle = bytes.toString("utf8");
+        validateShapesTurtleSecurity(turtle, selection.familyKey === config.modelShapesFamilyKey);
+        const inspected = await this.provider.inspectShapes({ shapesTurtle: turtle, inference: config.inference,
+            advanced: config.advanced, metaShacl: config.metaShacl, timeoutMs: config.timeoutMs,
+            correlationId: crypto.randomUUID() });
+        console.log(JSON.stringify({ type: "shacl_shapes_resolved_pinned", shapesHash: artifact.sha256,
+            shapesArtifactId: Number(artifact.id), familyKey: selection.familyKey, version: artifact.semantic_version,
+            constraintCount: inspected.constraints.length, at: new Date().toISOString() }));
+        return { source: "governed_active_shapes", filename: path.basename(absolutePath), familyKey: selection.familyKey,
             version: artifact.semantic_version, sha256: artifact.sha256, artifactId: Number(artifact.id),
             artifactUuid: artifact.artifact_uuid, namedGraphUri: artifact.named_graph_uri, turtle,
             constraints: inspected.constraints, executorName: inspected.executorName, executorVersion: inspected.executorVersion };

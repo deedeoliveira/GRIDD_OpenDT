@@ -82,6 +82,47 @@ test("A3 authenticated bim_manager account is accepted (next called, no error bo
   assert.equal(res.done, false, "no response written when authorized");
 });
 
+/* ---- Change C correction pass: narrow gaps in upload-guard role coverage ----
+ * A2 already covers the role-less ("student") account at the guard. These add the two
+ * genuinely uncovered cases: an operational_manager-only account, and additive multi-role
+ * accounts, asserted against requireBimManagement itself rather than only against
+ * resolveCapabilities. Existing authorization behaviour is NOT modified — students and
+ * operational managers are already correctly forbidden; these lock that in.
+ */
+function respondRoles(roles: string[]) {
+  respond([[CAP_SQL, [roles.map((normalized_role_key) => ({ status: "active", account_kind: "human", normalized_role_key }))]]]);
+}
+
+test("A4 operational_manager-only account CANNOT upload IFC (403 bim_management_required)", async () => {
+  respondRoles(["operational_manager"]);
+  const req = mockReq({ identity: { accountId: 2 } }), res = mockRes();
+  let nexted = false;
+  await requireBimManagement(req, res, () => { nexted = true; });
+  assert.equal(nexted, false, "reservation authority must never imply BIM authority");
+  assert.equal(res.statusCode, 403);
+  assert.equal(res.body.code, "bim_management_required");
+});
+
+test("A5 multi-role account holding bim_manager may upload IFC (roles are additive)", async () => {
+  respondRoles(["operational_manager", "bim_manager"]);
+  const req = mockReq({ identity: { accountId: 3 } }), res = mockRes();
+  let nexted = false;
+  await requireBimManagement(req, res, () => { nexted = true; });
+  assert.equal(nexted, true);
+  assert.equal(res.done, false, "no response written when authorized");
+});
+
+test("A6 adding a further role alongside bim_manager does not remove BIM authority", async () => {
+  // Order-independence: the extra grant must not shadow or override bim_manager.
+  for (const roles of [["bim_manager", "operational_manager"], ["operational_manager", "bim_manager"]]) {
+    respondRoles(roles);
+    const req = mockReq({ identity: { accountId: 4 } }), res = mockRes();
+    let nexted = false;
+    await requireBimManagement(req, res, () => { nexted = true; });
+    assert.equal(nexted, true, `bim_manager authority lost with grants [${roles.join(", ")}]`);
+  }
+});
+
 /* ============ B. model-version download dual authorization (PRODUCTION fn) ============ */
 
 test("B1 reserveResources session (no token) is authorized", async () => {

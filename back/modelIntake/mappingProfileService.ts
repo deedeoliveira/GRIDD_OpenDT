@@ -7,6 +7,7 @@ import { ArtifactValidationService } from "../semantic/artifactValidation.ts";
 import { FilesystemArtifactSource, loadPublicArtifactManifest, activeArtifactKey, ACTIVE_ARTIFACT_VERSION } from "../semantic/publicArtifactManifest.ts";
 import { loadSemanticArtifactConfig } from "../semantic/semanticArtifactConfig.ts";
 import { SemanticArtifactDatabase, type SemanticArtifactDatabasePort } from "../utils/semanticArtifactDatabase.ts";
+import { resolvePinnedArtifactRow, type PinnedArtifactSelection } from "./semanticExecutionContext.ts";
 import type { IfcRdfMappingProfile } from "./modelIntakeTypes.ts";
 
 const REQUIRED_NAMESPACES: Record<string, string> = {
@@ -118,5 +119,30 @@ export class MappingProfileService {
         // Load N3 eagerly here so mapping setup fails if the runtime dependency is unavailable.
         void Parser;
         return { artifactId: Number(artifact.id), artifactUuid: artifact.artifact_uuid, sha256, version: artifact.semantic_version, familyKey, profile };
+    }
+
+    /**
+     * Change C authoritative path: resolves the IFC-to-RDF mapping PINNED by a captured
+     * SemanticExecutionContext, strictly by artifact id — `current_artifact_id` is never
+     * read, so a mid-attempt governed triplet activation cannot swap the mapping under a
+     * running intake. Every integrity check of `resolveActive` is preserved unchanged:
+     * validation_status, storage_mode, named_graph_uri absence, artifact-root path
+     * containment, the filesystem SHA-256 re-hash, and the declarative mapping-profile
+     * schema validation.
+     */
+    async resolveByArtifactId(selection: PinnedArtifactSelection, artifactRoot: string) {
+        const artifact = await resolvePinnedArtifactRow(this.db, selection);
+        if (artifact.validation_status !== "file_verified" || artifact.storage_mode !== "file_executed" || artifact.named_graph_uri !== null) {
+            throw new Error("The pinned IFC-to-RDF mapping is not a verified file-executed artifact.");
+        }
+        const absolutePath = path.resolve(artifactRoot, artifact.repository_relative_path);
+        const prefix = artifactRoot.endsWith(path.sep) ? artifactRoot : `${artifactRoot}${path.sep}`;
+        if (!absolutePath.startsWith(prefix)) throw new Error("The governed mapping path escapes the artifact root.");
+        const bytes = fs.readFileSync(absolutePath);
+        const sha256 = crypto.createHash("sha256").update(bytes).digest("hex");
+        if (sha256 !== artifact.sha256) throw new Error("Pinned IFC-to-RDF mapping integrity check failed.");
+        const profile = validateMappingProfile(JSON.parse(bytes.toString("utf8")));
+        void Parser;
+        return { artifactId: Number(artifact.id), artifactUuid: artifact.artifact_uuid, sha256, version: artifact.semantic_version, familyKey: selection.familyKey, profile };
     }
 }

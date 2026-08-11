@@ -15,6 +15,7 @@ import { classifyDuplicateKey } from "../utils/mysqlDuplicateKey.ts";
 import { hashFile, promoteFile, removeTempFile, removeVersionDir, resolveStorageKey, versionStorageKey } from "../utils/storage.ts";
 import { extractIfcModelFromFile } from "../requirements/ifcFileExtraction.ts";
 import type { IntakeProfile } from "../modelIntake/modelIntakeTypes.ts";
+import type { SemanticExecutionContext } from "../modelIntake/semanticExecutionContext.ts";
 import { loadModelIntakeConfig } from "../modelIntake/modelIntakeConfig.ts";
 import { SemanticMaterialisationService } from "../modelIntake/semanticMaterialisationService.ts";
 
@@ -56,7 +57,15 @@ export interface UploadInput {
     linkedParentId?: number | undefined;
     description?: string | null;
     createdBy?: string | null;
-    controlledIntake?: { idsProfile: IntakeProfile };
+    /**
+     * Change C: the controlled-intake path carries the ONE pinned semantic execution
+     * context captured at the start of `ModelIntakeService.createVersion`. `idsProfile`
+     * was already resolved from `semanticContext.ids` through the pinned resolver by the
+     * caller and is passed through unchanged as `profileOverride`; mapping and shapes are
+     * NOT reconstructed here — the same context instance is threaded into
+     * `SemanticMaterialisationService.materialise()`.
+     */
+    controlledIntake?: { idsProfile: IntakeProfile; semanticContext: SemanticExecutionContext };
 }
 
 export interface UploadResult {
@@ -333,6 +342,7 @@ export async function handleModelUpload(input: UploadInput): Promise<UploadResul
                         versionId: activeVersionId,
                         extractedModel: extracted,
                         ids: input.controlledIntake.idsProfile,
+                        context: input.controlledIntake.semanticContext,
                     });
                 } catch (error) {
                     if (intakeConfig.mode === "required") throw error;

@@ -16,6 +16,8 @@ import { ModelIntakeDatabase } from "../utils/modelIntakeDatabase.ts";
 import { loadModelIntakeConfig } from "./modelIntakeConfig.ts";
 import { getPreflightRun, storePreflightRun } from "./modelIntakeRunStore.ts";
 import { MappingProfileService } from "./mappingProfileService.ts";
+import { SemanticArtifactDatabase, type SemanticArtifactDatabasePort } from "../utils/semanticArtifactDatabase.ts";
+import { buildSemanticExecutionContext, type SemanticExecutionContext } from "./semanticExecutionContext.ts";
 import { buildMinimalRdf } from "./rdfMaterialiser.ts";
 import type { IntakeProfile, PreflightRun, PreviewAsset, PreviewSpace, PreviewSpaceStatus, PreviewSpaceCode } from "./modelIntakeTypes.ts";
 import { isValidIfcGlobalId } from "../utils/ifcGlobalId.ts";
@@ -245,6 +247,7 @@ export class ModelIntakeService {
         private readonly idsProvider = new IfcOpenShellIdsValidationProvider(),
         private readonly profiles = new IdsProfileResolver(),
         private readonly mappings = new MappingProfileService(),
+        private readonly artifactDatabase: Pick<SemanticArtifactDatabasePort, "resolveCurrentArtifactSet"> = new SemanticArtifactDatabase(),
     ) {}
 
     async context() {
@@ -268,14 +271,18 @@ export class ModelIntakeService {
                 state: currentVersion ? "active" : versionCount ? "no_current_version" : "no_active_version",
                 canCreateVersion: true };
         });
-        const ids = await this.resolveProfile("active", undefined, crypto.randomUUID());
+        const ids = await this.resolveProfile(crypto.randomUUID());
         const mapping = await this.mappings.resolveActive(config.mappingFamilyKey, config.artifactRoot);
         return {
             models,
             activeIdsProfile: this.publicProfile(ids),
             mappingProfile: { familyKey: mapping.familyKey, version: mapping.version, sha256: mapping.sha256, status: "active", artifactType: "ifc_rdf_mapping" },
-            limits: { maxIfcBytes: config.maxIfcBytes, maxIdsBytes: config.maxIdsBytes },
-            modes: { materialisation: config.mode, temporaryIdsUploadEnabled: config.temporaryIdsUploadEnabled },
+            // Option B: model intake never accepts an IDS from the caller, so the context
+            // payload advertises NO IDS upload limit and NO IDS-mode toggle. A client has
+            // nothing to choose: `activeIdsProfile` above is the governed revision that
+            // both preview and authoritative intake will use.
+            limits: { maxIfcBytes: config.maxIfcBytes },
+            modes: { materialisation: config.mode },
         };
     }
 
@@ -316,15 +323,25 @@ export class ModelIntakeService {
         };
     }
 
-    async preflight(input: { ifcFile: UploadedFile; idsMode: "active" | "uploaded"; idsFile?: UploadedFile; modelId: number }, store = true): Promise<PreflightRun> {
+    /**
+     * Option B: model intake NEVER accepts an IDS from the caller. There is no
+     * `idsMode` and no `idsFile` on this DTO, so no uploaded/temporary IDS branch is
+     * reachable from either the standalone preview or the authoritative path.
+     *
+     * `context` is supplied ONLY by the authoritative `createVersion` path (Change C).
+     * When present, IDS and mapping resolution inside this call are PINNED to the
+     * captured snapshot. The standalone POST /modelIntake/preflight route never passes
+     * it, so the NON-authoritative preview resolves the governed *currently active*
+     * revision (it may therefore go stale between preview and authoritative capture —
+     * that is the pre-existing drift policy and is deliberately untouched here). Every
+     * other check in this method (IFC size limit, filename, IFC content, IFC4x3 schema
+     * gate, executor validation, IDS hash check, project rules) is unchanged.
+     */
+    async preflight(input: { ifcFile: UploadedFile; modelId: number }, store = true, context?: SemanticExecutionContext): Promise<PreflightRun> {
         const config = loadModelIntakeConfig();
         if (!config.workspaceEnabled) throw new IntakeError("model_intake_disabled", "The controlled model intake workspace is disabled.", 404);
         if (input.ifcFile.size > config.maxIfcBytes) throw new IntakeError("ifc_too_large", "The IFC file exceeds the configured size limit.", 413);
-        if (input.idsFile && input.idsFile.size > config.maxIdsBytes) throw new IntakeError("ids_too_large", "The IDS file exceeds the configured size limit.", 413);
         const ifcName = assertFilename(input.ifcFile.originalname, ".ifc");
-        if (input.idsMode === "uploaded" && !config.temporaryIdsUploadEnabled) throw new IntakeError("temporary_ids_disabled", "Temporary IDS upload is disabled.", 403);
-        if (input.idsMode === "uploaded" && !input.idsFile) throw new IntakeError("ids_file_required", "Select an IDS file for uploaded mode.", 400);
-        if (input.idsMode === "active" && input.idsFile) throw new IntakeError("unexpected_ids_file", "Do not send an IDS file when using the active governed profile.", 400);
         const modelContext = await this.database.getModelContext(input.modelId);
         if (!modelContext) throw new IntakeError("model_not_found", "Select an existing logical model line.", 404);
         const runUuid = crypto.randomUUID();
@@ -340,7 +357,7 @@ export class ModelIntakeService {
             // schemaSupported flag), so IFC4 and IFC2X3 are rejected here.
             const schemaGate = evaluateIfcSchemaGate(extracted.schema);
             if (!schemaGate.supported) throw new IntakeError(schemaGate.code!, schemaGate.message!, 422);
-            const profile = await this.resolveProfile(input.idsMode, input.idsFile, runUuid);
+            const profile = await this.resolveProfile(runUuid, context);
             const idsConfig = loadIdsValidationConfig();
             const report = await new ModelRequirementsValidationService(
                 { ...idsConfig, enabled: true, mode: "required" }, this.idsProvider,
@@ -353,7 +370,9 @@ export class ModelIntakeService {
                 correlationId: runUuid,
                 profileOverride: profile,
             });
-            const mapping = await this.mappings.resolveActive(config.mappingFamilyKey, config.artifactRoot);
+            const mapping = context
+                ? await this.mappings.resolveByArtifactId(context.mapping, config.artifactRoot)
+                : await this.mappings.resolveActive(config.mappingFamilyKey, config.artifactRoot);
             const graph = loadGraphConfig();
             if (!graph.configured) throw new IntakeError("graph_not_configured", graph.reason, 503);
             const spaces: PreviewSpace[] = [];
@@ -408,9 +427,10 @@ export class ModelIntakeService {
             }
             const rdfPreview = await buildMinimalRdf({ baseUri: graph.config.baseUri, mapping: mapping.profile,
                 mappingArtifactUri: `${graph.config.baseUri}/semantic-artifact/${mapping.artifactUuid}`,
-                idsProfileUri: profile.source === "governed_active_profile"
-                    ? `${graph.config.baseUri}/semantic-artifact/${profile.artifactUuid}`
-                    : `${graph.config.baseUri}/temporary-ids-profile/${profile.sha256}`,
+                // Always a governed semantic-artifact URI: model intake can no longer
+                // resolve a temporary uploaded profile, so no `/temporary-ids-profile/`
+                // URI is ever minted from this path.
+                idsProfileUri: `${graph.config.baseUri}/semantic-artifact/${profile.artifactUuid}`,
                 idsProfileVersion: profile.version, runUuid, materialisationUuid: runUuid,
                 logicalModelUuid: modelContext.model_uuid ?? null, modelVersionUuid: null, versionNumber: null,
                 filename: ifcName, fileSha256: ifcHash, ifcSchema: extracted.schema, generatedAt: new Date().toISOString(), spaces, assets });
@@ -431,14 +451,23 @@ export class ModelIntakeService {
                 durationMs: Date.now() - started, at: new Date().toISOString() }));
             return run;
         } finally {
-            if (store) {
-                removeTempFile(input.ifcFile.path);
-                if (input.idsFile) removeTempFile(input.idsFile.path);
-            }
+            // Only the IFC temp file can exist here — the removed IDS upload surface took
+            // its temporary-IDS cleanup with it. Generic `removeTempFile` is untouched.
+            if (store) removeTempFile(input.ifcFile.path);
         }
     }
 
-    async createVersion(input: { preflightRunUuid: string; ifcFile: UploadedFile; idsMode: "active" | "uploaded"; idsFile?: UploadedFile; modelId: number }) {
+    /**
+     * The AUTHORITATIVE controlled model intake path (BIM-manager-driven).
+     *
+     * Change C correction (Option B): a controlled intake always executes the governed
+     * IDS revision carried by the captured `SemanticExecutionContext`. There is no
+     * per-intake temporary/uploaded IDS alternative anywhere in model intake — not even
+     * in the preview path — so `idsMode`/`idsFile` no longer exist on this DTO and no
+     * branch of this call can persist NULL IDS provenance. Legacy callers that still
+     * send those fields are rejected at the route boundary, before any context capture.
+     */
+    async createVersion(input: { preflightRunUuid: string; ifcFile: UploadedFile; modelId: number }) {
         const previous = getPreflightRun(input.preflightRunUuid);
         if (!previous) throw new IntakeError("preflight_expired", "Run Validate and preview again before creating a version.", 409);
         if (previous.modelId !== input.modelId) throw new IntakeError("model_context_changed", "The selected model differs from the preflight context.", 409);
@@ -448,46 +477,56 @@ export class ModelIntakeService {
             throw new IntakeError("governed_shacl_required",
                 "Run SHACL with the active governed shapes and obtain conforms=true before creating a model version.", 422);
         }
+        // ---- Change C: ONE coherent semantic execution context for this whole attempt ----
+        // Captured AFTER the stored preflight run and its preview-SHACL gate above (those
+        // are deliberately about the EARLIER preview request and keep their semantics), and
+        // BEFORE the first authoritative semantic-artifact resolution performed inside this
+        // call. Every later authoritative resolution in this attempt pins to this snapshot
+        // by artifact id; it is never recaptured or refreshed, however long the attempt runs.
+        const semanticContext = await buildSemanticExecutionContext(this.artifactDatabase);
         let current: PreflightRun | null = null;
         try {
-            current = await this.preflight(input, false);
+            current = await this.preflight(input, false, semanticContext);
             if (current.ifc.serverComputedSha256 !== previous.ifc.serverComputedSha256 || current.ids.sha256 !== previous.ids.sha256) {
                 throw new IntakeError("input_hash_changed", "The IFC or IDS differs from the reviewed preflight. Validate and preview these inputs first.", 409);
             }
             if (current.validation.blocking) throw new IntakeError("preflight_blocking", "The selected IFC and IDS did not pass the required checks.", 422);
-            const absoluteProfile = await this.resolveProfile(input.idsMode, input.idsFile, current.runUuid);
+            // `resolveProfile` has exactly one governed source; with the pinned context
+            // the resolved profile is guaranteed to be exactly context.ids.
+            const absoluteProfile = await this.resolveProfile(current.runUuid, semanticContext);
             const result = await handleModelUpload({ tempFilePath: input.ifcFile.path,
                 originalFilename: current.ifc.originalFilename, modelId: input.modelId,
-                description: `Controlled model intake ${current.runUuid}`, controlledIntake: { idsProfile: absoluteProfile } });
+                description: `Controlled model intake ${current.runUuid}`,
+                controlledIntake: { idsProfile: absoluteProfile, semanticContext } });
             return { ...result, inputHashes: { ifc: current.ifc.serverComputedSha256, ids: current.ids.sha256 },
                 previousCurrentVersion: result.previousCurrentVersionId, newCurrentVersion: result.versionId };
         } finally {
-            // handleModelUpload owns IFC cleanup once invoked; this covers all earlier failures.
+            // handleModelUpload owns IFC cleanup once invoked; this covers all earlier
+            // failures. No IDS temp file can exist here — the DTO has no IDS field.
             if (fs.existsSync(input.ifcFile.path)) removeTempFile(input.ifcFile.path);
-            if (input.idsFile && fs.existsSync(input.idsFile.path)) removeTempFile(input.idsFile.path);
         }
     }
 
-    private async resolveProfile(mode: "active" | "uploaded", file: UploadedFile | undefined, correlationId: string): Promise<IntakeProfile> {
-        const config = loadModelIntakeConfig();
+    /**
+     * Model intake has exactly TWO governed resolution modes and no third one:
+     *   (a) PREVIEW — no `context`: the currently active governed revision, via
+     *       `resolveActive`. Non-authoritative and deliberately not pinned across
+     *       requests, so two preflights straddling an activation see different revisions.
+     *   (b) AUTHORITATIVE — `context` present (supplied only by `createVersion`): the
+     *       PINNED revision, via `resolveByArtifactId`, with NO `resolveActive` fallback.
+     *
+     * Option B: the former uploaded/temporary branch is gone. The generic primitives it
+     * used (`assertFilename`, `sha256`, `idsProvider.validateProfile`) are untouched and
+     * remain available to a future BIM-manager IDS-governance workflow; only model
+     * intake's ability to reach them with a caller-supplied file has been removed.
+     */
+    private async resolveProfile(correlationId: string, context?: SemanticExecutionContext): Promise<IntakeProfile> {
         const idsConfig = loadIdsValidationConfig();
-        let metadata;
-        let originalFilename;
-        let source: IntakeProfile["source"];
-        if (mode === "active") {
-            metadata = await this.profiles.resolveActive(idsConfig.familyKey);
-            originalFilename = path.basename(metadata.absolutePath);
-            source = "governed_active_profile";
-        } else {
-            if (!file) throw new IntakeError("ids_file_required", "Select an IDS file.", 400);
-            originalFilename = assertFilename(file.originalname, ".ids");
-            const profileSha256 = sha256(file.path);
-            metadata = { artifactId: null, artifactUuid: crypto.randomUUID(), familyKey: "temporary-upload",
-                version: "pending-executor", sha256: profileSha256, absolutePath: file.path };
-            source = "temporary_uploaded_profile";
-            console.log(JSON.stringify({ type: "temporary_ids_profile_received", correlationId, idsHash: profileSha256,
-                byteSize: file.size, at: new Date().toISOString() }));
-        }
+        const metadata = context
+            ? await this.profiles.resolveByArtifactId(context.ids)
+            : await this.profiles.resolveActive(idsConfig.familyKey);
+        const originalFilename = path.basename(metadata.absolutePath);
+        const source: IntakeProfile["source"] = "governed_active_profile";
         const checked = await this.idsProvider.validateProfile(metadata, correlationId, idsConfig.timeoutMs);
         if (checked.profileSha256 !== metadata.sha256) throw new IntakeError("ids_hash_mismatch", "The IDS executor hash differs from the received file.", 422);
         return { ...metadata, version: checked.profileVersion, source, originalFilename,

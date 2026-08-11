@@ -6,6 +6,7 @@ import { getGraphClient } from "../graph/graphClientProvider.ts";
 import { loadGraphConfig } from "../graph/graphConfig.ts";
 import { semanticValidationReportGraphUri } from "../graph/namedGraphs.ts";
 import { getPreflightRun, updatePreflightRun } from "../modelIntake/modelIntakeRunStore.ts";
+import type { PinnedGraphArtifactSelection } from "../modelIntake/semanticExecutionContext.ts";
 import { resolveStorageKey } from "../utils/storage.ts";
 import { ModelIntakeDatabase } from "../utils/modelIntakeDatabase.ts";
 import { SemanticValidationDatabase } from "../utils/semanticValidationDatabase.ts";
@@ -44,7 +45,14 @@ export class SemanticValidationService {
             governedShapes: publicShapes(selection), limits: { maxShapesBytes: config.maxShapesBytes } };
     }
 
+    /** Preview path (GET /modelIntake/shacl/inspect, governedContext) — resolves "active" freshly. */
     async inspectGoverned() { return this.shapes.resolveGoverned(); }
+
+    /**
+     * Change C authoritative path: inspects the shapes PINNED by a captured
+     * SemanticExecutionContext. Never follows `current_artifact_id`.
+     */
+    async inspectPinned(selection: PinnedGraphArtifactSelection) { return this.shapes.resolveByArtifactId(selection); }
 
     async inspectTemporary(file: { path: string; originalname: string; size: number }, tempRoot: string, correlationId: string) {
         return this.shapes.inspectTemporary(file, tempRoot, correlationId);

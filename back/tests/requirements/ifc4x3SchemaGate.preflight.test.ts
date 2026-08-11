@@ -49,7 +49,8 @@ function ifcFile(name: string) {
 }
 
 async function run(name: string): Promise<any> {
-    return service().preflight({ ifcFile: ifcFile(name), idsMode: "active", modelId: 1 }, false)
+    // Option B: model intake takes no IDS input at all — the governed profile is implicit.
+    return service().preflight({ ifcFile: ifcFile(name), modelId: 1 }, false)
         .then(() => null, (e: any) => e);
 }
 

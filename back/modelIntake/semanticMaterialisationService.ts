@@ -10,6 +10,7 @@ import { resolveStorageKey } from "../utils/storage.ts";
 import { ModelIntakeDatabase } from "../utils/modelIntakeDatabase.ts";
 import { loadModelIntakeConfig } from "./modelIntakeConfig.ts";
 import { MappingProfileService } from "./mappingProfileService.ts";
+import type { PinnedArtifactSelection, PinnedGraphArtifactSelection, SemanticExecutionContext } from "./semanticExecutionContext.ts";
 import { buildMinimalRdf } from "./rdfMaterialiser.ts";
 import type { IntakeProfile, PreviewAsset, PreviewSpace } from "./modelIntakeTypes.ts";
 import { loadSemanticValidationConfig } from "../semanticValidation/semanticValidationConfig.ts";
@@ -27,6 +28,15 @@ export interface SemanticMaterialisationDatabasePort {
 
 export interface ActiveMappingResolverPort {
     resolveActive(familyKey: string, artifactRoot: string): Promise<any>;
+    /** Change C: pinned by-artifact-id resolution; never follows `current_artifact_id`. */
+    resolveByArtifactId(selection: PinnedArtifactSelection, artifactRoot: string): Promise<any>;
+}
+
+/** Change C: only the pinned inspection is reachable from the authoritative path. */
+export interface PinnedShapesInspectorPort {
+    inspectPinned(selection: PinnedGraphArtifactSelection): Promise<any>;
+    execute(...args: any[]): Promise<any>;
+    persistModelReport(...args: any[]): Promise<any>;
 }
 
 function valueFromPsets(psets: any, property: string): string | null {
@@ -46,15 +56,23 @@ export class SemanticMaterialisationService {
         private readonly clientFactory: () => GraphClient = () => getGraphClient(),
         private readonly now: () => Date = () => new Date(),
         private readonly newUuid: () => string = () => crypto.randomUUID(),
-        private readonly validation?: SemanticValidationService,
+        private readonly validation?: PinnedShapesInspectorPort,
     ) {}
 
-    async materialise(input: { versionId: number; extractedModel: ExtractedIfcModel; ids: IntakeProfile }) {
+    /**
+     * Change C: `context` is the ONE pinned semantic execution context captured at the
+     * start of the controlled-intake attempt. Mapping and shapes are resolved strictly by
+     * the pinned artifact ids it carries — no `current_artifact_id`-following resolution
+     * remains anywhere in this authoritative path — so the mapping/shapes/IDS ids
+     * persisted into `model_version_semantic_materialisations` and
+     * `semantic_validation_runs` can never be a mixed-revision combination.
+     */
+    async materialise(input: { versionId: number; extractedModel: ExtractedIfcModel; ids: IntakeProfile; context: SemanticExecutionContext }) {
         const config = loadModelIntakeConfig();
         if (!config.materialisationEnabled || config.mode === "disabled") return { status: "disabled" as const };
         const graphConfig = loadGraphConfig();
         if (!graphConfig.configured) throw new Error(graphConfig.reason);
-        const mapping = await this.mappings.resolveActive(config.mappingFamilyKey, config.artifactRoot);
+        const mapping = await this.mappings.resolveByArtifactId(input.context.mapping, config.artifactRoot);
         const snapshot = await this.database.getVersionSnapshot(input.versionId);
         if (!snapshot) throw new Error(`Model version ${input.versionId} was not found for semantic materialisation.`);
         const versionUuid = snapshot.version.version_uuid;
@@ -66,8 +84,15 @@ export class SemanticMaterialisationService {
             record = await this.database.createMaterialisation({
                 materialisationUuid,
                 modelVersionId: input.versionId,
-                mappingArtifactId: mapping.artifactId,
-                idsProfileArtifactId: input.ids.artifactId,
+                // Persisted straight from the pinned context, not from anything re-resolved.
+                mappingArtifactId: input.context.mapping.artifactId,
+                // A temporary uploaded IDS profile is not a governed artifact and must keep
+                // persisting its own (null) artifact id; only the governed path records the
+                // pinned governed IDS revision. For the governed path these are by
+                // construction the same value, since the profile was resolved from context.ids.
+                idsProfileArtifactId: input.ids.source === "governed_active_profile"
+                    ? input.context.ids.artifactId
+                    : input.ids.artifactId,
                 namedGraphUri: graphUri,
                 sourceFileSha256: snapshot.version.file_hash,
                 mappingVersion: mapping.version,
@@ -141,7 +166,9 @@ export class SemanticMaterialisationService {
         if (validationConfig.enabled && validationConfig.mode !== "disabled") {
             try {
                 const validation = this.validation ?? new SemanticValidationService();
-                const governedShapes = await validation.inspectGoverned();
+                // Authoritative shapes selection is PINNED to the captured context; the
+                // preview-only inspectGoverned() path is never reached from here.
+                const governedShapes = await validation.inspectPinned(input.context.shapes);
                 shaclReport = await validation.execute(rdf.turtle, governedShapes, {
                     validationKind: "model_rdf_structural", modelVersionId: input.versionId,
                     materialisationId: Number(record.id), reportGraphUri: null,

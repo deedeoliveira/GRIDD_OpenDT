@@ -25,7 +25,10 @@ test("model intake is protected by the bimManagement capability and dashboard di
   assert.match(dashboard, /useState\(""\)/); assert.match(dashboard, /<option value="">Selecionar modelo<\/option>/);
   assert.match(dashboard, /<optgroup label="Modelos com versão ativa">/); assert.match(dashboard, /<optgroup label="Modelos sem versão ativa">/);
   assert.match(dashboard, /linha \$\{model\.model_id\}/); assert.match(dashboard, /selected && intakeOpen/);
-  assert.match(dashboard, /setIfcFile\(null\).*setIdsFile\(null\).*setIdsMode\(""\).*setShapesFile\(null\)/);
+  // Option B: there is no IDS file/mode state left to reset — model intake never accepts
+  // an IDS. Choosing a model still clears the IFC and the SHACL shapes selection.
+  assert.match(dashboard, /setIfcFile\(null\).*setShapesMode\("governed"\).*setShapesFile\(null\)/);
+  assert.doesNotMatch(dashboard, /setIdsFile|setIdsMode/);
 });
 
 test("dashboard does not render a detail card for every model line", () => {

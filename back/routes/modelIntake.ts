@@ -25,9 +25,9 @@ const shapesUpload = multer({ dest: tempRoot, limits: { files: 1, fileSize: 2 * 
 // this phase). It is independent of operational management and of asset scopes.
 app.use(requireBimManagement);
 
-function files(req: express.Request): { ifcFile: Express.Multer.File | undefined; idsFile: Express.Multer.File | undefined } {
+function files(req: express.Request): { ifcFile: Express.Multer.File | undefined } {
     const value = req.files as Record<string, Express.Multer.File[]> | undefined;
-    return { ifcFile: value?.ifcFile?.[0], idsFile: value?.idsFile?.[0] };
+    return { ifcFile: value?.ifcFile?.[0] };
 }
 
 function removeUploadedFiles(req: express.Request) {
@@ -37,9 +37,31 @@ function removeUploadedFiles(req: express.Request) {
     }
 }
 
-function idsMode(value: unknown): "active" | "uploaded" {
-    if (value !== "active" && value !== "uploaded") throw new IntakeError("invalid_ids_mode", "idsMode must be active or uploaded.");
-    return value;
+/**
+ * Option B fail-closed guard for BOTH model-intake IFC endpoints (standalone preflight
+ * and authoritative version creation).
+ *
+ * Model intake never accepts an IDS from the caller: preview uses the governed CURRENT
+ * revision and the authoritative path uses the pinned captured one. A legacy caller that
+ * still sends `idsMode` (or an `idsFile` text field) is therefore REJECTED rather than
+ * silently served with the governed profile — otherwise it could believe its IDS was
+ * honoured. A single shared error code is used for both endpoints because the governance
+ * rule they violate is identical; the endpoints do not differ in what they now allow.
+ *
+ * Called as the FIRST statement of each handler, before any model lookup, context
+ * capture, validation or other side effect. An actual `idsFile` multipart PART is
+ * rejected even earlier, by multer itself (the field is no longer in the accept list),
+ * and is mapped to this same error in the router error handler below.
+ */
+const GOVERNED_IDS_ONLY = "Controlled model intake always uses the governed IDS revision — preview uses the current one and "
+    + "version creation uses the revision pinned when the attempt starts. Remove idsMode and any IDS file from the request.";
+
+function assertNoIdsOverride(body: any) {
+    for (const forbidden of ["idsMode", "idsFile"]) {
+        if (body?.[forbidden] !== undefined) {
+            throw new IntakeError("controlled_intake_requires_governed_ids", GOVERNED_IDS_ONLY, 422);
+        }
+    }
 }
 
 function modelId(value: unknown): number {
@@ -109,13 +131,14 @@ app.post("/shacl/validate", shapesUpload.fields([{ name: "shapesFile", maxCount:
     finally { removeUploadedFiles(req); }
 });
 
-app.post("/preflight", upload.fields([{ name: "ifcFile", maxCount: 1 }, { name: "idsFile", maxCount: 1 }]), async (req, res) => {
+// Multipart is retained for the IFC model the BIM manager still uploads; only the
+// additional `idsFile` input is gone from the accept list.
+app.post("/preflight", upload.fields([{ name: "ifcFile", maxCount: 1 }]), async (req, res) => {
     try {
+        assertNoIdsOverride(req.body);
         const selected = files(req);
         if (!selected.ifcFile) throw new IntakeError("ifc_file_required", "Select an IFC file.");
-        const run = await service.preflight({ ifcFile: selected.ifcFile,
-            ...(selected.idsFile ? { idsFile: selected.idsFile } : {}),
-            idsMode: idsMode(req.body.idsMode), modelId: modelId(req.body.modelId) });
+        const run = await service.preflight({ ifcFile: selected.ifcFile, modelId: modelId(req.body.modelId) });
         return buildSuccessResponse(res, 200, safeRun(run));
     } catch (error) {
         removeUploadedFiles(req);
@@ -123,16 +146,16 @@ app.post("/preflight", upload.fields([{ name: "ifcFile", maxCount: 1 }, { name: 
     }
 });
 
-app.post("/models/:modelId/versions", upload.fields([{ name: "ifcFile", maxCount: 1 }, { name: "idsFile", maxCount: 1 }]), async (req, res) => {
+app.post("/models/:modelId/versions", upload.fields([{ name: "ifcFile", maxCount: 1 }]), async (req, res) => {
     try {
+        assertNoIdsOverride(req.body);
         const selected = files(req);
         if (!selected.ifcFile) throw new IntakeError("ifc_file_required", "Select an IFC file.");
         if (typeof req.body.preflightRunUuid !== "string" || !/^[0-9a-f-]{36}$/i.test(req.body.preflightRunUuid)) {
             throw new IntakeError("invalid_preflight_run", "A valid preflightRunUuid is required.");
         }
         const result = await service.createVersion({ preflightRunUuid: req.body.preflightRunUuid,
-            ifcFile: selected.ifcFile, ...(selected.idsFile ? { idsFile: selected.idsFile } : {}), idsMode: idsMode(req.body.idsMode),
-            modelId: modelId(req.params.modelId) });
+            ifcFile: selected.ifcFile, modelId: modelId(req.params.modelId) });
         return buildSuccessResponse(res, 201, result);
     } catch (error) {
         removeUploadedFiles(req);
@@ -203,7 +226,15 @@ app.get("/model-versions/:versionId/semantic-report", (req, res) => sendVersionA
 
 app.use((error: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
     removeUploadedFiles(req);
-    if (error instanceof multer.MulterError) return buildErrorResponse(res, error.code === "LIMIT_FILE_SIZE" ? 413 : 400, "Upload limits were exceeded.");
+    if (error instanceof multer.MulterError) {
+        // A legacy client streaming an `idsFile` part now hits multer's unexpected-field
+        // rejection. Surface the governance reason instead of a generic upload error —
+        // same code the body-level guard uses, and still before any side effect.
+        if (error.code === "LIMIT_UNEXPECTED_FILE" && error.field === "idsFile") {
+            return buildErrorResponse(res, 422, GOVERNED_IDS_ONLY);
+        }
+        return buildErrorResponse(res, error.code === "LIMIT_FILE_SIZE" ? 413 : 400, "Upload limits were exceeded.");
+    }
     return buildErrorResponse(res, 500, "Controlled model intake upload failed.");
 });
 

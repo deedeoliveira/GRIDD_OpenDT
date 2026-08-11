@@ -70,8 +70,17 @@ const extracted = (spaceGuid: string, assetGuid: string, storey: string) => ({ s
 const ids: any = { artifactId: null, artifactUuid: "44444444-4444-4444-8444-444444444444", familyKey: "temporary", version: "1.0.0",
     sha256: "a".repeat(64), absolutePath: "not-returned", source: "temporary_uploaded_profile", originalFilename: "selected.ids",
     executorName: "IfcTester", executorVersion: "0.8.4", specificationCount: 1, requirements: [] };
-const mappings: any = { resolveActive: async () => ({ artifactId: 7, artifactUuid: "55555555-5555-4555-8555-555555555555",
-    sha256: "b".repeat(64), version: "1.0.0", familyKey: "oswadt-ifc4-minimal-rdf-mapping", profile: mapping }) };
+const mappingSelection = { artifactId: 7, artifactUuid: "55555555-5555-4555-8555-555555555555",
+    sha256: "b".repeat(64), version: "1.0.0", familyKey: "oswadt-ifc4-minimal-rdf-mapping", profile: mapping };
+// Change C: the authoritative materialisation path resolves the mapping BY PINNED
+// ARTIFACT ID; resolveActive stays only so the preview contract remains representable.
+const mappings: any = { resolveActive: async () => mappingSelection, resolveByArtifactId: async () => mappingSelection };
+const context: any = {
+    ids: { artifactId: 101, familyKey: "oswadt-ifc4-model-requirements", semanticVersion: "1.0.0", sha256: "a".repeat(64) },
+    mapping: { artifactId: 7, familyKey: "oswadt-ifc4-minimal-rdf-mapping", semanticVersion: "1.0.0", sha256: "b".repeat(64) },
+    shapes: { artifactId: 9, familyKey: "oswadt-model-rdf-structural-shapes", semanticVersion: "1.0.0", sha256: "d".repeat(64),
+        namedGraphUri: "http://oswadt.test/id/graph/shapes/structural/55555555-5555-4555-8555-555555555559" },
+};
 
 function validationReport(conforms: boolean) {
     return { runUuid: "99999999-9999-4999-8999-999999999999", correlationId: "99999999-9999-4999-8999-999999999999",
@@ -91,7 +100,9 @@ function validationReport(conforms: boolean) {
 class FakeValidation {
     persisted = 0;
     constructor(private readonly conforms: boolean) {}
-    async inspectGoverned() { return { source: "governed_active_shapes", artifactId: 9 }; }
+    pinnedSelections: any[] = [];
+    async inspectGoverned() { throw new Error("the authoritative materialisation path must never resolve active shapes"); }
+    async inspectPinned(selection: any) { this.pinnedSelections.push(selection); return { source: "governed_active_shapes", artifactId: selection.artifactId }; }
     async execute() { return validationReport(this.conforms); }
     async persistModelReport(report: any, _graph: string, versionId: number, materialisationId: number) {
         this.persisted++; return { ...report, modelVersionId: versionId, materialisationId,
@@ -104,11 +115,11 @@ test("required materialisation writes and remotely verifies one immutable graph 
     db.snapshots.set(1, snapshot(1, "66666666-6666-4666-8666-666666666661", "space-v1", "asset-v1"));
     const service = new SemanticMaterialisationService(db as any, mappings, () => graph as any,
         () => new Date("2026-07-20T12:00:00.000Z"), () => "77777777-7777-4777-8777-777777777777");
-    const result: any = await service.materialise({ versionId: 1, extractedModel: extracted("space-v1", "asset-v1", "Level 1"), ids });
+    const result: any = await service.materialise({ versionId: 1, extractedModel: extracted("space-v1", "asset-v1", "Level 1"), ids, context });
     assert.equal(result.status, "completed"); assert.equal(graph.puts, 1); assert.equal(db.records.get(1).status, "completed");
     assert.match(result.namedGraphUri, /graph\/model-version\/66666666/);
     assert.equal(new Parser().parse(graph.graphs.get(result.namedGraphUri)!).length, result.tripleCount);
-    await service.materialise({ versionId: 1, extractedModel: extracted("space-v1", "asset-v1", "Level 1"), ids });
+    await service.materialise({ versionId: 1, extractedModel: extracted("space-v1", "asset-v1", "Level 1"), ids, context });
     assert.equal(graph.puts, 1, "completed immutable graph is never overwritten on retry");
 });
 
@@ -118,9 +129,9 @@ test("V2 receives a distinct graph while V1 remains unchanged and persistent ide
     db.snapshots.set(12, snapshot(12, "66666666-6666-4666-8666-666666666672", "space-v2", "asset-v2"));
     let n = 0; const service = new SemanticMaterialisationService(db as any, mappings, () => graph as any,
         () => new Date("2026-07-20T12:00:00.000Z"), () => `77777777-7777-4777-8777-${String(++n).padStart(12, "0")}`);
-    const v1: any = await service.materialise({ versionId: 11, extractedModel: extracted("space-v1", "asset-v1", "Level 1"), ids });
+    const v1: any = await service.materialise({ versionId: 11, extractedModel: extracted("space-v1", "asset-v1", "Level 1"), ids, context });
     const originalV1 = graph.graphs.get(v1.namedGraphUri);
-    const v2: any = await service.materialise({ versionId: 12, extractedModel: extracted("space-v2", "asset-v2", "Level 2"), ids });
+    const v2: any = await service.materialise({ versionId: 12, extractedModel: extracted("space-v2", "asset-v2", "Level 2"), ids, context });
     assert.notEqual(v1.namedGraphUri, v2.namedGraphUri); assert.equal(graph.graphs.get(v1.namedGraphUri), originalV1);
     assert.match(graph.graphs.get(v1.namedGraphUri)!, /22222222-2222-4222-8222-222222222222/);
     assert.match(graph.graphs.get(v2.namedGraphUri)!, /22222222-2222-4222-8222-222222222222/);
@@ -131,14 +142,14 @@ test("graph failure is recorded retryable and required mode does not report comp
     const db = new FakeDb(); const graph = new FakeGraph(); graph.failPut = true;
     db.snapshots.set(3, snapshot(3, "66666666-6666-4666-8666-666666666663", "space-v3", "asset-v3"));
     const service = new SemanticMaterialisationService(db as any, mappings, () => graph as any);
-    await assert.rejects(service.materialise({ versionId: 3, extractedModel: extracted("space-v3", "asset-v3", "Level 3"), ids }), /synthetic graph failure/);
+    await assert.rejects(service.materialise({ versionId: 3, extractedModel: extracted("space-v3", "asset-v3", "Level 3"), ids, context }), /synthetic graph failure/);
     assert.equal(db.records.get(3).status, "failed_retryable"); assert.equal(db.failed.length, 1);
 });
 
 test("disabled mode performs no graph or SQL materialisation operation", async () => {
     process.env.IFC_RDF_MATERIALISATION_ENABLED = "false"; process.env.IFC_RDF_MATERIALISATION_MODE = "disabled";
     const db = new FakeDb(); const graph = new FakeGraph();
-    const result: any = await new SemanticMaterialisationService(db as any, mappings, () => graph as any).materialise({ versionId: 1, extractedModel: extracted("s", "a", "L"), ids });
+    const result: any = await new SemanticMaterialisationService(db as any, mappings, () => graph as any).materialise({ versionId: 1, extractedModel: extracted("s", "a", "L"), ids, context });
     assert.equal(result.status, "disabled"); assert.equal(graph.puts, 0); assert.equal(db.records.size, 0);
     process.env.IFC_RDF_MATERIALISATION_ENABLED = "true"; process.env.IFC_RDF_MATERIALISATION_MODE = "required";
 });
@@ -149,7 +160,7 @@ test("required SHACL non-conformance prevents graph writing and therefore cannot
     db.snapshots.set(21, snapshot(21, "66666666-6666-4666-8666-666666666681", "space-v21", "asset-v21"));
     const service = new SemanticMaterialisationService(db as any, mappings, () => graph as any,
         () => new Date("2026-07-20T12:00:00.000Z"), () => "77777777-7777-4777-8777-777777777721", validation as any);
-    await assert.rejects(service.materialise({ versionId: 21, extractedModel: extracted("space-v21", "asset-v21", "Level 1"), ids }),
+    await assert.rejects(service.materialise({ versionId: 21, extractedModel: extracted("space-v21", "asset-v21", "Level 1"), ids, context }),
         /does not conform/);
     assert.equal(graph.puts, 0);
     assert.equal(validation.persisted, 0);
@@ -162,7 +173,7 @@ test("report_only records a governed non-conformant report but does not block ve
     db.snapshots.set(22, snapshot(22, "66666666-6666-4666-8666-666666666682", "space-v22", "asset-v22"));
     const service = new SemanticMaterialisationService(db as any, mappings, () => graph as any,
         () => new Date("2026-07-20T12:00:00.000Z"), () => "77777777-7777-4777-8777-777777777722", validation as any);
-    const result: any = await service.materialise({ versionId: 22, extractedModel: extracted("space-v22", "asset-v22", "Level 1"), ids });
+    const result: any = await service.materialise({ versionId: 22, extractedModel: extracted("space-v22", "asset-v22", "Level 1"), ids, context });
     assert.equal(result.status, "completed"); assert.equal(result.shaclValidation.conforms, false);
     assert.equal(graph.puts, 1); assert.equal(validation.persisted, 1);
     process.env.SHACL_VALIDATION_ENABLED = "false"; process.env.SHACL_VALIDATION_MODE = "disabled";

@@ -90,8 +90,16 @@ class FakeDb {
     async markFailed(id: number, code: string, message: string) { this.records.get(id).status = "failed_retryable"; }
 }
 
-const mappings: any = { resolveActive: async () => ({ artifactId: 7, artifactUuid: "55555555-5555-4555-8555-555555555555",
-    sha256: "b".repeat(64), version: "1.1.0", familyKey: "oswadt-ifc4-minimal-rdf-mapping", profile: mapping }) };
+const mappingSelection = { artifactId: 7, artifactUuid: "55555555-5555-4555-8555-555555555555",
+    sha256: "b".repeat(64), version: "1.1.0", familyKey: "oswadt-ifc4-minimal-rdf-mapping", profile: mapping };
+// Change C: the authoritative path resolves the mapping BY PINNED ARTIFACT ID.
+const mappings: any = { resolveActive: async () => mappingSelection, resolveByArtifactId: async () => mappingSelection };
+const context: any = {
+    ids: { artifactId: 101, familyKey: "oswadt-ifc4-model-requirements", semanticVersion: "1.1.0", sha256: "a".repeat(64) },
+    mapping: { artifactId: 7, familyKey: "oswadt-ifc4-minimal-rdf-mapping", semanticVersion: "1.1.0", sha256: "b".repeat(64) },
+    shapes: { artifactId: 9, familyKey: "oswadt-model-rdf-structural-shapes", semanticVersion: "1.1.0", sha256: "d".repeat(64),
+        namedGraphUri: "http://oswadt.test/id/graph/shapes/structural/55555555-5555-4555-8555-555555555559" },
+};
 const ids: any = { artifactId: null, artifactUuid: "44444444-4444-4444-8444-444444444444", familyKey: "temporary",
     version: "1.1.0", sha256: "a".repeat(64), source: "temporary_uploaded_profile" };
 const extracted = (spaceGuid: string, assetGuid: string) => ({ schema: "IFC4X3_ADD2", uncontainedProxies: [],
@@ -118,7 +126,7 @@ function build(idBase: number) {
 
 test("V1 rematerialisation uses the V1 snapshot code and never leaks the renamed current code", async () => {
     const { graph, service, id1 } = build(100);
-    const v1: any = await service.materialise({ versionId: id1, extractedModel: extracted(`space-${id1}`, `asset-${id1}`), ids });
+    const v1: any = await service.materialise({ versionId: id1, extractedModel: extracted(`space-${id1}`, `asset-${id1}`), ids, context });
     const turtle = graph.graphs.get(v1.namedGraphUri)!;
     assert.match(turtle, /inventoryCode "T-101"/, "V1 space carries its snapshot inventory code");
     assert.doesNotMatch(turtle, /T-101-NEW/, "the renamed current code must never leak into the V1 graph");
@@ -128,7 +136,7 @@ test("V1 rematerialisation uses the V1 snapshot code and never leaks the renamed
 
 test("V2 materialisation carries the new code and the SAME persistent space URI and location edge", async () => {
     const { graph, service, id2 } = build(200);
-    const v2: any = await service.materialise({ versionId: id2, extractedModel: extracted(`space-${id2}`, `asset-${id2}`), ids });
+    const v2: any = await service.materialise({ versionId: id2, extractedModel: extracted(`space-${id2}`, `asset-${id2}`), ids, context });
     const turtle = graph.graphs.get(v2.namedGraphUri)!;
     assert.match(turtle, /inventoryCode "T-101-NEW"/, "V2 space carries its new snapshot code");
     assert.match(turtle, new RegExp(`<${SPACE_URI}>`), "the persistent space URI is identical across versions");
@@ -138,9 +146,9 @@ test("V2 materialisation carries the new code and the SAME persistent space URI 
 
 test("both versions materialise independently: V1 graph is unchanged by V2 and snapshot rows are never updated", async () => {
     const { db, graph, service, id1, id2 } = build(300);
-    const v1: any = await service.materialise({ versionId: id1, extractedModel: extracted(`space-${id1}`, `asset-${id1}`), ids });
+    const v1: any = await service.materialise({ versionId: id1, extractedModel: extracted(`space-${id1}`, `asset-${id1}`), ids, context });
     const v1TurtleBefore = graph.graphs.get(v1.namedGraphUri);
-    const v2: any = await service.materialise({ versionId: id2, extractedModel: extracted(`space-${id2}`, `asset-${id2}`), ids });
+    const v2: any = await service.materialise({ versionId: id2, extractedModel: extracted(`space-${id2}`, `asset-${id2}`), ids, context });
     assert.notEqual(v1.namedGraphUri, v2.namedGraphUri);
     assert.equal(graph.graphs.get(v1.namedGraphUri), v1TurtleBefore, "the V1 historical graph is untouched by V2");
     // Persistent space continuity: both graphs reference the same persistent space URI.
@@ -160,7 +168,7 @@ test("the location edge is resolved by the persistent space URI, not by inventor
     const graph = new FakeGraph();
     const service = new SemanticMaterialisationService(db as any, mappings, () => graph as any,
         () => new Date("2026-08-06T12:00:00.000Z"), () => "77777777-7777-4777-8777-000000000409");
-    const v: any = await service.materialise({ versionId: 409, extractedModel: extracted("space-409", "asset-409"), ids });
+    const v: any = await service.materialise({ versionId: 409, extractedModel: extracted("space-409", "asset-409"), ids, context });
     const turtle = graph.graphs.get(v.namedGraphUri)!;
     assert.match(turtle, /inventoryCode "T-101"/);
     assert.match(turtle, new RegExp(`containedInSpace <${SPACE_URI}>`),

@@ -4,6 +4,7 @@ import type { ArtifactSource } from "../../semantic/publicArtifactManifest.ts";
 import type {
     ArtifactSetActivationItem,
     ArtifactSetActivationResult,
+    CurrentArtifactSetRow,
     EnsureLoadOperationInput,
     EnsureSemanticArtifactInput,
     EnsureSemanticFamilyInput,
@@ -174,6 +175,48 @@ export class FakeSemanticArtifactDatabase implements SemanticArtifactDatabasePor
 
     async findArtifactByFamilyVersion(familyId: number, semanticVersion: string): Promise<SemanticArtifactRow | null> {
         return this.artifacts.find((row) => row.family_id === familyId && row.semantic_version === semanticVersion) ?? null;
+    }
+
+    /**
+     * Change C: in-memory equivalent of the single-statement LEFT JOIN snapshot. Mirrors
+     * the production contract exactly — rejects an empty or duplicated key list, omits
+     * families that do not exist, and keeps a NULL/dangling current pointer observable as
+     * a row with null artifact columns. Existing Change A/B fake behaviour is untouched.
+     */
+    async resolveCurrentArtifactSet(familyKeys: string[]): Promise<CurrentArtifactSetRow[]> {
+        if (!Array.isArray(familyKeys) || familyKeys.length === 0) {
+            throw new SemanticArtifactError("configuration_error", "resolveCurrentArtifactSet requires at least one family key");
+        }
+        if (new Set(familyKeys).size !== familyKeys.length) {
+            throw new SemanticArtifactError("configuration_error", "resolveCurrentArtifactSet received duplicate family keys");
+        }
+        const rows: CurrentArtifactSetRow[] = [];
+        for (const familyKey of familyKeys) {
+            const family = this.families.find((row) => row.family_key === familyKey);
+            if (!family) continue;
+            const artifact = family.current_artifact_id === null
+                ? undefined
+                : this.artifacts.find((row) => row.id === family.current_artifact_id);
+            rows.push({
+                family_key: family.family_key,
+                family_id: family.id,
+                artifact_type: family.artifact_type,
+                current_artifact_id: family.current_artifact_id,
+                artifact_id: artifact?.id ?? null,
+                artifact_uuid: artifact?.artifact_uuid ?? null,
+                artifact_family_id: artifact?.family_id ?? null,
+                semantic_version: artifact?.semantic_version ?? null,
+                sha256: artifact?.sha256 ?? null,
+                byte_size: artifact?.byte_size ?? null,
+                repository_relative_path: artifact?.repository_relative_path ?? null,
+                storage_mode: artifact?.storage_mode ?? null,
+                named_graph_uri: artifact?.named_graph_uri ?? null,
+                lifecycle_status: artifact?.lifecycle_status ?? null,
+                validation_status: artifact?.validation_status ?? null,
+                privacy_classification: artifact?.privacy_classification ?? null,
+            });
+        }
+        return rows;
     }
 
     async findOperationByUuid(operationUuid: string): Promise<SemanticArtifactLoadOperationRow | null> {

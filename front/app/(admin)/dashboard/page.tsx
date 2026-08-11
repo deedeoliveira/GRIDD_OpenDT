@@ -12,7 +12,7 @@ type Context = {
     linkedParent: { id: number; name: string } }>;
   activeIdsProfile: Profile;
   mappingProfile: { familyKey: string; version: string; sha256: string; status: string; artifactType: string };
-  modes: { materialisation: string; temporaryIdsUploadEnabled: boolean };
+  modes: { materialisation: string };
   shacl: { enabled: boolean; mode: string; temporaryShapesUploadEnabled: boolean; governedShapes: Shapes | null };
 };
 type Requirement = { requirementId: string; specification: string; appliesTo: string; requires: string; cardinality: string; expectedPattern: string | null };
@@ -53,8 +53,6 @@ export default function DashboardPage() {
   const [context, setContext] = useState<Context | null>(null);
   const [modelId, setModelId] = useState("");
   const [ifcFile, setIfcFile] = useState<File | null>(null);
-  const [idsMode, setIdsMode] = useState<"" | "active" | "uploaded">("");
-  const [idsFile, setIdsFile] = useState<File | null>(null);
   const [shapesMode, setShapesMode] = useState<"governed" | "temporary">("governed");
   const [shapesFile, setShapesFile] = useState<File | null>(null);
   const [shapes, setShapes] = useState<Shapes | null>(null);
@@ -96,7 +94,7 @@ export default function DashboardPage() {
     return `${model.model_name} — linha ${model.model_id}`;
   }
   function chooseModel(value: string) {
-    setModelId(value); setIntakeOpen(false); setIfcFile(null); setIdsFile(null); setIdsMode(""); setShapesMode("governed"); setShapesFile(null); setShapes(null); setError(null); inputsChanged();
+    setModelId(value); setIntakeOpen(false); setIfcFile(null); setShapesMode("governed"); setShapesFile(null); setShapes(null); setError(null); inputsChanged();
   }
 
   async function loadContext() {
@@ -110,13 +108,11 @@ export default function DashboardPage() {
 
   function formData(includeRun = false) {
     if (!ifcFile || !modelId) throw new Error("Select a logical model line and an IFC file.");
-    if (!idsMode) throw new Error("Selecione um perfil IDS governado ou um ficheiro IDS temporário.");
-    if (idsMode === "uploaded" && !idsFile) throw new Error("Selecione um ficheiro IDS temporário.");
+    // No idsMode / idsFile is ever sent: the server rejects both outright and always
+    // applies the governed IDS revision.
     const form = new FormData();
     form.set("ifcFile", ifcFile);
     form.set("modelId", modelId);
-    form.set("idsMode", idsMode as "active" | "uploaded");
-    if (idsFile && idsMode === "uploaded") form.set("idsFile", idsFile);
     if (includeRun && run) form.set("preflightRunUuid", run.runUuid);
     return form;
   }
@@ -221,16 +217,17 @@ export default function DashboardPage() {
               <Fact label="IFC schema" value={run.ifc.detectedIfcSchema} /><Fact label="SHA-256" value={run.ifc.serverComputedSha256} mono /></dl></div>}
         </section>
 
+        {/* The IDS profile is governed, never chosen here: model intake always uses the
+            current governed revision. This step is display-only — there is no IDS mode
+            selector and no IDS file input. A new IDS revision is introduced through the
+            separate IDS-governance workflow, not through model intake. */}
         <section className={box}><Step n="3" title="Perfil IDS" />
-          <div className="mt-5 grid gap-3 sm:grid-cols-2"><Choice active={idsMode === "active"} onClick={() => { setIdsMode("active"); inputsChanged(); }} title="Perfil governado ativo" />
-            <Choice active={idsMode === "uploaded"} onClick={() => { setIdsMode("uploaded"); inputsChanged(); }} title="Upload temporary IDS" /></div>
-          {idsMode === "uploaded" && <><label className="mt-5 block text-sm font-semibold" htmlFor="ids">Choose .ids</label>
-            <input id="ids" className={input} type="file" accept=".ids,application/xml,text/xml" onChange={(e) => { setIdsFile(e.target.files?.[0] ?? null); inputsChanged(); }} /></>}
-          {(run?.ids ?? (idsMode === "active" ? context?.activeIdsProfile : null)) && <ProfileCard profile={run?.ids ?? context!.activeIdsProfile} processed={Boolean(run)} />}
+          <p className="mt-5 text-sm text-slate-300">O perfil IDS governado em vigor é aplicado automaticamente. Não é possível escolher nem carregar um IDS nesta operação.</p>
+          {(run?.ids ?? context?.activeIdsProfile) && <ProfileCard profile={run?.ids ?? context!.activeIdsProfile} processed={Boolean(run)} />}
         </section>
 
         <section className={box}><Step n="4" title="Validação e pré-visualização" />
-          <button className="mt-5 rounded-xl bg-cyan-500 px-6 py-3 font-bold text-slate-950 disabled:opacity-50" disabled={busy || !ifcFile || !modelId || !idsMode}
+          <button className="mt-5 rounded-xl bg-cyan-500 px-6 py-3 font-bold text-slate-950 disabled:opacity-50" disabled={busy || !ifcFile || !modelId}
             onClick={validateAndPreview}>{busy ? "A processar ficheiros selecionados…" : "Validar e pré-visualizar"}</button>
           {run && <div className="mt-5 grid gap-3 sm:grid-cols-3"><Status label="Overall" value={run.validation.overallStatus} />
             <Status label="IDS" value={run.validation.idsStatus} /><Status label="Project rules" value={run.validation.projectRulesStatus} /></div>}

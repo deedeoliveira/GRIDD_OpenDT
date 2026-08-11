@@ -82,6 +82,8 @@ test("vertical API/frontend contract keeps preview non-persistent and activation
     assert.match(reportRoute, /report\.ttl/); assert.match(reportRoute, /data\.ttl/);
     assert.match(reportProxy, /BASE_API_URL.*semantic-validation/);
     assert.match(reportProxy, /content-disposition/i);
-    assert.equal((page.match(/type="file"/g) ?? []).length, 3);
+    // IFC + temporary SHACL shapes. The IDS picker was removed (Option B); the SHACL
+    // temporary-shapes affordance tested here is unaffected.
+    assert.equal((page.match(/type="file"/g) ?? []).length, 2);
     assert.match(page, /shapes\.source/); assert.match(page, /governed_active_shapes/);
 });
