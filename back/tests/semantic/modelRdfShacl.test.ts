@@ -34,6 +34,7 @@ async function modelRdf() {
             serialNumber: "SYN-001", manufacturer: "Synthetic", ifcGuid: "asset-guid-v1",
             ifcClass: "IfcFurnishingElement", containingSpace: "R-101",
             containingSpacePersistentUri: "http://oswadt.test/id/space/77777777-7777-4777-8777-777777777777",
+            persistentAssetStatus: "existing", ambiguousAssetUuids: null,
             persistentUri: "http://oswadt.test/id/asset/88888888-8888-4888-8888-888888888888",
             manifestationUri: "http://oswadt.test/id/model-version/66666666-6666-4666-8666-666666666666/manifestation/asset-guid-v1" }],
     });

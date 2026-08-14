@@ -23,6 +23,8 @@ function makeLookup(overrides: Partial<AssetIdentityLookup> = {}): AssetIdentity
     return {
         findEquipmentByTag: async () => [],
         findEquipmentBySerial: async () => [],
+        findEquipmentByGuidHistory: async () => [],
+        findCurrentModelPresence: async () => [],
         ...overrides,
     };
 }
@@ -59,9 +61,9 @@ test("asset_code vem EXCLUSIVAMENTE da Tag: stableCode = Tag aparada; serial vai
 test("Reference em Pset_*Common NÃO é usado para identidade de equipamento (estratégia substituída)", async () => {
     let tagLookups = 0;
     const resolver = new IfcTagSerialAssetIdentityResolver(makeLookup({
-        findEquipmentByTag: async (_lm: number, tag: string) => {
+        findEquipmentByTag: async (canonicalTag: string) => {
             tagLookups++;
-            assert.equal(tag, "EQP-000123", "só a Tag é consultada");
+            assert.equal(canonicalTag, "EQP-000123", "só a Tag canónica é consultada");
             return [];
         },
     }));
@@ -79,7 +81,7 @@ test("Reference em Pset_*Common NÃO é usado para identidade de equipamento (es
 
 test("serial NÃO substitui Tag ausente: candidato sem Tag → unresolved (nunca identidade por serial)", async () => {
     const resolver = new IfcTagSerialAssetIdentityResolver(makeLookup({
-        findEquipmentBySerial: async () => [{ id: 5, asset_code: "EQP-5", serial_number: "SN-9" }],
+        findEquipmentBySerial: async () => [{ id: 5, asset_code: "EQP-5", serial_number: "SN-9", linked_model_id: 10 }],
     }));
 
     const result = await resolver.resolve({
@@ -110,7 +112,7 @@ test("GUID novo sem Tag não contorna o preflight: o resolver nunca consulta GUI
 
 test("mesma Tag + mesmo serial → matched forte (tag_and_serial)", async () => {
     const resolver = new IfcTagSerialAssetIdentityResolver(makeLookup({
-        findEquipmentByTag: async () => [{ id: 77, asset_code: "EQP-000123", serial_number: "SN-9" }],
+        findEquipmentByTag: async () => [{ id: 77, asset_code: "EQP-000123", serial_number: "SN-9", linked_model_id: 10 }],
     }));
 
     const result = await resolver.resolve({
@@ -125,7 +127,7 @@ test("mesma Tag + mesmo serial → matched forte (tag_and_serial)", async () => 
 
 test("mesma Tag + serial ausente → matched pela Tag do gestor, evidência reduzida documentada", async () => {
     const resolver = new IfcTagSerialAssetIdentityResolver(makeLookup({
-        findEquipmentByTag: async () => [{ id: 77, asset_code: "EQP-000123", serial_number: null }],
+        findEquipmentByTag: async () => [{ id: 77, asset_code: "EQP-000123", serial_number: null, linked_model_id: 10 }],
     }));
 
     const result = await resolver.resolve({ ...CANDIDATE, psets: {} }, CONTEXT);
@@ -138,7 +140,7 @@ test("mesma Tag + serial ausente → matched pela Tag do gestor, evidência redu
 
 test("mesma Tag + seriais diferentes → caso de reconciliação (substituição/erro de dados), SEM merge", async () => {
     const resolver = new IfcTagSerialAssetIdentityResolver(makeLookup({
-        findEquipmentByTag: async () => [{ id: 77, asset_code: "EQP-000123", serial_number: "SN-OLD" }],
+        findEquipmentByTag: async () => [{ id: 77, asset_code: "EQP-000123", serial_number: "SN-OLD", linked_model_id: 10 }],
     }));
 
     const result = await resolver.resolve({
@@ -153,7 +155,7 @@ test("mesma Tag + seriais diferentes → caso de reconciliação (substituição
 test("mesmo serial + Tags diferentes → caso de reconciliação (renumeração/erro de dados), SEM merge", async () => {
     const resolver = new IfcTagSerialAssetIdentityResolver(makeLookup({
         findEquipmentByTag: async () => [],
-        findEquipmentBySerial: async () => [{ id: 88, asset_code: "EQP-OUTRA", serial_number: "SN-9" }],
+        findEquipmentBySerial: async () => [{ id: 88, asset_code: "EQP-OUTRA", serial_number: "SN-9", linked_model_id: 10 }],
     }));
 
     const result = await resolver.resolve({
@@ -178,8 +180,8 @@ test("Tag nova (sem conflito de serial) → identidade nova, mesmo em versão po
 test("Tag com >1 ativo (defensivo) → ambiguous (tag_conflict), nunca escolhe automaticamente", async () => {
     const resolver = new IfcTagSerialAssetIdentityResolver(makeLookup({
         findEquipmentByTag: async () => [
-            { id: 1, asset_code: "EQP-000123", serial_number: null },
-            { id: 2, asset_code: "EQP-000123", serial_number: null },
+            { id: 1, asset_code: "EQP-000123", serial_number: null, linked_model_id: 10 },
+            { id: 2, asset_code: "EQP-000123", serial_number: null, linked_model_id: 10 },
         ],
     }));
 
@@ -194,7 +196,7 @@ test("Tag com >1 ativo (defensivo) → ambiguous (tag_conflict), nunca escolhe a
 
 test("ObjectType não participa da identidade: mudá-lo não altera a correspondência pela Tag", async () => {
     const resolver = new IfcTagSerialAssetIdentityResolver(makeLookup({
-        findEquipmentByTag: async () => [{ id: 77, asset_code: "EQP-000123", serial_number: null }],
+        findEquipmentByTag: async () => [{ id: 77, asset_code: "EQP-000123", serial_number: null, linked_model_id: 10 }],
     }));
 
     const a = await resolver.resolve({ ...CANDIDATE, objectType: "Betoneira Diesel" }, CONTEXT);
@@ -207,7 +209,7 @@ test("ObjectType não participa da identidade: mudá-lo não altera a correspond
 
 test("Manufacturer não participa: pset de fabricante diferente não cria novo ativo nem muda a decisão", async () => {
     const resolver = new IfcTagSerialAssetIdentityResolver(makeLookup({
-        findEquipmentByTag: async () => [{ id: 77, asset_code: "EQP-000123", serial_number: null }],
+        findEquipmentByTag: async () => [{ id: 77, asset_code: "EQP-000123", serial_number: null, linked_model_id: 10 }],
     }));
 
     const result = await resolver.resolve({
@@ -235,9 +237,36 @@ test("guarda: Manufacturer não pode ser introduzido como chave de identidade se
         "nenhuma linha de CÓDIGO do resolver consulta informação de fabricante como identidade");
 });
 
-test("guarda: o resolver não consulta GUID (sem fallback em novos uploads)", () => {
+/**
+ * TAG-1 §4 substitui a guarda textual "o resolver nunca menciona GUID" por uma
+ * guarda de COMPORTAMENTO, mais forte: o GlobalId passou a ser consultado
+ * deliberadamente como EVIDÊNCIA DE CONFLITO, mas continua proibido de produzir
+ * uma correspondência. A guarda antiga proibia a menção; esta proíbe o efeito.
+ */
+test("guarda: o GlobalId nunca produz correspondência — só pode gerar ambiguidade", async () => {
+    // Histórico de GlobalId a apontar para um ativo, sem qualquer Tag igual:
+    // se o GUID fosse (indevidamente) chave de identidade, isto daria matched.
+    const resolver = new IfcTagSerialAssetIdentityResolver(makeLookup({
+        findEquipmentByTag: async () => [],
+        findEquipmentByGuidHistory: async () => [{ id: 42, asset_code: "EQP-ANTIGA", serial_number: null, linked_model_id: 10 }],
+    }));
+
+    const result = await resolver.resolve(CANDIDATE, CONTEXT);
+
+    assert.equal(result.status, "ambiguous", "GUID conhecido + Tag diferente → reconciliação");
+    assert.equal(result.matchedAssetId, null, "o GUID NUNCA seleciona um ativo");
+    assert.ok(result.reasons.some((r) => /globalid_tag_conflict/.test(r)));
+});
+
+test("guarda: o resolver não consulta GUID como chave de identidade (sem fallback em novos uploads)", () => {
     const codeLines = RESOLVER_SOURCE.split("\n").filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l));
-    assert.ok(!codeLines.some((l) => /ByGuid|ifc_guid|guidMatches/i.test(l)));
+    // A ÚNICA consulta por GUID permitida é a de evidência de conflito
+    // (findEquipmentByGuidHistory). Qualquer outra reintroduziria o fallback.
+    const guidLines = codeLines.filter((l) => /ByGuid|ifc_guid|guidMatches/i.test(l));
+    assert.deepEqual(
+        guidLines.map((l) => l.trim()),
+        ["const guidHistory = await this.lookup.findEquipmentByGuidHistory(candidate.guid);"],
+        "só a consulta de evidência de conflito por GlobalId é permitida");
 });
 
 /* -------------------------------------

@@ -135,6 +135,11 @@ export class SemanticMaterialisationService {
                 containingSpace: row.space_inventory_code_snapshot ?? null,
                 containingSpacePersistentUri: row.space_uuid
                     ? iri(graphConfig.config.baseUri, `space/${row.space_uuid}`) : null,
+                // Projeção de uma versão JÁ PERSISTIDA: cada linha do snapshot TEM um
+                // asset_uuid real, logo o estado é determinístico — `existing`, sem
+                // ambiguidade possível. Não é um valor por omissão inventado.
+                persistentAssetStatus: "existing",
+                ambiguousAssetUuids: null,
                 persistentUri: iri(graphConfig.config.baseUri, `asset/${row.asset_uuid}`),
                 manifestationUri: iri(graphConfig.config.baseUri, `model-version/${versionUuid}/manifestation/${encodeURIComponent(row.ifc_guid)}`),
             };

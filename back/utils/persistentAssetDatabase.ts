@@ -1,6 +1,49 @@
 import crypto from "crypto";
 import MySQLDatabase from "./mysqlDatabase.ts";
-import type { AssetIdentityLookup } from "../identity/assetIdentityTypes.ts";
+import type { AssetCurrentModelPresence, AssetIdentityLookup, AssetIdentityRow } from "../identity/assetIdentityTypes.ts";
+import { canonicalEquipmentTagKey } from "../classification/equipmentTag.ts";
+
+/**
+ * TAG-1 §8 — tempo máximo de espera pelo lock de identidade por Tag canónica.
+ * Excedê-lo levanta ConcurrencyError('lock_timeout') SEM retry: a operação falha
+ * fechada (nunca prossegue sem proteção) e a compensação do upload trata o resto.
+ */
+const EQUIPMENT_TAG_IDENTITY_LOCK_TIMEOUT_SECONDS = 30;
+
+/**
+ * TAG-1 §8 — nome do lock consultivo da secção crítica de identidade de UMA Tag
+ * canónica.
+ *
+ * Os nomes de `GET_LOCK` do MySQL são GLOBAIS AO SERVIDOR e limitados a 64
+ * caracteres, e a Tag é texto livre do modelador (comprimento não limitado,
+ * caracteres arbitrários). Por isso a Tag NUNCA entra em bruto no nome: entra o
+ * seu SHA-256. O nome inclui também um hash da base de dados EXATA selecionada
+ * (mesma razão que `spaceMetadataLockName`: senão o self-test descartável e
+ * `digital_twin` disputariam o mesmo lock).
+ *
+ * Comprimento fixo: 15 + 12 + 1 + 24 = 52 caracteres (< 64), seja qual for a Tag.
+ */
+export function equipmentTagIdentityLockName(selectedDatabase: string, canonicalTag: string): string {
+    const dbHash = crypto.createHash("sha256").update(selectedDatabase).digest("hex").slice(0, 12);
+    const tagHash = crypto.createHash("sha256").update(canonicalTag).digest("hex").slice(0, 24);
+    return `oswadt:eqp_tag:${dbHash}:${tagHash}`;
+}
+
+/**
+ * Factory do nome do lock, resolvida NA conexão dedicada que vai segurar o
+ * GET_LOCK (mesmo padrão de `spaceMetadataLockNameFactory`): garante que o
+ * esquema que delimita o lock e a sessão que o detém são a MESMA conexão.
+ */
+export function equipmentTagIdentityLockNameFactory(canonicalTag: string): (conn: any) => Promise<string> {
+    return async (conn: any) => {
+        const [rows]: any = await conn.query("SELECT DATABASE() AS db");
+        const selectedDatabase = rows?.[0]?.db;
+        if (typeof selectedDatabase !== "string" || selectedDatabase.length === 0) {
+            throw new Error("No database is selected on the current connection; the equipment-Tag identity lock cannot be scoped safely.");
+        }
+        return equipmentTagIdentityLockName(selectedDatabase, canonicalTag);
+    };
+}
 
 export type StudentReservableAsset = {
     persistentAssetId: string;
@@ -41,29 +84,142 @@ class PersistentAssetDatabase implements AssetIdentityLookup {
 
     /* ================= LOOKUPS DE IDENTIDADE ================= */
 
-    /** Correspondência pela Tag institucional (asset_code = Tag EQP-). */
-    async findEquipmentByTag(linkedModelId: number, tag: string): Promise<{ id: number; asset_code: string | null; serial_number: string | null }[]> {
+    /**
+     * TAG-1 §1/§2 — secção crítica de identidade de UMA Tag canónica, sob lock
+     * NOMEADO do MySQL numa conexão dedicada (session-scoped no servidor), logo
+     * cooperativa ENTRE PROCESSOS — nunca um mutex local ao processo.
+     *
+     * Tem de envolver a decisão INTEIRA de primeira aparição: releitura pela Tag
+     * canónica, recolha de evidência (serial, histórico de GlobalId, presença em
+     * modelo corrente) E a escrita create-se-ainda-ausente. Tags diferentes usam
+     * nomes de lock diferentes e nunca bloqueiam umas às outras. Libertado no
+     * `finally` de `withNamedLock`; em timeout falha FECHADA (sem prosseguir).
+     *
+     * Ordem de aquisição (sem ciclos): o lock de metadados de espaço por
+     * linked_model, quando existe, é SEMPRE adquirido ANTES deste — nunca ao
+     * contrário. O lock por linked_model NÃO substitui este: a identidade passou
+     * a ser de portefólio e dois linked_models diferentes disputam a mesma Tag.
+     */
+    async withEquipmentTagIdentityLock<T>(canonicalTag: string, fn: () => Promise<T>): Promise<T> {
+        await this.db.checkConnection();
+        return this.db.withNamedLock(
+            equipmentTagIdentityLockNameFactory(canonicalTag),
+            EQUIPMENT_TAG_IDENTITY_LOCK_TIMEOUT_SECONDS,
+            fn,
+        );
+    }
+
+    /**
+     * TAG-1 §2 (corrigido na V2) — correspondência pela Tag institucional em TODO
+     * o portefólio. O predicado de identidade NÃO inclui `linked_model_id`.
+     *
+     * PORQUE NÃO HÁ PRÉ-FILTRO DE TAG NO SQL
+     * --------------------------------------
+     * A V1 fazia `WHERE UPPER(TRIM(asset_code)) = :canonicalTag` e voltava a
+     * filtrar em JavaScript. Isso assumia — sem prova — que o `UPPER()` do MySQL é
+     * um SUPERCONJUNTO do `.toUpperCase()` do JavaScript. Não é: as duas funções
+     * não concordam em todo o Unicode (o JavaScript expande 'ß' → 'SS', o
+     * `UPPER()` do MySQL não; o 'ı' sem ponto do turco e outros mapeamentos
+     * sensíveis à locale também divergem). Bastava UMA Tag assim para que a
+     * cláusula SQL excluísse uma linha que a função canónica considera a MESMA
+     * identidade — um FALSO NEGATIVO de identidade, que criaria um segundo ativo
+     * persistente para o mesmo equipamento. Confiar na collation da coluna
+     * (utf8mb4_0900_ai_ci) tem o mesmo defeito: é uma equivalência DIFERENTE
+     * (baseada em pesos UCA), não demonstravelmente um superconjunto desta regra
+     * em todo o Unicode, e depende do ambiente/esquema em vez do código.
+     *
+     * A V2 elimina o risco em vez de o reduzir: o SQL devolve exatamente o DOMÍNIO
+     * de linhas que a função canónica poderia alguma vez fazer corresponder
+     * (equipamento persistente com `asset_code`), e a correspondência é decidida
+     * SÓ por `canonicalEquipmentTagKey`, a única autoridade. Superconjunto por
+     * construção — a prova não depende de nenhuma propriedade do motor.
+     *
+     * CUSTO, ASSUMIDO: é uma varredura da tabela `assets` restrita a equipamentos
+     * (nenhum índice pode assistir, porque qualquer predicado indexável seria
+     * precisamente a suposição que se rejeita). A TAG-1 prioriza deliberadamente a
+     * correção sobre a otimização prematura; a solução indexada (coluna gerada
+     * `canonical(asset_code)` + índice) exige migração, que NÃO está autorizada
+     * nesta passagem e fica adiada para depois de uma auditoria real de Tags.
+     */
+    async findEquipmentByTag(canonicalTag: string): Promise<AssetIdentityRow[]> {
         await this.db.checkConnection();
         const [rows]: any = await this.db.connection.execute(`
-            SELECT id, asset_code, serial_number FROM assets
-            WHERE linked_model_id = :linkedModelId
-              AND asset_code = :tag
+            SELECT id, asset_code, serial_number, linked_model_id FROM assets
+            WHERE asset_type = 'equipment'
+              AND asset_uuid IS NOT NULL
+              AND asset_code IS NOT NULL
+            ORDER BY id ASC
+        `, {});
+        return (rows as AssetIdentityRow[]).filter(
+            (row) => row.asset_code !== null && canonicalEquipmentTagKey(row.asset_code) === canonicalTag);
+    }
+
+    /**
+     * TAG-1 §3 (corrigido na V2) — evidência secundária: serial da instância
+     * física, DENTRO do mesmo `linked_model_id`.
+     *
+     * A V1 tinha removido o âmbito por completo, o que transformou o serial numa
+     * restrição de identidade NEGATIVA de portefólio: um ativo sem qualquer
+     * relação (outra Tag, outro modelo, sem histórico de GlobalId comum) passava a
+     * poder vetar a criação limpa de uma Tag nova só por coincidência de serial.
+     * Isso contradiz a regra congelada — o serial é evidência SECUNDÁRIA e não tem
+     * unicidade de portefólio assumida.
+     *
+     * O âmbito por `linked_model_id` é o significado ORIGINAL desta heurística
+     * ("o modelador mudou a Tag mas manteve o serial" acontece dentro da mesma
+     * linha de modelo, entre versões) e não viola a TAG-1: o que a TAG-1 proíbe é
+     * `linked_model_id` no predicado de IDENTIDADE pela Tag — não a sua presença
+     * numa consulta de evidência secundária.
+     */
+    async findEquipmentBySerial(serial: string, linkedModelId: number): Promise<AssetIdentityRow[]> {
+        await this.db.checkConnection();
+        const [rows]: any = await this.db.connection.execute(`
+            SELECT id, asset_code, serial_number, linked_model_id FROM assets
+            WHERE serial_number = :serial
+              AND linked_model_id = :linkedModelId
               AND asset_type = 'equipment'
               AND asset_uuid IS NOT NULL
-        `, { linkedModelId, tag });
+            ORDER BY id ASC
+        `, { serial, linkedModelId });
         return rows;
     }
 
-    /** Evidência secundária: serial da instância física (campo separado). */
-    async findEquipmentBySerial(linkedModelId: number, serial: string): Promise<{ id: number; asset_code: string | null; serial_number: string | null }[]> {
+    /**
+     * TAG-1 §4 — ativos persistentes com binding (CORRENTE ou HISTÓRICO) para
+     * este GlobalId. Um GlobalId identifica uma manifestação IFC, nunca a
+     * identidade de portefólio: isto serve só para detetar que o mesmo GlobalId
+     * reaparece agora com outra Tag canónica (evidência de conflito).
+     */
+    async findEquipmentByGuidHistory(ifcGuid: string): Promise<AssetIdentityRow[]> {
         await this.db.checkConnection();
         const [rows]: any = await this.db.connection.execute(`
-            SELECT id, asset_code, serial_number FROM assets
-            WHERE linked_model_id = :linkedModelId
-              AND serial_number = :serial
-              AND asset_type = 'equipment'
-              AND asset_uuid IS NOT NULL
-        `, { linkedModelId, serial });
+            SELECT DISTINCT a.id, a.asset_code, a.serial_number, a.linked_model_id
+            FROM asset_bindings ab
+            INNER JOIN assets a ON a.id = ab.asset_id
+            WHERE ab.ifc_guid = :ifcGuid
+              AND a.asset_type = 'equipment'
+              AND a.asset_uuid IS NOT NULL
+            ORDER BY a.id ASC
+        `, { ifcGuid });
+        return rows;
+    }
+
+    /**
+     * TAG-1 §7 — linhas de modelo em que este ativo está presente na versão
+     * CORRENTE. "Corrente" é EXCLUSIVAMENTE `models.current_version_id` (a mesma
+     * relação já usada por `getStudentAssetByCurrentBinding` e pela reconciliação
+     * de ciclo de vida) — nunca timestamps, maior id ou ordem de upload.
+     */
+    async findCurrentModelPresence(assetId: number): Promise<AssetCurrentModelPresence[]> {
+        await this.db.checkConnection();
+        const [rows]: any = await this.db.connection.execute(`
+            SELECT m.id AS model_id, m.current_version_id AS model_version_id
+            FROM asset_bindings ab
+            INNER JOIN models m ON m.current_version_id = ab.model_version_id
+            WHERE ab.asset_id = :assetId
+              AND ab.binding_status = 'active'
+            ORDER BY m.id ASC
+        `, { assetId });
         return rows;
     }
 

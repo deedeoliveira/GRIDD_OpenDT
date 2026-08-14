@@ -5,7 +5,7 @@ import type {
     AssetIdentityResolver,
     AssetIdentityResult,
 } from "./assetIdentityTypes.ts";
-import { isValidEquipmentTag, normalizeEquipmentTag } from "../classification/equipmentTag.ts";
+import { canonicalEquipmentTagKey, isValidEquipmentTag, normalizeEquipmentTag } from "../classification/equipmentTag.ts";
 
 /**
  * Resolver de identidade dos equipamentos MODELADOS — perfil atual (IFC4).
@@ -16,19 +16,39 @@ import { isValidEquipmentTag, normalizeEquipmentTag } from "../classification/eq
  *  2. SerialNumber (Pset_ManufacturerOccurrence) como evidência SECUNDÁRIA
  *     da instância física — pode confirmar, reduzir ou pôr em causa a
  *     correspondência, nunca substitui uma Tag ausente;
- *  3. IFC GUID: apenas rastreabilidade (binding) e compatibilidade histórica
- *     no backfill (legacy_ifc_guid) — NUNCA consultado em novos uploads
- *     (equipamento sem Tag válida falha no model_requirements_preflight).
+ *  3. IFC GUID: identifica UMA manifestação IFC e a sua rastreabilidade
+ *     (binding), além da compatibilidade histórica do backfill
+ *     (legacy_ifc_guid). NUNCA é chave de identidade nem fallback de
+ *     correspondência em novos uploads (equipamento sem Tag válida falha no
+ *     model_requirements_preflight). Desde TAG-1 é consultado para UMA coisa
+ *     só: detetar que o mesmo GlobalId reaparece com outra Tag canónica, o que
+ *     é EVIDÊNCIA DE CONFLITO e só pode produzir `ambiguous` — nunca `matched`.
+ *
+ * TAG-1 — âmbito da identidade: a Tag CANÓNICA (aparada + maiúsculas,
+ * determinada em JavaScript, nunca pela collation do MySQL) é a chave de
+ * identidade em TODO O PORTEFÓLIO. `assets.linked_model_id` saiu do predicado de
+ * correspondência e permanece apenas como metadado de ORIGEM — nunca é
+ * reinterpretado como "modelo atual" nem atualizado ao reutilizar entre modelos.
  *
  * Regras de correspondência (sem merge automático em conflito):
- *  - mesma Tag + mesmo serial            → matched (tag_and_serial, forte);
- *  - mesma Tag + serial ausente          → matched (equipment_tag; evidência
+ *  - mesma Tag canónica + mesmo serial   → matched (tag_and_serial, forte);
+ *  - mesma Tag canónica + serial ausente → matched (equipment_tag; evidência
  *    reduzida documentada nas razões);
+ *  - mesma Tag canónica, modelo diferente, GlobalId novo → matched (reutiliza a
+ *    MESMA linha `assets`; nada em asset_code/asset_uuid/linked_model_id muda);
  *  - mesma Tag + seriais diferentes      → caso de reconciliação
  *    (substituição física ou erro de dados — serial_conflict);
- *  - mesmo serial + Tags diferentes      → caso de reconciliação
- *    (renumeração ou erro de dados — serial_renumbering);
- *  - Tag nova                            → identidade nova.
+ *  - mesmo serial + Tags diferentes DENTRO do mesmo linked_model → caso de
+ *    reconciliação (renumeração ou erro de dados — serial_renumbering). NUNCA em
+ *    âmbito de portefólio: um serial coincidente noutro modelo, sem ligação de
+ *    Tag nem de GlobalId, não é evidência e não veta uma Tag nova (V2);
+ *  - mesmo GlobalId + Tag canónica diferente → caso de reconciliação
+ *    (globalid_tag_conflict), com evidência de todos os candidatos;
+ *  - >1 ativo com a mesma Tag canónica   → caso de reconciliação
+ *    (tag_conflict — duplicados legados; NUNCA fundidos);
+ *  - correspondência já presente na versão CORRENTE de outra linha de modelo →
+ *    caso de reconciliação (simultaneous_current_model_presence);
+ *  - Tag canónica nova                   → identidade nova.
  *
  * ObjectType e informação de fabricante (Manufacturer/marca/modelo comercial)
  * NÃO participam da identidade, da confiança nem da reconciliação automática.
@@ -72,15 +92,56 @@ export class IfcTagSerialAssetIdentityResolver implements AssetIdentityResolver 
             };
         }
 
+        // Valor de EXIBIÇÃO/persistência: Tag apenas aparada (inalterado).
         const tag = normalizeEquipmentTag(candidate.tag);
-        const matches = await this.lookup.findEquipmentByTag(context.linkedModelId, tag);
+        // Chave CANÓNICA de identidade: só para o predicado de correspondência.
+        const canonicalTag = canonicalEquipmentTagKey(candidate.tag);
+        // TAG-1 §2: âmbito de PORTEFÓLIO — sem linked_model_id no predicado.
+        const matches = await this.lookup.findEquipmentByTag(canonicalTag);
 
-        /* ---- Tag corresponde a mais de um ativo (defensivo) ---- */
+        /* ---- TAG-1 §4: o mesmo GlobalId já pertenceu a outra Tag canónica? ----
+           O GlobalId identifica uma MANIFESTAÇÃO, nunca a identidade. Se um
+           binding (corrente ou histórico) deste GlobalId aponta para um ativo
+           cuja Tag canónica é DIFERENTE da que chega agora, isso é evidência de
+           conflito: nunca reatribuir a manifestação em silêncio, nunca mexer no
+           asset_code do ativo original. Vai para reconciliação humana com a
+           evidência de TODOS os candidatos (o dono histórico E o dono da Tag). */
+        const guidHistory = await this.lookup.findEquipmentByGuidHistory(candidate.guid);
+        const conflictingHistory = guidHistory.filter(
+            (h) => h.asset_code !== null && canonicalEquipmentTagKey(h.asset_code) !== canonicalTag);
+
+        if (conflictingHistory.length > 0) {
+            const tagOwners = matches.filter((m) => !conflictingHistory.some((h) => h.id === m.id));
+            return {
+                ...base, status: "ambiguous", matchedAssetId: null,
+                method: "equipment_tag", identifierUsed: tag, confidence: null,
+                reasons: [
+                    `GlobalId '${candidate.guid}' already manifests asset(s) ${conflictingHistory.map((h) => `${h.id} (Tag '${h.asset_code}')`).join(", ")} but now carries Tag '${tag}'`,
+                    ...(tagOwners.length > 0
+                        ? [`canonical Tag '${canonicalTag}' currently belongs to asset(s) ${tagOwners.map((m) => m.id).join(", ")} — evidence preserved for every candidate, no merge`]
+                        : []),
+                    "globalid_tag_conflict: a manifestation is never silently reassigned to a different persistent identity — requires human reconciliation",
+                ],
+                candidatesConsidered: [
+                    ...conflictingHistory.map((h) => ({ assetId: h.id, via: "globalid_history" })),
+                    ...tagOwners.map((m) => ({ assetId: m.id, via: "equipment_tag" })),
+                ],
+                stableCode: tag,
+            };
+        }
+
+        /* ---- TAG-1 §5: a Tag canónica corresponde a mais de um ativo ----
+           Duplicados persistentes históricos: FALHA FECHADA na reconciliação já
+           existente, preservando a evidência de TODOS os candidatos. Nunca fundir
+           automaticamente, nunca escolher o mais antigo/recente/do mesmo modelo. */
         if (matches.length > 1) {
             return {
                 ...base, status: "ambiguous", matchedAssetId: null,
                 method: "equipment_tag", identifierUsed: tag, confidence: null,
-                reasons: [`Tag '${tag}' matches ${matches.length} existing assets (tag_conflict — inventory data quality)`],
+                reasons: [
+                    `canonical Tag '${canonicalTag}' matches ${matches.length} existing persistent assets ${matches.map((m) => `${m.id} (asset_code '${m.asset_code}', origin linked_model ${m.linked_model_id})`).join(", ")}`,
+                    "tag_conflict: legacy duplicate persistent identities — never merged automatically; requires human reconciliation",
+                ],
                 candidatesConsidered: matches.map((m) => ({ assetId: m.id, via: "equipment_tag" })),
                 stableCode: tag,
             };
@@ -99,6 +160,30 @@ export class IfcTagSerialAssetIdentityResolver implements AssetIdentityResolver 
                         "serial_conflict: physical replacement or data-quality issue — requires human reconciliation (no automatic merge)",
                     ],
                     candidatesConsidered: [{ assetId: match.id, via: "equipment_tag" }],
+                    stableCode: tag,
+                };
+            }
+
+            /* ---- TAG-1 §7 (CASE E): presença simultânea em modelos CORRENTES ----
+               "Corrente" vem SÓ de models.current_version_id. Se o ativo já está
+               na versão corrente de OUTRA linha de modelo, aceitá-lo também aqui
+               significaria o mesmo equipamento físico presente em dois modelos
+               correntes ao mesmo tempo — decisão humana, não reutilização
+               silenciosa. Reutilizar contra um binding HISTÓRICO/superado, ou na
+               MESMA linha de modelo (a nova versão sucede a corrente), continua a
+               ser reutilização normal (CASE A/B). */
+            const currentPresence = await this.lookup.findCurrentModelPresence(match.id);
+            const elsewhere = currentPresence.filter((p) => Number(p.model_id) !== Number(context.modelId));
+            if (elsewhere.length > 0) {
+                return {
+                    ...base, status: "ambiguous", matchedAssetId: null,
+                    method: "equipment_tag", identifierUsed: tag, confidence: null,
+                    reasons: [
+                        `Tag '${tag}' matches asset ${match.id}, which is already present in the CURRENT version of model line(s) ${elsewhere.map((p) => `${p.model_id} (version ${p.model_version_id})`).join(", ")}`,
+                        `the incoming manifestation belongs to model line ${context.modelId}`,
+                        "simultaneous_current_model_presence: the same persistent equipment cannot be current in two model lines at once — requires human reconciliation (no automatic merge)",
+                    ],
+                    candidatesConsidered: [{ assetId: match.id, via: "current_model_presence" }],
                     stableCode: tag,
                 };
             }
@@ -127,13 +212,22 @@ export class IfcTagSerialAssetIdentityResolver implements AssetIdentityResolver 
 
         /* ---- Tag nova; verificar renumeração pelo serial ---- */
         if (serialNumber) {
-            const serialMatches = await this.lookup.findEquipmentBySerial(context.linkedModelId, serialNumber);
+            /* TAG-1 §3 (corrigido na V2): âmbito do MESMO linked_model.
+               A heurística existe para apanhar "o modelador mudou a Tag mas
+               manteve o serial" — algo que acontece entre versões da MESMA linha
+               de modelo. Em âmbito de portefólio (V1) o serial tornava-se uma
+               restrição de identidade NEGATIVA: um ativo sem qualquer relação
+               (outra Tag, outro modelo, sem GlobalId comum) vetava a criação
+               limpa de uma Tag nova por mera coincidência de serial. O serial é
+               evidência SECUNDÁRIA e não tem unicidade de portefólio assumida,
+               logo nunca pode vetar uma decisão autoritativa pela Tag. */
+            const serialMatches = await this.lookup.findEquipmentBySerial(serialNumber, context.linkedModelId);
             if (serialMatches.length > 0) {
                 return {
                     ...base, status: "ambiguous", matchedAssetId: null,
                     method: "equipment_tag", identifierUsed: tag, confidence: null,
                     reasons: [
-                        `serial '${serialNumber}' already belongs to asset(s) ${serialMatches.map((m) => m.id).join(", ")} with a different Tag`,
+                        `serial '${serialNumber}' already belongs to asset(s) ${serialMatches.map((m) => m.id).join(", ")} with a different Tag in the same linked model ${context.linkedModelId}`,
                         "serial_renumbering: renumbering or data-quality issue — requires human reconciliation (no automatic merge)",
                     ],
                     candidatesConsidered: serialMatches.map((m) => ({ assetId: m.id, via: "serial_number" })),
@@ -146,7 +240,7 @@ export class IfcTagSerialAssetIdentityResolver implements AssetIdentityResolver 
         return {
             ...base, status: "new", matchedAssetId: null,
             method: "equipment_tag", identifierUsed: tag, confidence: "high",
-            reasons: [`Tag '${tag}' has no existing asset in this scope — new managed equipment identity`],
+            reasons: [`canonical Tag '${canonicalTag}' has no existing asset anywhere in the portfolio — new managed equipment identity`],
             candidatesConsidered: [], stableCode: tag,
         };
     }

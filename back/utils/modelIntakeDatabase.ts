@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import MySQLDatabase from "./mysqlDatabase.ts";
 import { inspectCanonicalSpaceSchema, firstNonExactArtifact, findScopeCanonicalInconsistencies } from "./spaceCanonicalSchema.ts";
+import { canonicalEquipmentTagKey } from "../classification/equipmentTag.ts";
 
 /**
  * Controlled Stage 0A precondition result for the model-intake preview (ADR-0051
@@ -117,13 +118,37 @@ export class ModelIntakeDatabase {
         return rows[0] ?? null;
     }
 
-    async findAssetIdentity(linkedModelId: number, tag: string): Promise<any | null> {
+    /**
+     * TAG-1 §9 (V2) — resolução de identidade de equipamento para a PRÉ-VISÃO,
+     * com exatamente as mesmas semânticas de portefólio do caminho autoritativo.
+     *
+     * A versão anterior consultava `linked_model_id = :linkedModelId AND
+     * asset_code = :tag`, ou seja, âmbito de MODELO: a pré-visão anunciava
+     * "candidato novo" para equipamento que o upload autoritativo iria reutilizar
+     * a partir de outro modelo — pré-visão e persistência a discordar.
+     *
+     * Aqui, como em `findEquipmentByTag`, o SQL devolve o DOMÍNIO de linhas e a
+     * correspondência é decidida SÓ por `canonicalEquipmentTagKey` (única
+     * autoridade) — nunca por `UPPER()`/collation do MySQL, que não são
+     * equivalentes a `.toUpperCase()` em todo o Unicode. Sem `LIMIT 1`: devolve
+     * TODAS as correspondências canónicas, para que a pré-visão possa representar
+     * a ambiguidade em vez de escolher uma arbitrariamente.
+     *
+     * Estritamente de LEITURA: sem criação de ativo e sem lock (o lock protege a
+     * escrita create-se-ausente, não uma exibição).
+     */
+    async findAssetIdentitiesByCanonicalTag(canonicalTag: string): Promise<any[]> {
         await this.db.checkConnection();
         const [rows]: any = await this.db.connection.execute(`
             SELECT id, asset_uuid, asset_code, serial_number, name FROM assets
-            WHERE linked_model_id = :linkedModelId AND asset_type = 'equipment' AND asset_code = :tag LIMIT 1
-        `, { linkedModelId, tag: tag.trim().toUpperCase() });
-        return rows[0] ?? null;
+            WHERE asset_type = 'equipment'
+              AND asset_uuid IS NOT NULL
+              AND asset_code IS NOT NULL
+            ORDER BY id ASC
+        `, {});
+        return (rows as any[]).filter(
+            (row) => typeof row.asset_code === "string"
+                && canonicalEquipmentTagKey(row.asset_code) === canonicalTag);
     }
 
     async getVersionSnapshot(versionId: number): Promise<{ version: any; spaces: any[]; assets: any[] } | null> {

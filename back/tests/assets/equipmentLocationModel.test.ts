@@ -31,7 +31,10 @@ beforeEach(() => {
 function baseRoutes(overrides: [RegExp, any][] = []): [RegExp, any][] {
     return [
         ...overrides,
-        [/FROM assets[\s\S]*asset_code = :tag/i, [[]]],
+        // TAG-1 §8: nome do lock de identidade por Tag canónica, derivado do
+        // esquema exato selecionado na conexão que segura o GET_LOCK.
+        [/SELECT DATABASE\(\)/i, [[{ db: "test-db" }]]],
+        [/FROM assets[\s\S]*asset_code IS NOT NULL/i, [[]]],
         [/FROM assets[\s\S]*serial_number = :serial/i, [[]]],
         [/INSERT INTO assets/i, (() => { let id = 300; return () => [{ insertId: id++ }]; })()],
         [/INSERT INTO asset_bindings/i, [{ insertId: 400 }]],
@@ -103,7 +106,7 @@ test("equipment moves across versions: same persistent asset id reused; each ver
     // Version 2: the SAME equipment (matched by Tag) now in T-102 (spaceId 102).
     fakeConnection.reset();
     respond(baseRoutes([
-        [/FROM assets[\s\S]*asset_code = :tag/i, [[{ id: persistentId, asset_code: "EQP-E", serial_number: null }]]],
+        [/FROM assets[\s\S]*asset_code IS NOT NULL/i, [[{ id: persistentId, asset_code: "EQP-E", serial_number: null }]]],
     ]));
     await persistAssetsForVersion(versionInput(2, 102, "T-102"));
 

@@ -24,8 +24,14 @@ type Finding = { source: "ids" | "project_rule"; requirementId: string; requirem
 // optional human label from IfcSpace.LongName. It is never a "Reference".
 type Space = { persistentUuid: string; inventoryCode: string; longName: string | null; ifcGuid: string; ifcClass: string; storey: string | null;
   persistentUri: string; manifestationUri: string };
-type Asset = { persistentUuid: string; tag: string; serialNumber: string | null; ifcGuid: string; ifcClass: string;
-  containingSpace: string | null; persistentUri: string; manifestationUri: string };
+// TAG-1 §9: the preview reports portfolio-wide persistent identity as a STATUS, and the
+// status — never the raw `persistentUuid` value — is what decides what is shown. "candidate"
+// means only "a new persistent asset will be created"; an ambiguous asset has NO resolved
+// UUID (null) and carries the conflicting UUIDs as evidence for human review.
+type AssetStatus = "existing" | "new" | "ambiguous";
+type Asset = { persistentUuid: string | null; tag: string; serialNumber: string | null; ifcGuid: string; ifcClass: string;
+  containingSpace: string | null; persistentUri: string; manifestationUri: string;
+  persistentAssetStatus: AssetStatus; ambiguousAssetUuids: string[] | null };
 type Run = { runUuid: string; modelId: number; ifc: { originalFilename: string; serverComputedSha256: string; byteSize: number;
   detectedIfcSchema: string; entityCounts: Record<string, number> }; ids: Profile;
   validation: { overallStatus: string; idsStatus: string; projectRulesStatus: string; blocking: boolean; findings: Finding[] };
@@ -290,7 +296,21 @@ function ProfileCard({ profile, processed }: { profile: Profile; processed: bool
   <div className="mt-5 space-y-3">{profile.requirements.map((r) => <div className="rounded-lg border border-slate-800 p-3" key={`${r.requirementId}-${r.requires}`}><div className="font-semibold">{r.requirementId} — {r.specification}</div><div className="mt-1 text-sm text-slate-300">Applies to: {r.appliesTo} · Requires: {r.requires} · Cardinality: {r.cardinality}{r.expectedPattern ? ` · Expected pattern: ${r.expectedPattern}` : ""}</div></div>)}</div></div>; }
 function Findings({ findings }: { findings: Finding[] }) { return <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-sm"><thead className="text-slate-400"><tr><th className="p-2">Layer</th><th className="p-2">Requirement</th><th className="p-2">Result</th><th className="p-2">Entity</th><th className="p-2">Evidence</th></tr></thead><tbody>{findings.map((f, i) => <tr className="border-t border-slate-800" key={`${f.source}-${f.requirementId}-${f.entityGuid ?? i}`}><td className="p-2">{f.source}</td><td className="p-2">{f.requirementName}</td><td className="p-2 font-bold">{f.status}</td><td className="p-2 font-mono text-xs">{f.entityType} {f.entityGuid}</td><td className="p-2">{f.message}</td></tr>)}</tbody></table></div>; }
 function SpaceTable({ rows }: { rows: Space[] }) { return <Table headers={["Persistent space UUID", "Inventory code", "Long name", "IFC GUID / class", "Storey", "Persistent URI", "Manifestation URI"]} rows={rows.map((r) => [r.persistentUuid, r.inventoryCode, r.longName ?? "—", `${r.ifcGuid} / ${r.ifcClass}`, r.storey ?? "—", r.persistentUri, r.manifestationUri])} />; }
-function AssetTable({ rows }: { rows: Asset[] }) { return <Table headers={["Persistent asset UUID", "Tag / serial", "IFC GUID / class", "Containing space", "Persistent URI", "Manifestation URI"]} rows={rows.map((r) => [r.persistentUuid, `${r.tag} / ${r.serialNumber ?? "—"}`, `${r.ifcGuid} / ${r.ifcClass}`, r.containingSpace ?? "—", r.persistentUri, r.manifestationUri])} />; }
+/**
+ * Renders persistent asset identity THROUGH the status, so the three preflight states are
+ * distinguishable at a glance. Neither the raw `null` nor the bare literal "candidate" is
+ * ever shown as if it were a persistent UUID. Ambiguity is a truthful preflight state that
+ * requires review — not an error, and nothing is mutated or reconciled from here.
+ */
+function assetIdentityCell(r: Asset) {
+  if (r.persistentAssetStatus === "ambiguous") {
+    const conflicting = r.ambiguousAssetUuids ?? [];
+    return `Ambiguous — review required${conflicting.length ? ` · conflicting UUIDs: ${conflicting.join(", ")}` : ""}`;
+  }
+  if (r.persistentAssetStatus === "new") return "New candidate — will be created";
+  return r.persistentUuid ?? "—";
+}
+function AssetTable({ rows }: { rows: Asset[] }) { return <Table headers={["Persistent asset identity", "Tag / serial", "IFC GUID / class", "Containing space", "Persistent URI", "Manifestation URI"]} rows={rows.map((r) => [assetIdentityCell(r), `${r.tag} / ${r.serialNumber ?? "—"}`, `${r.ifcGuid} / ${r.ifcClass}`, r.containingSpace ?? "—", r.persistentUri, r.manifestationUri])} />; }
 function Table({ headers, rows }: { headers: string[]; rows: string[][] }) { return <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[900px] text-left text-xs"><thead className="text-slate-400"><tr>{headers.map((h) => <th className="p-2" key={h}>{h}</th>)}</tr></thead><tbody>{rows.map((row, i) => <tr className="border-t border-slate-800" key={i}>{row.map((v, j) => <td className="max-w-xs break-all p-2" key={j}>{v}</td>)}</tr>)}</tbody></table></div>; }
 function short(value: string | null) { return value?.split(/[\/#]/).pop() ?? "—"; }
 function ShapesCard({ shapes }: { shapes: Shapes }) { return <div className="mt-5 rounded-xl bg-slate-950 p-4"><p className="font-semibold">{shapes.source === "governed_active_shapes" ? "Governed shapes resolved by backend" : "Temporary non-governed shapes inspected by backend"}</p>

@@ -72,7 +72,10 @@ const ASSET_INPUT = {
 function assetRoutes(): [RegExp, any][] {
     return [
         [/SELECT \* FROM assets WHERE space_id/i, [[]]],
-        [/FROM assets[\s\S]*asset_code = :tag/i, [[]]],
+        // TAG-1 §8: nome do lock de identidade por Tag canónica, derivado do
+        // esquema exato selecionado na conexão que segura o GET_LOCK.
+        [/SELECT DATABASE\(\)/i, [[{ db: "test-db" }]]],
+        [/FROM assets[\s\S]*asset_code IS NOT NULL/i, [[]]],
         [/FROM assets[\s\S]*serial_number = :serial/i, [[]]],
         [/INSERT INTO assets/i, (() => { let id = 300; return () => [{ insertId: id++ }]; })()],
         [/INSERT INTO asset_bindings/i, [{ insertId: 400 }]],

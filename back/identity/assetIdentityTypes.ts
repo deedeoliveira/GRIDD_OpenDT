@@ -62,9 +62,58 @@ export interface AssetIdentityResult {
     serialNumber: string | null;
 }
 
+/**
+ * Linha de um ativo persistente devolvida pelos lookups de identidade.
+ *
+ * `linked_model_id` é METADADO DE ORIGEM (o linked_model onde o ativo foi criado)
+ * — é devolvido como EVIDÊNCIA para diagnóstico/reconciliação e NUNCA participa
+ * do predicado de correspondência (TAG-1 §4). Nunca é reinterpretado como
+ * "último modelo tocado" nem atualizado em reutilização entre modelos.
+ */
+export interface AssetIdentityRow {
+    id: number;
+    asset_code: string | null;
+    serial_number: string | null;
+    linked_model_id: number | null;
+}
+
+/**
+ * Presença de um ativo persistente na versão CORRENTE de uma linha de modelo
+ * (TAG-1 CASE E). "Corrente" vem EXCLUSIVAMENTE de `models.current_version_id`
+ * — nunca de timestamps, do maior id nem da ordem de upload.
+ */
+export interface AssetCurrentModelPresence {
+    model_id: number;
+    model_version_id: number;
+}
+
 export interface AssetIdentityLookup {
-    findEquipmentByTag(linkedModelId: number, tag: string): Promise<{ id: number; asset_code: string | null; serial_number: string | null }[]>;
-    findEquipmentBySerial(linkedModelId: number, serial: string): Promise<{ id: number; asset_code: string | null; serial_number: string | null }[]>;
+    /**
+     * TAG-1 §2 — correspondência de identidade em TODO o portefólio: o predicado
+     * é `canonical(asset_code) = canonical(:tag)`, SEM `linked_model_id`. Pode
+     * devolver MAIS DO QUE UMA linha (duplicados históricos → ambiguidade).
+     *
+     * A implementação tem de devolver um SUPERCONJUNTO garantido do que
+     * `canonicalEquipmentTagKey` considera equivalente — nunca um pré-filtro que
+     * imite a canonicalização noutro motor (falso negativo de identidade).
+     */
+    findEquipmentByTag(canonicalTag: string): Promise<AssetIdentityRow[]>;
+    /**
+     * TAG-1 §3 (V2) — evidência secundária, restrita ao MESMO `linked_model_id`
+     * (heurística "mudou a Tag, manteve o serial" entre versões da mesma linha de
+     * modelo). NUNCA cria nem reutiliza identidade por si só e NUNCA pode vetar
+     * uma decisão autoritativa pela Tag com base num ativo não relacionado noutro
+     * ponto do portefólio.
+     */
+    findEquipmentBySerial(serial: string, linkedModelId: number): Promise<AssetIdentityRow[]>;
+    /**
+     * TAG-1 §4 — ativos persistentes com um binding (corrente OU histórico) para
+     * este IFC GlobalId. O GlobalId identifica uma MANIFESTAÇÃO, nunca a
+     * identidade; serve só como evidência de conflito.
+     */
+    findEquipmentByGuidHistory(ifcGuid: string): Promise<AssetIdentityRow[]>;
+    /** TAG-1 §7 — linhas de modelo onde este ativo está na versão CORRENTE. */
+    findCurrentModelPresence(assetId: number): Promise<AssetCurrentModelPresence[]>;
 }
 
 export interface AssetIdentityResolver {

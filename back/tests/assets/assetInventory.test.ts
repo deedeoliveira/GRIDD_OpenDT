@@ -55,8 +55,12 @@ function makeInput(overrides: Partial<Record<string, any>> = {}) {
 function baseRoutes(overrides: [RegExp, any][] = []): [RegExp, any][] {
     return [
         ...overrides,
+        // TAG-1 §8: o lock de identidade por Tag canónica deriva o seu nome do
+        // esquema EXATO selecionado, na própria conexão que segura o GET_LOCK.
+        // O fake emula a resposta do servidor a SELECT DATABASE().
+        [/SELECT DATABASE\(\)/i, [[{ db: "test-db" }]]],
         [/SELECT \* FROM assets WHERE space_id/i, [[]]],
-        [/FROM assets[\s\S]*asset_code = :tag/i, [[]]],
+        [/FROM assets[\s\S]*asset_code IS NOT NULL/i, [[]]],
         [/FROM assets[\s\S]*serial_number = :serial/i, [[]]],
         [/INSERT INTO assets/i, (() => { let id = 300; return () => [{ insertId: id++ }]; })()],
         [/INSERT INTO asset_bindings/i, [{ insertId: 400 }]],
@@ -119,7 +123,7 @@ function equipmentInput(element: Record<string, any>) {
 test("equipamento matched pela Tag: atualiza projeção e cria binding — NUNCA um novo asset", async () => {
     respond(baseRoutes([
         [/SELECT \* FROM assets WHERE space_id/i, [[{ id: 55 }]]],
-        [/FROM assets[\s\S]*asset_code = :tag/i, [[{ id: 77, asset_code: "EQP-1", serial_number: null }]]],
+        [/FROM assets[\s\S]*asset_code IS NOT NULL/i, [[{ id: 77, asset_code: "EQP-1", serial_number: null }]]],
     ]));
 
     await persistAssetsForVersion(equipmentInput({
@@ -136,7 +140,7 @@ test("equipamento matched pela Tag: atualiza projeção e cria binding — NUNCA
 test("mesma Tag + mesmo serial: matched forte; serial vai para snapshot separado (nunca para asset_code)", async () => {
     respond(baseRoutes([
         [/SELECT \* FROM assets WHERE space_id/i, [[{ id: 55 }]]],
-        [/FROM assets[\s\S]*asset_code = :tag/i, [[{ id: 77, asset_code: "EQP-1", serial_number: "SN-9" }]]],
+        [/FROM assets[\s\S]*asset_code IS NOT NULL/i, [[{ id: 77, asset_code: "EQP-1", serial_number: "SN-9" }]]],
     ]));
 
     await persistAssetsForVersion(equipmentInput({
@@ -153,7 +157,7 @@ test("mesma Tag + mesmo serial: matched forte; serial vai para snapshot separado
 test("mesma Tag + serial diferente: caso de reconciliação; SEM asset e SEM binding (não reservável, não contorna reservas)", async () => {
     respond(baseRoutes([
         [/SELECT \* FROM assets WHERE space_id/i, [[{ id: 55 }]]],
-        [/FROM assets[\s\S]*asset_code = :tag/i, [[{ id: 77, asset_code: "EQP-1", serial_number: "SN-OLD" }]]],
+        [/FROM assets[\s\S]*asset_code IS NOT NULL/i, [[{ id: 77, asset_code: "EQP-1", serial_number: "SN-OLD" }]]],
     ]));
 
     const outcome = await persistAssetsForVersion(equipmentInput({
@@ -211,7 +215,7 @@ test("elemento arquitetónico (IfcWall): entity apenas, sem asset, sem caso — 
 test("equipamento NÃO-proxy: object_type_snapshot fica NULL mesmo quando o export traz ObjectType (sem efeito de domínio)", async () => {
     respond(baseRoutes([
         [/SELECT \* FROM assets WHERE space_id/i, [[{ id: 55 }]]],
-        [/FROM assets[\s\S]*asset_code = :tag/i, [[{ id: 77, asset_code: "EQP-1", serial_number: null }]]],
+        [/FROM assets[\s\S]*asset_code IS NOT NULL/i, [[{ id: 77, asset_code: "EQP-1", serial_number: null }]]],
     ]));
 
     await persistAssetsForVersion(equipmentInput({
@@ -231,7 +235,7 @@ test("mudar o ObjectType num equipamento não-proxy não altera identidade, reco
         fakeConnection.reset();
         respond(baseRoutes([
             [/SELECT \* FROM assets WHERE space_id/i, [[{ id: 55 }]]],
-            [/FROM assets[\s\S]*asset_code = :tag/i, [[{ id: 77, asset_code: "EQP-1", serial_number: null }]]],
+            [/FROM assets[\s\S]*asset_code IS NOT NULL/i, [[{ id: 77, asset_code: "EQP-1", serial_number: null }]]],
         ]));
 
         const outcome = await persistAssetsForVersion(equipmentInput({
@@ -281,7 +285,7 @@ test("deny/undetermined em ativo EXISTENTE → apenas projeção reservable=0; i
     });
     respond(baseRoutes([
         [/SELECT \* FROM assets WHERE space_id/i, [[{ id: 55 }]]],
-        [/FROM assets[\s\S]*asset_code = :tag/i, [[{ id: 77, asset_code: "EQP-1", serial_number: null }]]],
+        [/FROM assets[\s\S]*asset_code IS NOT NULL/i, [[{ id: 77, asset_code: "EQP-1", serial_number: null }]]],
     ]));
 
     const outcome = await persistAssetsForVersion(equipmentInput({

@@ -21,6 +21,7 @@ test("backend RDF preview is parseable Turtle with real counts, provenance, pers
         assets: [{ persistentUuid: "77777777-7777-4777-8777-777777777777", tag: "EQP-DEMO-001", serialNumber: "SYN-SERIAL-001",
             manufacturer: "Synthetic Lab Equipment", ifcGuid: "asset-guid-v2", ifcClass: "IfcFurnishingElement", containingSpace: "R-101",
             containingSpacePersistentUri: "http://oswadt.test/id/space/66666666-6666-4666-8666-666666666666",
+            persistentAssetStatus: "existing", ambiguousAssetUuids: null,
             persistentUri: "http://oswadt.test/id/asset/77777777-7777-4777-8777-777777777777",
             manifestationUri: "http://oswadt.test/id/model-version/55555555-5555-4555-8555-555555555555/manifestation/asset-guid-v2" }],
     });

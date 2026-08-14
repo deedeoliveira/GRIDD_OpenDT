@@ -89,7 +89,12 @@ export async function buildMinimalRdf(input: RdfBuildInput): Promise<RdfPreview>
     }
     for (const asset of input.assets) {
         addType(asset.persistentUri, `${beo}Furnishing`);
-        addLiteral(asset.persistentUri, `${p}persistentUuid`, asset.persistentUuid);
+        // `persistentUuid` passou a poder ser `null` (pré-visão ambígua). O grafo de
+        // pré-visão mantém-se BYTE-A-BYTE como na V2: o URI do ativo já é um URI de
+        // candidato tanto em `new` como em `ambiguous`, pelo que o literal continua a
+        // ser "candidate" quando não há UUID persistente resolvido. A distinção
+        // new/ambíguo é do DTO de pré-visão e do ecrã, não deste grafo.
+        addLiteral(asset.persistentUri, `${p}persistentUuid`, asset.persistentUuid ?? "candidate");
         addLiteral(asset.persistentUri, `${p}tag`, asset.tag);
         if (asset.serialNumber) addLiteral(asset.persistentUri, `${p}serialNumber`, asset.serialNumber);
         if (asset.manufacturer) addLiteral(asset.persistentUri, `${p}manufacturer`, asset.manufacturer);

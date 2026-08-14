@@ -21,6 +21,7 @@ import { buildSemanticExecutionContext, type SemanticExecutionContext } from "./
 import { buildMinimalRdf } from "./rdfMaterialiser.ts";
 import type { IntakeProfile, PreflightRun, PreviewAsset, PreviewSpace, PreviewSpaceStatus, PreviewSpaceCode } from "./modelIntakeTypes.ts";
 import { isValidIfcGlobalId } from "../utils/ifcGlobalId.ts";
+import { canonicalEquipmentTagKey } from "../classification/equipmentTag.ts";
 import { evaluateIfcSchemaGate } from "../utils/ifcSchemaSupport.ts";
 import { deriveSpaceOccurrences } from "../services/spatialPreflightService.ts";
 import { loadSemanticValidationConfig } from "../semanticValidation/semanticValidationConfig.ts";
@@ -42,6 +43,39 @@ interface UploadedFile { path: string; originalname: string; size: number; }
  *    DIFFERENT persistent space under uq_spaces_scope_code — whether the candidate GlobalId
  *    is new or an existing space is changing its code.
  */
+/**
+ * TAG-1 §9 (V3) — projeta a decisão de identidade JÁ TOMADA (o conjunto de
+ * correspondências canónicas do portefólio) nos três campos correlacionados do DTO,
+ * a partir de UM único ponto de decisão. Antes, `persistentAssetStatus`,
+ * `persistentUuid` e `ambiguousAssetUuids` eram três expressões independentes e o
+ * caso `ambiguous` caía no MESMO sentinela `"candidate"` do caso `new` — indistintos
+ * na serialização e, por isso, indistintos no ecrã.
+ *
+ * Contrato (o único válido):
+ *   existing  → status "existing",  uuid = UUID real,  ambiguousAssetUuids = null
+ *   new       → status "new",       uuid = "candidate", ambiguousAssetUuids = null
+ *   ambiguous → status "ambiguous", uuid = null,        ambiguousAssetUuids = [todos]
+ *
+ * `"candidate"` mantém exatamente um significado — "vai ser criado um novo recurso
+ * persistente" — e nunca significa "por resolver". NÃO decide identidade: recebe as
+ * correspondências já resolvidas e só lhes dá forma.
+ */
+export function classifyPreviewAssetIdentity<T extends { asset_uuid: unknown }>(canonicalMatches: readonly T[]): {
+    persistentAssetStatus: "existing" | "new" | "ambiguous";
+    persistentUuid: string | "candidate" | null;
+    ambiguousAssetUuids: string[] | null;
+    /** O ativo reutilizado, ou `null` em `new` E em `ambiguous` (nunca eleger um duplicado). */
+    current: T | null;
+} {
+    if (canonicalMatches.length > 1) {
+        return { persistentAssetStatus: "ambiguous", persistentUuid: null,
+            ambiguousAssetUuids: canonicalMatches.map((m) => String(m.asset_uuid)), current: null };
+    }
+    const current = canonicalMatches[0] ?? null;
+    if (!current) return { persistentAssetStatus: "new", persistentUuid: "candidate", ambiguousAssetUuids: null, current: null };
+    return { persistentAssetStatus: "existing", persistentUuid: String(current.asset_uuid), ambiguousAssetUuids: null, current };
+}
+
 export function classifyPreviewSpaceIdentity(input: {
     guid: string;
     inventoryCode: string;
@@ -409,18 +443,34 @@ export class ModelIntakeService {
                         tag: element.tag ?? null, psets: element.psets ?? null },
                         { linkedModelId: Number(modelContext.linked_model_id), modelId: input.modelId, modelVersionId: 0 });
                     if (classification.classification !== "managed_equipment" || typeof element.tag !== "string" || !element.tag.trim()) continue;
-                    const tag = element.tag.trim().toUpperCase();
-                    const current = await this.database.findAssetIdentity(Number(modelContext.linked_model_id), tag);
-                    const assetUuid = current?.asset_uuid ?? "candidate";
+                    // TAG-1 §9 (V2): a pré-visão usa a MESMA canonicalização e o MESMO
+                    // âmbito de PORTEFÓLIO do caminho autoritativo. Antes consultava
+                    // `linked_model_id = ... AND asset_code = UPPER(tag)`, pelo que
+                    // anunciava "candidato novo" para equipamento que o upload iria
+                    // reutilizar a partir de outro modelo. Leitura pura: sem criação de
+                    // ativo e sem lock (o lock protege a escrita, não uma exibição).
+                    const tag = canonicalEquipmentTagKey(element.tag);
+                    const canonicalMatches = await this.database.findAssetIdentitiesByCanonicalTag(tag);
+                    // Duplicados legados: NUNCA escolher um e exibi-lo como se fosse "o"
+                    // ativo — o caminho autoritativo devolve `ambiguous` e abre caso de
+                    // reconciliação; a pré-visão diz exatamente o mesmo.
+                    // V3: UM único ponto de decisão projeta os três campos correlacionados
+                    // (status / persistentUuid / ambiguousAssetUuids), para que não voltem a
+                    // divergir. A decisão de identidade em si é a MESMA da V2 (>1 → ambíguo,
+                    // 1 → reutiliza, 0 → novo) — aqui só lhe é dada forma no DTO.
+                    const identity = classifyPreviewAssetIdentity(canonicalMatches as any[]);
+                    const current = identity.current;
                     // Locate the equipment by its CONTAINING IfcSpace occurrence (GlobalId
                     // `guid`), never by inventory-code lookup: resolve the persistent/candidate
                     // URI of that occurrence's PreviewSpace (ADR-0052 §F).
                     const containingSpacePersistentUri = spaces.find((s) => s.ifcGuid === guid)?.persistentUri ?? null;
-                    assets.push({ persistentUuid: assetUuid, tag,
+                    assets.push({ persistentUuid: identity.persistentUuid, tag,
                         serialNumber: current?.serial_number ?? IfcTagSerialAssetIdentityResolver.extractSerialNumber(element.psets),
                         manufacturer: psetValue(element.psets, "Manufacturer"), ifcGuid: element.guid, ifcClass: element.type,
                         containingSpace: containingCode,
                         containingSpacePersistentUri,
+                        persistentAssetStatus: identity.persistentAssetStatus,
+                        ambiguousAssetUuids: identity.ambiguousAssetUuids,
                         persistentUri: current ? `${graph.config.baseUri}/asset/${current.asset_uuid}` : `${graph.config.baseUri}/candidate/${runUuid}/asset/${encodeURIComponent(tag)}`,
                         manifestationUri: `${graph.config.baseUri}/model-version/candidate-${runUuid}/manifestation/${encodeURIComponent(element.guid)}` });
                 }

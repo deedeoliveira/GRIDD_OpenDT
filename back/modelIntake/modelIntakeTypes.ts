@@ -86,7 +86,17 @@ export interface PreviewSpace {
 }
 
 export interface PreviewAsset {
-    persistentUuid: string | "candidate";
+    /**
+     * TAG-1 §9 (V3) — correlacionado com {@link PreviewAsset.persistentAssetStatus}:
+     *  - `existing`  → o UUID persistente REAL do ativo reutilizado;
+     *  - `new`       → o sentinela `"candidate"`, cujo ÚNICO significado em todo o
+     *                  código é "vai ser criado aqui um novo recurso persistente"
+     *                  (o mesmo significado, binário, que tem em {@link PreviewSpace});
+     *  - `ambiguous` → `null`. NUNCA `"candidate"`: ambíguo não é "novo", é
+     *                  "não resolvido, exige revisão humana". Não existe um segundo
+     *                  sentinela textual — a ausência de UUID resolvido é `null`.
+     */
+    persistentUuid: string | "candidate" | null;
     tag: string;
     serialNumber: string | null;
     manufacturer: string | null;
@@ -109,6 +119,32 @@ export interface PreviewAsset {
     containingSpacePersistentUri: string | null;
     persistentUri: string;
     manifestationUri: string;
+    /**
+     * TAG-1 §9 (V2) — resultado da resolução de identidade de PORTEFÓLIO pela Tag
+     * canónica, com as mesmas semânticas do caminho autoritativo:
+     *  - `existing`  — exatamente um ativo persistente com esta Tag canónica
+     *                  (mesmo que noutro modelo): o upload vai REUTILIZÁ-LO;
+     *  - `new`       — nenhum ativo no portefólio com esta Tag canónica;
+     *  - `ambiguous` — MAIS DO QUE UM ativo persistente com esta Tag canónica
+     *                  (duplicados legados). A pré-visão NÃO escolhe um: fica com
+     *                  `persistentUuid === null`, tal como o resolver devolve
+     *                  `ambiguous` e cria um caso de reconciliação.
+     *
+     * OBRIGATÓRIO (V3): todo o construtor consegue determiná-lo sem inventar um
+     * valor — o construtor da pré-visão já o calcula incondicionalmente, e os
+     * construtores que projetam versões JÁ PERSISTIDAS têm, por definição, um
+     * `asset_uuid` real por linha, logo `existing`. Ser obrigatório é o que
+     * permite ao consumidor decidir SEMPRE pelo estado, nunca pelo sentinela.
+     *
+     * INVARIANTE (V3): `persistentAssetStatus === "ambiguous"` e
+     * `persistentUuid === "candidate"` NÃO podem coocorrer.
+     */
+    persistentAssetStatus: "existing" | "new" | "ambiguous";
+    /**
+     * Ativos em conflito quando `persistentAssetStatus === "ambiguous"` (evidência,
+     * sem escolher um). `null` em `existing`/`new` — nunca omitido.
+     */
+    ambiguousAssetUuids: string[] | null;
 }
 
 export interface RdfPreview {

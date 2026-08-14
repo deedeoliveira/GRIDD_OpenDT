@@ -23,9 +23,39 @@ export function normalizeEquipmentTag(tag: string): string {
     return tag.trim();
 }
 
-/** Chave de deteção de duplicações (case-insensitive, aparada). */
-export function equipmentTagDuplicateKey(tag: string): string {
+/**
+ * TAG-1 (V2) — ÚNICA autoridade de canonicalização da Tag institucional.
+ *
+ * Esta é a definição; tudo o resto (deteção de duplicados no preflight,
+ * correspondência de identidade no resolver, nome do lock consultivo, pré-visão
+ * do intake) DELEGA aqui. Não pode existir uma segunda regra: se o preflight e o
+ * resolver discordassem, o preflight aceitaria duas Tags que o resolver depois
+ * trataria como a mesma identidade (ou o inverso).
+ *
+ * Determinística e independente do motor: a decisão de correspondência é tomada
+ * SEMPRE em JavaScript, NUNCA pela collation do MySQL. Desde a V2 o SQL já nem
+ * sequer tenta reproduzir esta regra — `UPPER()` do MySQL e `.toUpperCase()` do
+ * JavaScript NÃO são equivalentes em todo o Unicode (ex.: 'ß' → 'SS' é uma
+ * expansão que o JavaScript faz e o `UPPER()` do MySQL não; o 'ı' turco e outros
+ * mapeamentos sensíveis à locale também divergem), pelo que um pré-filtro SQL que
+ * imitasse esta função poderia EXCLUIR uma linha que esta função considera
+ * equivalente (falso negativo de identidade — inaceitável). Ver
+ * `findEquipmentByTag` em `back/utils/persistentAssetDatabase.ts`.
+ *
+ * NÃO é o valor persistido: `asset_code`/snapshots continuam a receber a Tag
+ * apenas APARADA ({@link normalizeEquipmentTag}), preservando as maiúsculas/
+ * minúsculas escolhidas pelo gestor para exibição.
+ */
+export function canonicalEquipmentTagKey(tag: string): string {
     return tag.trim().toUpperCase();
+}
+
+/**
+ * Chave de deteção de duplicações (preflight). É POR DEFINIÇÃO a chave canónica
+ * de identidade — alias nomeado para o papel, nunca uma regra concorrente.
+ */
+export function equipmentTagDuplicateKey(tag: string): string {
+    return canonicalEquipmentTagKey(tag);
 }
 
 /** Descreve por que motivo uma Tag é inválida (para diagnósticos). */

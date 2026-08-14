@@ -49,6 +49,7 @@ test("controlled vertical flow executes selected IFC + IDS, real RDF, governed p
             manufacturer: String(element.psets.Pset_ManufacturerOccurrence?.Manufacturer ?? "Synthetic"),
             ifcGuid: element.guid, ifcClass: element.type, containingSpace: String(space.spaceName),
             containingSpacePersistentUri: "http://oswadt.test/id/space/88888888-8888-4888-8888-888888888888",
+            persistentAssetStatus: "existing", ambiguousAssetUuids: null,
             persistentUri: "http://oswadt.test/id/asset/99999999-9999-4999-8999-999999999999",
             manifestationUri: `http://oswadt.test/id/model-version/77777777-7777-4777-8777-777777777777/manifestation/${element.guid}` }],
     });

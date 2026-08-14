@@ -2,6 +2,7 @@ import assetDb from "../utils/persistentAssetDatabase.ts";
 import { getAssetIdentityResolver } from "../identity/assetIdentityProvider.ts";
 import { getEquipmentClassifier } from "../classification/equipmentClassifierProvider.ts";
 import { getReservabilityEvaluator } from "../policies/policyProvider.ts";
+import { canonicalEquipmentTagKey, isValidEquipmentTag } from "../classification/equipmentTag.ts";
 
 /**
  * Inventário persistente de ativos (Prompt 4; ADR-0052 §F) — substitui a criação
@@ -139,6 +140,25 @@ export async function persistAssetsForVersion(input: AssetInventoryInput): Promi
                     continue;
                 }
 
+                /* ---- TAG-1 §8: secção crítica de identidade por Tag canónica ----
+                   A decisão de primeira aparição (consulta pela Tag canónica →
+                   evidência/conflitos → criar-se-ainda-ausente) tem de correr
+                   INTEIRA sob o mesmo lock consultivo, senão dois uploads
+                   concorrentes com a mesma Tag nova criariam dois ativos
+                   persistentes — risco agravado agora que a correspondência é de
+                   portefólio e já não está confinada a um linked_model.
+
+                   O lock é NOMEADO por Tag canónica: Tags diferentes continuam a
+                   ser processadas em paralelo. Abrange só a identidade deste
+                   elemento — nunca o parsing IFC, o IDS, o RDF ou o SHACL. Em
+                   timeout, `withNamedLock` lança ConcurrencyError e o upload
+                   falha FECHADO (nunca prossegue sem proteção). Sem Tag válida
+                   não há criação possível (o resolver devolve `unresolved`), pelo
+                   que não há secção crítica a proteger. */
+                const canonicalTag = isValidEquipmentTag(element.tag)
+                    ? canonicalEquipmentTagKey(element.tag) : null;
+
+                const resolveAndPersistIdentity = async (): Promise<void> => {
                 const identity = await identityResolver.resolve(
                     { guid: element.guid, name: element.name, ifcType: element.type,
                       tag: element.tag ?? null, objectType: element.objectType ?? null,
@@ -158,7 +178,7 @@ export async function persistAssetsForVersion(input: AssetInventoryInput): Promi
                     });
                     outcome.casesCreated++;
                     outcome.diagnostics.equipment_pending_reconciliation.push(element.guid);
-                    continue;
+                    return;
                 }
 
                 stage = "asset_policy";
@@ -190,7 +210,7 @@ export async function persistAssetsForVersion(input: AssetInventoryInput): Promi
                         // comportamento legado para novos candidatos não
                         // reserváveis (ex.: IfcSensor) — sem ativo
                         outcome.diagnostics.policy_denied_new.push(element.guid);
-                        continue;
+                        return;
                     }
                     const created = await assetDb.createAsset({
                         name: element.name ?? element.guid,
@@ -226,6 +246,13 @@ export async function persistAssetsForVersion(input: AssetInventoryInput): Promi
                     reconciliationConfidence: identity.confidence,
                 });
                 outcome.bindingsCreated++;
+                };
+
+                if (canonicalTag !== null) {
+                    await assetDb.withEquipmentTagIdentityLock(canonicalTag, resolveAndPersistIdentity);
+                } else {
+                    await resolveAndPersistIdentity();
+                }
             }
         }
 

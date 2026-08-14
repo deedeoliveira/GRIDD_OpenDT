@@ -98,7 +98,10 @@ function routes(overrides: [RegExp, any][] = []): [RegExp, any][] {
         [/INSERT INTO space_bindings/i, [{ insertId: 400, affectedRows: 1 }]],
         [/UPDATE spaces SET status/i, [{}]],
         [/SELECT \* FROM assets WHERE space_id/i, [[]]],
-        [/FROM assets[\s\S]*asset_code = :tag/i, [[]]],
+        // TAG-1 §8: nome do lock de identidade por Tag canónica, derivado do
+        // esquema exato selecionado na conexão que segura o GET_LOCK.
+        [/SELECT DATABASE\(\)/i, [[{ db: "test-db" }]]],
+        [/FROM assets[\s\S]*asset_code IS NOT NULL/i, [[]]],
         [/FROM assets[\s\S]*serial_number = :serial/i, [[]]],
         [/INSERT INTO assets/i, (() => { let id = 600; return () => [{ insertId: id++ }]; })()],
         [/INSERT INTO asset_bindings/i, [{ insertId: 700 }]],
@@ -155,8 +158,14 @@ test("primeira versão: cria ativos persistentes + bindings ANTES da ativação;
 test("nova versão do mesmo modelo: identidades reutilizadas (0 ativos novos), bindings novos apontam para os MESMOS asset_id", async () => {
     respond(routes([
         [/SELECT \* FROM assets WHERE space_id/i, [[{ id: 55, name: "Sala A" }]]],
-        [/FROM assets[\s\S]*asset_code = :tag/i, (sql: string, params: any) =>
-            [[{ id: params.tag === "EQP-1" ? 77 : 78, asset_code: params.tag, serial_number: null }]]],
+        // TAG-1 V2: a consulta de candidatos já não filtra pela Tag no SQL (não pode:
+        // UPPER() do MySQL != toUpperCase() do JavaScript). Devolve o DOMÍNIO de
+        // equipamentos e é o filtro canónico em JavaScript que escolhe — por isso o
+        // fake devolve SEMPRE as duas linhas, e cada Tag tem de acertar na sua.
+        [/FROM assets[\s\S]*asset_code IS NOT NULL/i, [[
+            { id: 77, asset_code: "EQP-1", serial_number: null, linked_model_id: 1 },
+            { id: 78, asset_code: "EQP-SEN-1", serial_number: null, linked_model_id: 1 },
+        ]]],
     ]));
     const temp = makeTempIfc();
 
@@ -173,7 +182,7 @@ test("mesma Tag com serial divergente em versão posterior: caso de reconciliaç
     inventoryPayload = INVENTORY_SERIAL_CONFLICT;
     respond(routes([
         [/SELECT \* FROM assets WHERE space_id/i, [[{ id: 55 }]]],
-        [/FROM assets[\s\S]*asset_code = :tag/i, [[{ id: 77, asset_code: "EQP-1", serial_number: "SN-VELHO" }]]],
+        [/FROM assets[\s\S]*asset_code IS NOT NULL/i, [[{ id: 77, asset_code: "EQP-1", serial_number: "SN-VELHO" }]]],
     ]));
     const temp = makeTempIfc();
 
