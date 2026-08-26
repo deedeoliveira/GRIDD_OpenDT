@@ -57,5 +57,10 @@ export async function fetchInventory(modelId: number, versionId?: number): Promi
     spaceOccurrences: Array.isArray(invPayload.spaceOccurrences) ? invPayload.spaceOccurrences : undefined,
     uncontainedProxies: invPayload.uncontainedProxies ?? [],
     schema: invPayload.schema ?? null,
+    // RZ-1: passive pass-through only. Not interpreted here for acceptance/governance;
+    // carried so a later slice (RZ-2+) can consume it without re-plumbing this bridge.
+    reservationZoneOccurrences: Array.isArray(invPayload.reservationZoneOccurrences)
+      ? invPayload.reservationZoneOccurrences
+      : undefined,
   };
 }

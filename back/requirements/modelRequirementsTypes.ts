@@ -69,6 +69,27 @@ export interface SpaceOccurrence {
     psets: Record<string, any> | null;
 }
 
+/**
+ * RZ-1 — one lossless record per IfcSpatialZone occurrence whose PredefinedType is
+ * RESERVATION, extracted by `ifcopenshell_utils.extract_reservation_zone_occurrences`
+ * (Python) into `build_inventory_payload()`'s additive `reservationZoneOccurrences`
+ * field. This is OBSERVATIONAL IFC-extraction evidence only, in this phase — a
+ * runtime-extracted candidate, not an "IDS-governed ReservationZone" and not yet the
+ * future persistent operational resource (that is RZ-2's `reservation_zone_uuid`).
+ * Nothing in RZ-1 persists this shape, interprets it for model-intake
+ * acceptance/governance, or treats it as an IfcSpace or an asset.
+ */
+export interface ReservationZoneOccurrence {
+    entityId: number | null;
+    ifcClass: "IfcSpatialZone";
+    globalId: string;
+    /** Raw IFC Name, or null when absent. Missing Name never rejects model intake in RZ-1. */
+    name: string | null;
+    predefinedType: "RESERVATION";
+    /** GlobalIds of referenced IfcSpace products (deduplicated, deterministically ordered). */
+    referencedSpaceGlobalIds: string[];
+}
+
 /** Modelo extraído pelo Python (a extração não decide nada). */
 export interface ExtractedIfcModel {
     /** guid do espaço → dados (formato do inventário por espaço; COLAPSA duplicados). */
@@ -84,6 +105,13 @@ export interface ExtractedIfcModel {
     uncontainedProxies: any[];
     /** Schema declarado no header (perfil suportado/testado: IFC4). */
     schema: string | null;
+    /**
+     * RZ-1 additive evidence field (see `ReservationZoneOccurrence`). Optional for
+     * compatibility with extraction sources that do not yet provide it (older Flask,
+     * the controlled `ifc_extract.py` CLI path). No consumer in RZ-1 reads this for
+     * acceptance/governance decisions; it is carried passively.
+     */
+    reservationZoneOccurrences?: ReservationZoneOccurrence[];
 }
 
 export interface ModelInformationRequirementsValidator {

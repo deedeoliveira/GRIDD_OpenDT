@@ -224,6 +224,82 @@ def _element_entry(el):
     }
 
 
+def _reservation_zone_occurrence(zone, model):
+    """
+    One LOSSLESS record per IfcSpatialZone occurrence whose PredefinedType is
+    RESERVATION (RZ-1). Mirrors the `_space_occurrence` philosophy: an ordered,
+    ungrouped record so malformed/duplicate GlobalId occurrences remain
+    observable — RZ-1 preserves evidence only, it does not resolve identity.
+
+    ReservationZone here is an IFC-EXTRACTION CANDIDATE, not yet the future
+    persistent operational resource (that is RZ-2's `reservation_zone_uuid`).
+    `IfcSpatialZone.Name` is a mandatory OPERATIONAL LABEL in the eventual
+    governed contract, but RZ-1 is purely observational: a missing Name is
+    extracted as `name=None` and never rejects model intake. (Future contract
+    only, NOT implemented here: a `missing_zone_name` acceptance gate belongs
+    to a later, explicitly-governed slice.)
+
+    Spatial references are collected from real `IfcRelReferencedInSpatialStructure`
+    relationships where this zone is `RelatingStructure` (NOT the unrelated
+    `IfcRelContainedInSpatialStructure`, which is a different relationship already
+    used for space->element containment). One zone may reference many IfcSpaces,
+    and one IfcSpace may be referenced by many zones (N:M) — no collapsing, no
+    exclusivity check, no DB identity logic.
+    """
+    referenced_guids = set()
+    for rel in model.by_type("IfcRelReferencedInSpatialStructure"):
+        if rel.RelatingStructure != zone:
+            continue
+        for el in rel.RelatedElements or []:
+            if el is not None and el.is_a("IfcSpace") and getattr(el, "GlobalId", None):
+                referenced_guids.add(el.GlobalId)
+
+    # Deterministic ordering: lexicographic sort after deduplication. No existing
+    # ordering convention for a set-valued relationship field was found in
+    # `_space_occurrence`/`_space_entry` (their fields are scalar or model-order
+    # lists), so lexicographic-by-GlobalId is chosen here as the simplest
+    # deterministic rule.
+    ordered_guids = sorted(referenced_guids)
+
+    predefined = getattr(zone, "PredefinedType", None)
+    return {
+        "entityId": zone.id(),
+        "ifcClass": "IfcSpatialZone",
+        "globalId": zone.GlobalId,
+        "name": getattr(zone, "Name", None),
+        "predefinedType": str(predefined) if predefined is not None else None,
+        "referencedSpaceGlobalIds": ordered_guids,
+    }
+
+
+def extract_reservation_zone_occurrences(model_or_path="source_model.ifc"):
+    """
+    Ordered, lossless list of every IfcSpatialZone occurrence whose
+    PredefinedType is RESERVATION (RZ-1 candidate filter). A candidate is
+    included only when `entity.is_a("IfcSpatialZone")` AND
+    `str(entity.PredefinedType) == "RESERVATION"`, with defensive handling of a
+    missing/None PredefinedType (never crashes). Values other than RESERVATION
+    (NOTDEFINED, USERDEFINED, any other IfcSpatialZoneTypeEnum member, or
+    None/missing) are excluded — never case-normalized, never inferred from
+    Name/ObjectType. Does NOT place zones into the IfcSpace `data`
+    dictionary/`elements`; returns a standalone occurrence list, not a dict.
+
+    Accepts either an already-open ifcopenshell model or a file path, matching
+    both call styles used elsewhere in this module.
+    """
+    model = model_or_path if hasattr(model_or_path, "by_type") else ifcopenshell.open(model_or_path)
+
+    occurrences = []
+    for zone in model.by_type("IfcSpatialZone"):
+        predefined = getattr(zone, "PredefinedType", None)
+        if predefined is None:
+            continue
+        if str(predefined) != "RESERVATION":
+            continue
+        occurrences.append(_reservation_zone_occurrence(zone, model))
+    return occurrences
+
+
 def build_inventory_payload(file_path="source_model.ifc"):
     """
     Build the EXACT body of the ordinary `/api/model/inventory/<modelId>` response
@@ -238,11 +314,19 @@ def build_inventory_payload(file_path="source_model.ifc"):
                                each carrying its own `entityId` and `storeyName`, so two
                                IfcSpace instances sharing one exact GlobalId are BOTH kept;
       - `schema`             — declared IFC schema;
-      - `uncontainedProxies` — proxies outside any IfcSpace (PROXY-* rules).
+      - `uncontainedProxies` — proxies outside any IfcSpace (PROXY-* rules);
+      - `reservationZoneOccurrences` — ordered LOSSLESS list of IfcSpatialZone
+                               occurrences with PredefinedType=RESERVATION (RZ-1).
+                               ADDITIVE ONLY: OBSERVATIONAL evidence, never consumed
+                               by model-intake acceptance/governance in RZ-1. Always
+                               an array (`[]` when the model has no ReservationZone),
+                               never missing/null, so existing consumers that
+                               ignore unknown fields are unaffected.
     """
     inventory = extract_inventory_by_space(file_path)
     occurrences = extract_space_occurrences(file_path)
     context = extract_model_context(file_path)
+    reservation_zone_occurrences = extract_reservation_zone_occurrences(file_path)
     return {
         "status": "success",
         "data": inventory,
@@ -251,6 +335,7 @@ def build_inventory_payload(file_path="source_model.ifc"):
         "schemaClassification": context["schemaClassification"],
         "schemaSupported": context["schemaSupported"],
         "uncontainedProxies": context["uncontainedProxies"],
+        "reservationZoneOccurrences": reservation_zone_occurrences,
         "ok": True,
     }
 

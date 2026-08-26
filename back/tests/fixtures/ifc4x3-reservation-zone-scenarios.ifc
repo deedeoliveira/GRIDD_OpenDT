@@ -1,0 +1,63 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition [CoordinationView]'),'2;1');
+FILE_NAME('','2026-08-25T00:00:00',(''),(''),'OSWADT RZ-1 synthetic fixture','OSWADT RZ-1 synthetic fixture','');
+FILE_SCHEMA(('IFC4X3_ADD2'));
+ENDSEC;
+DATA;
+/* Synthetic fixture for RZ-1 (IfcSpatialZone extraction). Entirely fabricated
+   minimal geometry-free entities; does NOT validate any institutional policy,
+   only the mechanics of RESERVATION-typed IfcSpatialZone extraction and
+   IfcRelReferencedInSpatialStructure traversal. */
+#1=IFCPROJECT('1Rz1PrjN163O$EcYgCv6db',$,'RZ1Test',$,$,$,$,$,#3);
+#2=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);
+#3=IFCUNITASSIGNMENT((#2));
+#4=IFCSITE('2Rz1SiteZ4f1jOiQ0nkiP4',$,'S',$,$,$,$,$,.ELEMENT.,$,$,$,$,$);
+#5=IFCBUILDING('02Rz1BldPb0N9CZeJ5APj8',$,'B',$,$,$,$,$,.ELEMENT.,$,$,$);
+#6=IFCBUILDINGSTOREY('1Rz1Stouyr6KOkTXdkLr35',$,'Level 0',$,$,$,$,$,.ELEMENT.,$);
+#7=IFCRELAGGREGATES('2Rz1AggH690vw_pEd8m2w9',$,$,$,#1,(#4));
+#8=IFCRELAGGREGATES('1Rz1AggzKv209nGFPbHGsp',$,$,$,#4,(#5));
+#9=IFCRELAGGREGATES('32Rz1AggD5nudr1EAK0DCZ',$,$,$,#5,(#6));
+
+/* Official IfcSpace occurrences (S1, S2). */
+#10=IFCSPACE('RZ1SPACE0000000000001',$,'T-101',$,$,$,$,'RZ-1 Space 101',.ELEMENT.,$,$);
+#11=IFCSPACE('RZ1SPACE0000000000002',$,'T-102',$,$,$,$,'RZ-1 Space 102',.ELEMENT.,$,$);
+#12=IFCRELAGGREGATES('2Rz1AggDPeugbNUj7iiDJx',$,$,$,#6,(#10,#11));
+
+/* A non-space element, referenced by a zone to prove non-IfcSpace RelatedElements are ignored. */
+#13=IFCBUILDINGELEMENTPROXY('RZ1PROXY000000000001',$,'P-1',$,$,$,$,$,$);
+
+/* IfcSpatialZone candidates. */
+/* Z1: RESERVATION, Name present -> referenced by scenario A (one space) and B (multi-space, via #21+#22). */
+#20=IFCSPATIALZONE('RZ1ZONE0000000000001',$,'Z-101',$,$,$,$,$,.RESERVATION.);
+/* Z2: RESERVATION, Name present -> shares S1 with Z1 (scenario C, many-zones/one-space). */
+#21=IFCSPATIALZONE('RZ1ZONE0000000000002',$,'Z-102',$,$,$,$,$,.RESERVATION.);
+/* Z3: wrong PredefinedType (THERMAL) -> excluded (scenario D). */
+#22=IFCSPATIALZONE('RZ1ZONE0000000000003',$,'Z-103',$,$,$,$,$,.THERMAL.);
+/* Z4: RESERVATION, Name missing ($) -> included with name=null (scenario E). */
+#23=IFCSPATIALZONE('RZ1ZONE0000000000004',$,$,$,$,$,$,$,.RESERVATION.);
+/* Z5: RESERVATION, Name present, zero qualifying space references -> included with [] (scenario F). */
+#24=IFCSPATIALZONE('RZ1ZONE0000000000005',$,'Z-105',$,$,$,$,$,.RESERVATION.);
+/* Z6: NOTDEFINED -> excluded. */
+#25=IFCSPATIALZONE('RZ1ZONE0000000000006',$,'Z-106',$,$,$,$,$,.NOTDEFINED.);
+/* Z7: USERDEFINED -> excluded. */
+#26=IFCSPATIALZONE('RZ1ZONE0000000000007',$,'Z-107',$,$,$,$,$,.USERDEFINED.);
+
+/* Z1 -> S1 (row 1) and Z1 -> S2 (row 2, a second relationship row for the SAME zone,
+   proving multi-row union) plus Z1 -> non-space proxy (row 3, proving non-IfcSpace
+   RelatedElements are ignored) plus a duplicate Z1 -> S1 row (row 4, proving GlobalId
+   dedup across relationship rows). */
+#30=IFCRELREFERENCEDINSPATIALSTRUCTURE('RZ1REL00000000000001',$,$,$,(#10),#20);
+#31=IFCRELREFERENCEDINSPATIALSTRUCTURE('RZ1REL00000000000002',$,$,$,(#11),#20);
+#32=IFCRELREFERENCEDINSPATIALSTRUCTURE('RZ1REL00000000000003',$,$,$,(#13),#20);
+#33=IFCRELREFERENCEDINSPATIALSTRUCTURE('RZ1REL00000000000004',$,$,$,(#10),#20);
+
+/* Z2 -> S1 (shares S1 with Z1: many-zones/one-space, scenario C). */
+#34=IFCRELREFERENCEDINSPATIALSTRUCTURE('RZ1REL00000000000005',$,$,$,(#10),#21);
+
+/* Z4 (missing name) -> S1, so scenario E also proves references still extracted normally. */
+#35=IFCRELREFERENCEDINSPATIALSTRUCTURE('RZ1REL00000000000006',$,$,$,(#10),#23);
+
+/* Z5 has no IfcRelReferencedInSpatialStructure row at all -> zero references (scenario F). */
+ENDSEC;
+END-ISO-10303-21;
