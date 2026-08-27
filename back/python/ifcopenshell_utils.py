@@ -326,7 +326,15 @@ def build_inventory_payload(file_path="source_model.ifc"):
     inventory = extract_inventory_by_space(file_path)
     occurrences = extract_space_occurrences(file_path)
     context = extract_model_context(file_path)
-    reservation_zone_occurrences = extract_reservation_zone_occurrences(file_path)
+    # `extract_reservation_zone_occurrences` calls `by_type("IfcSpatialZone")`,
+    # an entity that does not exist outside the IFC4x3 family (e.g. IFC2X3).
+    # Guard on the already-computed schema classification so an unsupported
+    # schema reaches the existing schema gate instead of crashing here — the
+    # same technique already applied to the controlled CLI path (RZ-2A0).
+    if is_supported_ifc4x3_schema(context["schema"]):
+        reservation_zone_occurrences = extract_reservation_zone_occurrences(file_path)
+    else:
+        reservation_zone_occurrences = []
     return {
         "status": "success",
         "data": inventory,
